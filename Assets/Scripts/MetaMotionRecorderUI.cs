@@ -1,5 +1,8 @@
+using Oculus.Interaction;
+using Oculus.Interaction.Surfaces;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
@@ -11,10 +14,15 @@ using UnityEngine.UI;
 /// </summary>
 public sealed class MetaMotionRecorderUI : MonoBehaviour
 {
+    private const string PokeInteractionName = "ISDK_PokeCanvasInteraction";
+
     [Header("Recorder")]
 
     [SerializeField]
     private MetaBodyMotionRecorder recorder;
+
+    [SerializeField]
+    private MetaBodyMotionStreamer motionStreamer;
 
     [Header("UI")]
 
@@ -33,6 +41,7 @@ public sealed class MetaMotionRecorderUI : MonoBehaviour
     private bool enableControllerShortcuts = true;
 
     private bool previousRecordingState;
+    private float nextStatusRefreshTime;
 
     private void Awake()
     {
@@ -44,6 +53,14 @@ public sealed class MetaMotionRecorderUI : MonoBehaviour
             enabled = false;
             return;
         }
+
+        if (motionStreamer == null)
+        {
+            motionStreamer =
+                FindAnyObjectByType<MetaBodyMotionStreamer>();
+        }
+
+        EnsurePokeInteraction();
 
         if (startButton != null)
         {
@@ -57,6 +74,125 @@ public sealed class MetaMotionRecorderUI : MonoBehaviour
 
         previousRecordingState = recorder.IsRecording;
         RefreshUI();
+    }
+
+    /// <summary>
+    /// Makes this world-space UGUI canvas directly touchable by the Meta hand
+    /// poke interactors that are already present in the scene.
+    /// </summary>
+    private void EnsurePokeInteraction()
+    {
+        Canvas canvas = GetComponent<Canvas>();
+        RectTransform canvasRect = transform as RectTransform;
+
+        if (canvas == null || canvasRect == null)
+        {
+            Debug.LogError(
+                "[MetaMotionRecorderUI] A Canvas and RectTransform are required."
+            );
+            return;
+        }
+
+        canvas.renderMode = RenderMode.WorldSpace;
+
+        PointableCanvasModule canvasModule =
+            FindAnyObjectByType<PointableCanvasModule>();
+
+        if (canvasModule == null)
+        {
+            EventSystem eventSystem =
+                FindAnyObjectByType<EventSystem>();
+
+            if (eventSystem == null)
+            {
+                GameObject eventSystemObject =
+                    new GameObject("PointableCanvasEventSystem");
+
+                eventSystem =
+                    eventSystemObject.AddComponent<EventSystem>();
+            }
+
+            canvasModule =
+                eventSystem.gameObject.AddComponent<PointableCanvasModule>();
+
+            // The Meta module must own the EventSystem so poke events are
+            // processed instead of being shadowed by the desktop input module.
+            canvasModule.ExclusiveMode = true;
+        }
+
+        if (transform.Find(PokeInteractionName) != null)
+        {
+            return;
+        }
+
+        GameObject interactionObject =
+            new GameObject(PokeInteractionName, typeof(RectTransform));
+
+        interactionObject.SetActive(false);
+        interactionObject.layer = gameObject.layer;
+
+        RectTransform interactionRect =
+            interactionObject.GetComponent<RectTransform>();
+
+        interactionRect.SetParent(transform, false);
+        StretchToParent(interactionRect);
+
+        PointableCanvas pointableCanvas =
+            interactionObject.AddComponent<PointableCanvas>();
+
+        pointableCanvas.InjectCanvas(canvas);
+
+        GameObject surfaceObject =
+            new GameObject("Surface", typeof(RectTransform));
+
+        surfaceObject.layer = gameObject.layer;
+
+        RectTransform surfaceRect =
+            surfaceObject.GetComponent<RectTransform>();
+
+        surfaceRect.SetParent(interactionRect, false);
+        StretchToParent(surfaceRect);
+
+        PlaneSurface planeSurface =
+            surfaceObject.AddComponent<PlaneSurface>();
+
+        planeSurface.Facing = PlaneSurface.NormalFacing.Backward;
+
+        BoundsClipper boundsClipper =
+            surfaceObject.AddComponent<BoundsClipper>();
+
+        boundsClipper.Size = new Vector3(
+            canvasRect.rect.width,
+            canvasRect.rect.height,
+            0.01f
+        );
+
+        ClippedPlaneSurface clippedSurface =
+            surfaceObject.AddComponent<ClippedPlaneSurface>();
+
+        clippedSurface.InjectAllClippedPlaneSurface(
+            planeSurface,
+            new[] { boundsClipper }
+        );
+
+        PokeInteractable pokeInteractable =
+            interactionObject.AddComponent<PokeInteractable>();
+
+        pokeInteractable.InjectAllPokeInteractable(clippedSurface);
+        pokeInteractable.InjectOptionalPointableElement(pointableCanvas);
+
+        interactionObject.SetActive(true);
+    }
+
+    private static void StretchToParent(RectTransform rectTransform)
+    {
+        rectTransform.anchorMin = Vector2.zero;
+        rectTransform.anchorMax = Vector2.one;
+        rectTransform.pivot = new Vector2(0.5f, 0.5f);
+        rectTransform.anchoredPosition = Vector2.zero;
+        rectTransform.sizeDelta = Vector2.zero;
+        rectTransform.localRotation = Quaternion.identity;
+        rectTransform.localScale = Vector3.one;
     }
 
     private void Update()
@@ -82,11 +218,10 @@ public sealed class MetaMotionRecorderUI : MonoBehaviour
             RefreshUI();
         }
 
-        // While recording, continuously update frame counter.
-        if (recorder.IsRecording && statusText != null)
+        if (Time.unscaledTime >= nextStatusRefreshTime)
         {
-            statusText.text =
-                $"Recording...\n{recorder.SampleCount} frames";
+            RefreshStatusText();
+            nextStatusRefreshTime = Time.unscaledTime + 0.25f;
         }
     }
 
@@ -128,23 +263,39 @@ public sealed class MetaMotionRecorderUI : MonoBehaviour
 
         if (statusText != null)
         {
-            if (isRecording)
-            {
-                statusText.text =
-                    $"Recording...\n{recorder.SampleCount} frames";
-            }
-            else if (recorder.SampleCount > 0)
-            {
-                statusText.text =
-                    $"Saved\n{recorder.SampleCount} frames";
-            }
-            else
-            {
-                statusText.text = "Ready";
-            }
+            RefreshStatusText();
         }
 
         previousRecordingState = isRecording;
+    }
+
+    private void RefreshStatusText()
+    {
+        if (statusText == null)
+        {
+            return;
+        }
+
+        string recordingStatus;
+
+        if (recorder.IsRecording)
+        {
+            recordingStatus =
+                $"Recording... {recorder.SampleCount} frames";
+        }
+        else if (recorder.SampleCount > 0)
+        {
+            recordingStatus =
+                $"Saved {recorder.SampleCount} frames";
+        }
+        else
+        {
+            recordingStatus = "Ready";
+        }
+
+        statusText.text = motionStreamer != null
+            ? recordingStatus + "\n" + motionStreamer.ShortDebugStatus
+            : recordingStatus + "\nUDP component missing";
     }
 
     private void OnDestroy()

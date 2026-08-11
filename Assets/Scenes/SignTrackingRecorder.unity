@@ -265,6 +265,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: BodyTrackingCalibrationMenu
       objectReference: {fileID: 0}
+    - target: {fileID: 8443568635789723409, guid: c723fc2e86185ec498c4ae6e14c45cd9, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8443568635789723411, guid: c723fc2e86185ec498c4ae6e14c45cd9, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
       value: 15
@@ -280,13 +284,7 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 3490598539491735239, guid: c723fc2e86185ec498c4ae6e14c45cd9, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 8599532882924140215, guid: c723fc2e86185ec498c4ae6e14c45cd9, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: c723fc2e86185ec498c4ae6e14c45cd9, type: 3}
 --- !u!4 &7763546 stripped
 Transform:
@@ -501,18 +499,18 @@ RectTransform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 41713132}
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 1.2}
+  m_LocalPosition: {x: 0, y: 0, z: 0.45}
   m_LocalScale: {x: 0.0015, y: 0.0015, z: 0.0015}
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 837726419}
   - {fileID: 1502812918}
   - {fileID: 1843767083}
-  m_Father: {fileID: 747421260}
+  m_Father: {fileID: 1304375840}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: -0.25}
+  m_AnchoredPosition: {x: 0.72, y: 1.218}
   m_SizeDelta: {x: 600, y: 260}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &41713134
@@ -592,6 +590,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::MetaMotionRecorderUI
   recorder: {fileID: 1755557994}
+  motionStreamer: {fileID: 1755557995}
   startButton: {fileID: 1502812919}
   stopButton: {fileID: 1843767084}
   statusText: {fileID: 837726420}
@@ -4151,8 +4150,7 @@ Transform:
   m_LocalPosition: {x: 0, y: 0, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 41713133}
+  m_Children: []
   m_Father: {fileID: 2018865930}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!20 &747421261
@@ -4833,8 +4831,8 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 180.39, y: 0}
-  m_SizeDelta: {x: 560.79, y: 50}
+  m_AnchoredPosition: {x: 180.39, y: -138.98}
+  m_SizeDelta: {x: 560.79, y: 154.56}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &837726420
 MonoBehaviour:
@@ -7839,6 +7837,7 @@ Transform:
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
+  - {fileID: 41713133}
   - {fileID: 1993681412}
   - {fileID: 1881037539}
   - {fileID: 4563516835743382051}
@@ -9192,6 +9191,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: CharacterSpawnMenu
       objectReference: {fileID: 0}
+    - target: {fileID: 4755192900336154932, guid: 8927ceeb08d3b2543babf177db8ea1f2, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 4755192900336154934, guid: 8927ceeb08d3b2543babf177db8ea1f2, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
       value: 15
@@ -9211,16 +9214,7 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 7003979803152782586, guid: 8927ceeb08d3b2543babf177db8ea1f2, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 8912811328006665001, guid: 8927ceeb08d3b2543babf177db8ea1f2, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 4145543609926850580, guid: 8927ceeb08d3b2543babf177db8ea1f2, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 8927ceeb08d3b2543babf177db8ea1f2, type: 3}
 --- !u!4 &1505739681 stripped
 Transform:
@@ -11143,6 +11137,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1755557993}
   - component: {fileID: 1755557994}
+  - component: {fileID: 1755557995}
   m_Layer: 0
   m_Name: MotionRecorder
   m_TagString: Untagged
@@ -11180,8 +11175,28 @@ MonoBehaviour:
   sourceDataProvider: {fileID: 1538582923}
   recordAutomatically: 0
   startDelaySeconds: 3
-  recordingDurationSeconds: 10
+  recordingDurationSeconds: 30
   sampleRate: 30
+--- !u!114 &1755557995
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1755557992}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c7e28488d07a4b64a7ef8a27a9fe2a31, type: 3}
+  m_Name:
+  m_EditorClassIdentifier: Assembly-CSharp::MetaBodyMotionStreamer
+  sourceDataProvider: {fileID: 1538582923}
+  streamAutomatically: 1
+  remoteHost: 10.19.127.10
+  remotePort: 5005
+  streamRate: 30
+  metadataIntervalSeconds: 2
+  debugLogging: 1
+  debugLogIntervalSeconds: 5
 --- !u!1 &1755846084
 GameObject:
   m_ObjectHideFlags: 0
@@ -11521,6 +11536,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: BodyTrackingFidelityMenu
       objectReference: {fileID: 0}
+    - target: {fileID: 7362976725013471434, guid: 0737e3f63e17bac45b774695173860d1, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8065955003302514907, guid: 0737e3f63e17bac45b774695173860d1, type: 3}
       propertyPath: 'm_ActiveFontFeatures.Array.data[0]'
       value: 1801810542
@@ -11528,10 +11547,7 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 1309599292130583252, guid: 0737e3f63e17bac45b774695173860d1, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 0737e3f63e17bac45b774695173860d1, type: 3}
 --- !u!4 &1798550080 stripped
 Transform:
@@ -12099,13 +12115,14 @@ PrefabInstance:
       propertyPath: m_Name
       value: AnimationMenu
       objectReference: {fileID: 0}
+    - target: {fileID: 4563516835585250315, guid: dd042bb7a7e67464c8a82b2c0a32c07c, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 4854433169845440955, guid: dd042bb7a7e67464c8a82b2c0a32c07c, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: dd042bb7a7e67464c8a82b2c0a32c07c, type: 3}
 --- !u!4 &1881037539 stripped
 Transform:
@@ -12595,6 +12612,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: SceneSelectMenu
       objectReference: {fileID: 0}
+    - target: {fileID: 8658488230205805792, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8658488230205805794, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
       value: 15
@@ -12610,31 +12631,7 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 692893700273227866, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 6891128577181347748, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 3155700818028040614, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 5513798811861744664, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 6270785802562276290, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 7900374807858456000, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 7318200754736735173, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
-    - targetCorrespondingSourceObject: {fileID: 8132985355333327063, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: d13bc4c12718d2a4f9222b0d93dd09f0, type: 3}
 --- !u!4 &1993681412 stripped
 Transform:
@@ -13934,6 +13931,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: BodyTrackingJointMenu
       objectReference: {fileID: 0}
+    - target: {fileID: 960496711834398266, guid: 1ae7b04c503f51c48ad2f60c89da8f0b, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 2953936122894631947, guid: 1ae7b04c503f51c48ad2f60c89da8f0b, type: 3}
       propertyPath: m_LocalEulerAnglesHint.x
       value: 15
@@ -13981,10 +13982,7 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 3535060740980127988, guid: 1ae7b04c503f51c48ad2f60c89da8f0b, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 1ae7b04c503f51c48ad2f60c89da8f0b, type: 3}
 --- !u!1001 &3793612932431663493
 PrefabInstance:
@@ -14910,6 +14908,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: CharacterSwapMenu
       objectReference: {fileID: 0}
+    - target: {fileID: 6341982860039525039, guid: 817b9eb0478b6a047a01cf5f1ba7f8a6, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 6581956896597443536, guid: 817b9eb0478b6a047a01cf5f1ba7f8a6, type: 3}
       propertyPath: 'm_ActiveFontFeatures.Array.data[0]'
       value: 1801810542
@@ -14941,10 +14943,7 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 2777428106467996127, guid: 817b9eb0478b6a047a01cf5f1ba7f8a6, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 0}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 817b9eb0478b6a047a01cf5f1ba7f8a6, type: 3}
 --- !u!4 &8443568635008193949 stripped
 Transform:
