@@ -32,3 +32,6 @@ Thumbs.db
 
 # Crash reports
 sysinfo.txt
+
+# Unity Android native build cache
+.utmp/
