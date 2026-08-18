@@ -90,6 +90,8 @@ namespace SignVR.EditorTools
             serialized.FindProperty("coordinator").objectReferenceValue = coordinator;
             serialized.FindProperty("ovrManager").objectReferenceValue = ovrManager;
             serialized.FindProperty("hmdCamera").objectReferenceValue = centerEye;
+            serialized.FindProperty("passthroughLayer").objectReferenceValue =
+                EnsurePassthroughLayer(ovrManager);
 
             // Everything under Environment disappears except the desk and its
             // touchscreen: those carry the button that brings the room back.
@@ -121,6 +123,39 @@ namespace SignVR.EditorTools
             FillList(serialized, "virtualCharacters", characters);
             FillList(serialized, "keepVisible", keep);
             serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>
+        /// Places the Underlay layer in the scene ahead of time, disabled. Adding
+        /// it at runtime is unreliable, and leaving it enabled would blend the whole
+        /// frame from startup and wash out the HMD UI.
+        /// </summary>
+        private static OVRPassthroughLayer EnsurePassthroughLayer(OVRManager ovrManager)
+        {
+            if (ovrManager == null)
+            {
+                Debug.LogError("[SignVRAssistControlsSetup] OVRManager not found.");
+                return null;
+            }
+
+            var layer = ovrManager.GetComponent<OVRPassthroughLayer>();
+            if (layer == null)
+            {
+                layer = ovrManager.gameObject.AddComponent<OVRPassthroughLayer>();
+            }
+
+            var serialized = new SerializedObject(layer);
+            SerializedProperty overlayType = serialized.FindProperty("projectionSurfaceType");
+            if (overlayType != null)
+            {
+                overlayType.enumValueIndex = 0; // Reconstructed
+            }
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+
+            layer.overlayType = OVROverlay.OverlayType.Underlay;
+            layer.enabled = false;
+            EditorUtility.SetDirty(layer);
+            return layer;
         }
 
         private static void WireHelp(
@@ -226,7 +261,7 @@ namespace SignVR.EditorTools
                 glow = glowObject.AddComponent<RecordingBoundaryGlow>();
             }
 
-            glow.color = new Color(1f, 0.16f, 0.12f, 0.85f);
+            glow.color = new Color(1f, 0.13f, 0.10f, 1f);
             glow.raycastTarget = false;
             glowObject.SetActive(false);
             return glow;

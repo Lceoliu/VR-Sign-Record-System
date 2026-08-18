@@ -18,16 +18,49 @@ namespace SignVR.Recording
     {
         [SerializeField]
         [Min(4f)]
-        private float bandThickness = 90f;
+        private float bandThickness = 190f;
 
         [SerializeField]
         [Range(1, 12)]
-        private int gradientSteps = 6;
+        private int gradientSteps = 8;
+
+        [Tooltip("最外侧一圈的不透明度下限，避免提示被暖色场景淹没。")]
+        [SerializeField]
+        [Range(0.2f, 1f)]
+        private float minEdgeOpacity = 0.55f;
+
+        [Tooltip("脉动频率。周边视觉对运动远比对静态色块敏感，脉动能显著提高余光可察觉性。")]
+        [SerializeField]
+        [Range(0f, 4f)]
+        private float pulseHz = 1.6f;
+
+        [SerializeField]
+        [Range(0f, 0.6f)]
+        private float pulseDepth = 0.35f;
 
         private float left;
         private float right;
         private float up;
         private float down;
+
+        private void Update()
+        {
+            if (pulseHz > 0f && HasAnyGlow)
+            {
+                SetVerticesDirty();
+            }
+        }
+
+        private float PulseScale()
+        {
+            if (pulseHz <= 0f)
+            {
+                return 1f;
+            }
+
+            float wave = (Mathf.Sin(Time.unscaledTime * pulseHz * Mathf.PI * 2f) + 1f) * 0.5f;
+            return 1f - pulseDepth + wave * pulseDepth;
+        }
 
         /// <summary>Sets edge intensities in 0..1 (left, right, up, down).</summary>
         public void SetIntensities(float leftEdge, float rightEdge, float upEdge, float downEdge)
@@ -81,13 +114,19 @@ namespace SignVR.Recording
                 return;
             }
 
+            float pulse = PulseScale();
+
             // Stack thin slices whose alpha decays inward, approximating a soft
-            // gradient without needing a texture or a custom shader.
+            // gradient without needing a texture or a custom shader. The outermost
+            // slice keeps a floor so the warning stays legible against the warm
+            // wood-and-beige room instead of washing out into it.
             for (int step = 0; step < gradientSteps; step++)
             {
                 float inner = step / (float)gradientSteps;
                 float outer = (step + 1) / (float)gradientSteps;
-                float sliceAlpha = intensity * (1f - inner) * (1f - inner);
+                float falloff = Mathf.Lerp(1f, (1f - inner) * (1f - inner), inner);
+                float sliceAlpha = intensity * pulse *
+                    Mathf.Max(falloff, step == 0 ? minEdgeOpacity : 0f);
                 if (sliceAlpha <= 0.001f)
                 {
                     continue;

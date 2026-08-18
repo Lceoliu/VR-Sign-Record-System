@@ -352,7 +352,15 @@ namespace SignVR.Recording
             if (!sample.tracked)
             {
                 // A lost hand cannot be localised, so warn on every edge at once.
-                float lost = 0.7f;
+                // Outside a take the teacher is usually just resting their arms, so
+                // the glow stays off there and only the text line mentions it.
+                if (coordinator.State != RecordingFlowState.Recording &&
+                    coordinator.State != RecordingFlowState.Countdown)
+                {
+                    return;
+                }
+
+                const float lost = 0.85f;
                 glowLeft = Mathf.Max(glowLeft, lost);
                 glowRight = Mathf.Max(glowRight, lost);
                 glowUp = Mathf.Max(glowUp, lost);

@@ -22,6 +22,10 @@ namespace SignVR.Recording
         [SerializeField]
         private Camera hmdCamera;
 
+        [Tooltip("场景预置的 Underlay 层，默认禁用；运行时切换启用，不在运行时 AddComponent。")]
+        [SerializeField]
+        private OVRPassthroughLayer passthroughLayer;
+
         [Header("Hidden while passthrough is on")]
         [Tooltip("房间、地面、灯光道具等虚拟环境；进入透视时整体隐藏。")]
         [SerializeField]
@@ -36,7 +40,6 @@ namespace SignVR.Recording
         [SerializeField]
         private List<GameObject> keepVisible = new();
 
-        private OVRPassthroughLayer passthroughLayer;
         private CameraClearFlags cachedClearFlags;
         private Color cachedBackgroundColor;
         private Material cachedSkybox;
@@ -103,32 +106,32 @@ namespace SignVR.Recording
                 passthroughLayer.enabled = active;
             }
 
+            if (!active && ovrManager != null)
+            {
+                // Turn the global flag back off, otherwise the compositor keeps
+                // blending and the UI stays washed out after returning to the room.
+                ovrManager.isInsightPassthroughEnabled = false;
+            }
+
             // Passthrough doubles as the pause affordance: no take may start while
             // the teacher is looking at the real room.
             coordinator.SetPaused(active);
         }
 
+        /// <summary>
+        /// Passthrough is left off at startup: switching it on globally makes the
+        /// compositor alpha-blend the whole frame, which washes out the HMD UI.
+        /// It is turned on only for the duration of the passthrough break.
+        /// </summary>
         private bool TryEnablePassthroughLayer()
         {
-            if (ovrManager == null)
+            if (ovrManager == null || passthroughLayer == null)
             {
                 return false;
             }
 
             ovrManager.isInsightPassthroughEnabled = true;
-
-            if (passthroughLayer == null)
-            {
-                passthroughLayer = ovrManager.GetComponent<OVRPassthroughLayer>();
-                if (passthroughLayer == null)
-                {
-                    passthroughLayer =
-                        ovrManager.gameObject.AddComponent<OVRPassthroughLayer>();
-                }
-
-                passthroughLayer.overlayType = OVROverlay.OverlayType.Underlay;
-            }
-
+            passthroughLayer.overlayType = OVROverlay.OverlayType.Underlay;
             return true;
         }
 
