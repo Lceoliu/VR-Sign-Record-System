@@ -55,7 +55,9 @@ Quest 和主机必须位于同一可信局域网。Windows 主机需要允许 Py
 文件保存在：
 
 ```text
-data/recordings/{session_id}/{sentence_id}/{take_id}/
+data/recordings/{batch_id}/{round_id}/
+  round.json
+  {sentence_id}/{take_id}/
   {take_id}.pose.jsonl
   {take_id}.meta.json
   {take_id}.camera.webm
@@ -63,13 +65,19 @@ data/recordings/{session_id}/{sentence_id}/{take_id}/
 
 Quest 在上传成功前始终保留 `Application.persistentDataPath/Recordings` 中的本地 Pose/Meta；成功后写入 `.uploaded` 标记。重新配对时会继续上传未标记文件。
 
+每次开始录制前，网页必须打开批次并选择轮次。每个轮次独立保存 300 句的当前位置和完成进度，可随时切换后继续；后端从当前轮次与句子的磁盘目录中原子预留下一个新的 `take_NNN`，并拒绝覆盖已经存在的 Pose、Meta 或相机文件。同一个 Take 的 Pose、Meta 和相机视频全部到齐后，该句自动标记完成。
+
+固定语料位于 `backend/app/sentence_catalog.json`，编号顺序为 `social 001–100`、`collaborate 101–180`、`spatial 181–220`、`question 221–250`、`stress 251–300`。
+
 ## 默认录制流程
 
-1. 网页扫描并选择 Quest。
-2. 网页选择一台外置相机并导入 UTF-8 逐行句子文本。
-3. 短按空格开始 2 秒倒计时，再同步启动浏览器视频和 Quest Pose。
-4. 再短按空格结束，浏览器上传 WebM，Quest 上传 Pose/Meta。
-5. 任意状态下长按空格 1.2 秒会显示进度并重置当前句；已经产生的 Take 保留为候选。
+1. 网页打开录制批次目录，选择已有轮次或新建下一个 `round_NNN`。
+2. 网页扫描并选择 Quest。
+3. 网页选择一台外置相机；固定的 300 句语料会自动载入。
+4. 短按空格开始 2 秒倒计时，再同步启动浏览器视频和 Quest Pose。
+5. 再短按空格结束并前进到下一句，浏览器上传 WebM，Quest 上传 Pose/Meta。
+6. 任意状态下长按空格 1.2 秒会显示进度并重置当前句；已经产生的 Take 保留为候选。
+7. 可按编号跳转、点击任意句、筛选完成状态或直接前往下一条未完成句；切换轮次时各自进度互不影响。
 
 ## 开发检查
 

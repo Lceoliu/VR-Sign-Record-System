@@ -32,8 +32,11 @@ class DeviceInfo(BaseModel):
 class SentenceItem(BaseModel):
     sentence_id: str
     index: int
+    category: str
     text: str
     status: Literal["completed", "current", "pending"] = "pending"
+    completed: bool = False
+    take_count: int = 0
 
 
 class TakeQuality(BaseModel):
@@ -60,7 +63,9 @@ class TakeItem(BaseModel):
 
 class HostState(BaseModel):
     service_online: bool = True
-    session_id: str
+    session_id: str = ""
+    batch_id: str | None = None
+    round_id: str | None = None
     recording_status: RecordingStatus
     selected_device_id: str | None = None
     current_sentence_index: int
@@ -75,8 +80,28 @@ class HostState(BaseModel):
     help_requested: bool = False
 
 
-class SentenceImportRequest(BaseModel):
-    sentences: list[str] = Field(min_length=1)
+class RoundInfo(BaseModel):
+    batch_id: str
+    round_id: str
+    session_id: str
+    current_sentence_index: int
+    completed_sentences: int
+    total_sentences: int
+    created_at_unix_ms: int
+    updated_at_unix_ms: int
+
+
+class RoundCreateRequest(BaseModel):
+    round_id: str = Field(min_length=1, max_length=80)
+
+
+class SentenceSelectRequest(BaseModel):
+    sentence_index: int = Field(ge=0)
+
+
+class StartRecordingRequest(BaseModel):
+    batch_id: str = Field(min_length=1, max_length=80)
+    round_id: str = Field(min_length=1, max_length=80)
 
 
 class DeviceSelectResponse(BaseModel):
@@ -94,4 +119,3 @@ class RecordingCommandResponse(BaseModel):
 class EventMessage(BaseModel):
     type: str
     payload: dict[str, Any] = Field(default_factory=dict)
-

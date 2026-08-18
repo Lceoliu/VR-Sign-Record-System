@@ -9,7 +9,12 @@ from app.main import create_app
 
 
 def build_app(tmp_path):
-    settings = Settings(data_root=tmp_path, http_port=8000, udp_port=5005, quest_control_port=5006)
+    settings = Settings(
+        data_root=tmp_path,
+        http_port=8000,
+        udp_port=5005,
+        quest_control_port=5006,
+    )
     return create_app(settings=settings, start_udp=False)
 
 
@@ -31,37 +36,78 @@ def register_and_select(client: TestClient, app) -> tuple[str, str]:
         )
     response = client.post(f"/api/devices/{device_id}/select")
     assert response.status_code == 200
-    import anyio
-
     record = app.state.registry._devices[device_id]
     return device_id, record.session_token
 
 
-def test_health_and_initial_state(tmp_path):
+def create_round(
+    client: TestClient,
+    batch_id: str = "测试批次",
+    round_id: str = "round_001",
+) -> dict:
+    response = client.post(
+        f"/api/recording/batches/{batch_id}/rounds",
+        json={"round_id": round_id},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_health_and_fixed_sentence_catalog(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
         assert client.get("/api/health").json()["status"] == "ok"
         state = client.get("/api/state").json()
-        assert state["recording_status"] == "ready"
-        assert state["countdown_seconds"] == 2.0
+
+    assert state["recording_status"] == "ready"
+    assert state["countdown_seconds"] == 2.0
+    assert state["batch_id"] is None
+    assert len(state["sentences"]) == 300
+    assert len({sentence["text"] for sentence in state["sentences"]}) == 300
+    assert state["sentences"][0]["text"] == "你叫什么名字？"
+    assert state["sentences"][99]["category"] == "social"
+    assert state["sentences"][100]["text"] == "你先打开门，我去找钥匙。"
+    assert state["sentences"][299]["category"] == "stress"
+    assert not any(sentence["text"].startswith("大纲") for sentence in state["sentences"])
 
 
 def test_recording_commands_require_selected_device(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
-        response = client.post("/api/recording/start")
+        create_round(client)
+        response = client.post(
+            "/api/recording/start",
+            json={"batch_id": "测试批次", "round_id": "round_001"},
+        )
         assert response.status_code == 409
 
 
-def test_preview_and_take_upload(tmp_path):
+def test_nested_round_recording_upload_and_completion(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
         device_id, token = register_and_select(client, app)
-        start = client.post("/api/recording/start")
+        created = create_round(client)
+        session_id = created["session_id"]
+        assert session_id.startswith("session_")
+        assert session_id != "测试批次"
+
+        batches = client.get("/api/recording/batches")
+        assert batches.status_code == 200
+        assert batches.json()["batches"] == ["测试批次"]
+
+        start = client.post(
+            "/api/recording/start",
+            json={"batch_id": "测试批次", "round_id": "round_001"},
+        )
         assert start.status_code == 200
         state = start.json()["state"]
         assert state["recording_status"] == "countdown"
         take_id = state["current_take"]["take_id"]
+        assert take_id == "take_001"
+
+        stop = client.post("/api/recording/stop")
+        assert stop.status_code == 200
+        assert stop.json()["state"]["current_sentence_index"] == 1
 
         jpeg = b"\xff\xd8fake-jpeg\xff\xd9"
         preview = client.post(
@@ -75,21 +121,122 @@ def test_preview_and_take_upload(tmp_path):
         upload = client.post(
             f"/api/devices/{device_id}/takes/upload",
             headers={"x-signvr-token": token},
-            data={"session_id": state["session_id"], "sentence_id": "sentence_001", "take_id": take_id},
+            data={
+                "session_id": session_id,
+                "sentence_id": "sentence_001",
+                "take_id": take_id,
+            },
             files={
-                "pose_file": ("pose.jsonl", io.BytesIO(b"{\"frame\":1}\n"), "application/x-ndjson"),
+                "pose_file": (
+                    "pose.jsonl",
+                    io.BytesIO(b'{"frame":1}\n'),
+                    "application/x-ndjson",
+                ),
                 "meta_file": ("meta.json", io.BytesIO(b"{}"), "application/json"),
             },
         )
         assert upload.status_code == 200
-        assert (tmp_path / "recordings" / state["session_id"] / "sentence_001" / take_id / f"{take_id}.pose.jsonl").exists()
+
+        camera = client.post(
+            f"/api/takes/{take_id}/camera-upload",
+            data={
+                "session_id": session_id,
+                "sentence_id": "sentence_001",
+            },
+            files={
+                "video_file": (
+                    "camera.webm",
+                    io.BytesIO(b"webm"),
+                    "video/webm",
+                )
+            },
+        )
+        assert camera.status_code == 200
+
+        take_directory = (
+            tmp_path
+            / "recordings"
+            / "测试批次"
+            / "round_001"
+            / "sentence_001"
+            / take_id
+        )
+        pose_path = take_directory / f"{take_id}.pose.jsonl"
+        assert pose_path.read_bytes() == b'{"frame":1}\n'
+        assert (take_directory / f"{take_id}.meta.json").is_file()
+        assert (take_directory / f"{take_id}.camera.webm").is_file()
+
+        current = client.get("/api/state").json()
+        assert current["current_sentence_index"] == 1
+        assert current["sentences"][0]["completed"] is True
+        assert current["sentences"][0]["take_count"] == 1
+
+        rounds = client.get("/api/recording/batches/测试批次/rounds").json()
+        assert rounds["rounds"][0]["completed_sentences"] == 1
+        assert rounds["suggested_round_id"] == "round_002"
+
+        duplicate = client.post(
+            f"/api/devices/{device_id}/takes/upload",
+            headers={"x-signvr-token": token},
+            data={
+                "session_id": session_id,
+                "sentence_id": "sentence_001",
+                "take_id": take_id,
+            },
+            files={
+                "pose_file": (
+                    "pose.jsonl",
+                    io.BytesIO(b"replacement\n"),
+                    "application/x-ndjson",
+                ),
+                "meta_file": (
+                    "meta.json",
+                    io.BytesIO(b'{"replacement":true}'),
+                    "application/json",
+                ),
+            },
+        )
+        assert duplicate.status_code == 409
+        assert pose_path.read_bytes() == b'{"frame":1}\n'
 
 
-def test_sentence_import(tmp_path):
+def test_round_switching_preserves_independent_cursor(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
-        response = client.put("/api/sentences", json={"sentences": ["第一句", "第二句"]})
-        assert response.status_code == 200
-        body = response.json()
-        assert len(body["sentences"]) == 2
-        assert body["sentences"][0]["status"] == "current"
+        create_round(client, round_id="round_001")
+        jump = client.put(
+            "/api/recording/current-sentence",
+            json={"sentence_index": 50},
+        )
+        assert jump.status_code == 200
+        assert jump.json()["current_sentence_index"] == 50
+
+        second = create_round(client, round_id="round_002")
+        assert second["current_sentence_index"] == 0
+
+        first_again = client.post(
+            "/api/recording/batches/测试批次/rounds/round_001/select"
+        )
+        assert first_again.status_code == 200
+        assert first_again.json()["current_sentence_index"] == 50
+
+        duplicate = client.post(
+            "/api/recording/batches/测试批次/rounds",
+            json={"round_id": "round_001"},
+        )
+        assert duplicate.status_code == 409
+
+    restarted = build_app(tmp_path)
+    with TestClient(restarted) as client:
+        initial = client.get("/api/state").json()
+        assert initial["round_id"] is None
+        restored = client.post(
+            "/api/recording/batches/测试批次/rounds/round_001/select"
+        )
+        assert restored.status_code == 200
+        assert restored.json()["current_sentence_index"] == 50
+        rounds = client.get("/api/recording/batches/测试批次/rounds").json()
+        assert [item["round_id"] for item in rounds["rounds"]] == [
+            "round_001",
+            "round_002",
+        ]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import socket
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from typing import Any
 
 from .config import Settings
@@ -19,10 +20,10 @@ class SignVrDatagramProtocol(asyncio.DatagramProtocol):
         self.service.transport = transport  # type: ignore[assignment]
 
     def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        asyncio.create_task(self.service.handle_packet(data, addr))
+        self.service.enqueue_packet(data, addr)
 
     def error_received(self, exc: Exception) -> None:
-        asyncio.create_task(self.service.hub.publish_event({"type": "udp_error", "payload": {"message": str(exc)}}))
+        self.service.publish_udp_error(exc)
 
 
 class UdpService:
@@ -32,6 +33,9 @@ class UdpService:
         self.hub = hub
         self.transport: asyncio.DatagramTransport | None = None
         self._pending_acks: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._realtime_packets: asyncio.Queue[tuple[dict[str, Any], tuple[str, int]]] = asyncio.Queue(maxsize=256)
+        self._realtime_worker: asyncio.Task[None] | None = None
+        self._control_tasks: set[asyncio.Task[None]] = set()
         self.on_signal: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
     async def start(self) -> None:
@@ -42,11 +46,22 @@ class UdpService:
             allow_broadcast=True,
         )
         self.transport = transport  # type: ignore[assignment]
+        self._realtime_worker = asyncio.create_task(self._process_realtime_packets())
 
     async def stop(self) -> None:
         if self.transport:
             self.transport.close()
             self.transport = None
+        if self._realtime_worker is not None:
+            self._realtime_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._realtime_worker
+            self._realtime_worker = None
+        tasks = tuple(self._control_tasks)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def scan(self) -> None:
         self._send(
@@ -82,6 +97,31 @@ class UdpService:
             packet = decode_packet(data)
         except (UnicodeDecodeError, ValueError):
             return
+        await self._handle_decoded_packet(packet, addr)
+
+    def enqueue_packet(self, data: bytes, addr: tuple[str, int]) -> None:
+        try:
+            packet = decode_packet(data)
+        except (UnicodeDecodeError, ValueError):
+            return
+        if packet.get("type") in {"status", "skeleton", "frame"}:
+            if self._realtime_packets.full():
+                self._realtime_packets.get_nowait()
+            self._realtime_packets.put_nowait((packet, addr))
+            return
+        self._spawn_control_task(self._handle_decoded_packet(packet, addr))
+
+    def publish_udp_error(self, exc: Exception) -> None:
+        self._spawn_control_task(
+            self.hub.publish_event({"type": "udp_error", "payload": {"message": str(exc)}})
+        )
+
+    async def _process_realtime_packets(self) -> None:
+        while True:
+            packet, addr = await self._realtime_packets.get()
+            await self._handle_decoded_packet(packet, addr)
+
+    async def _handle_decoded_packet(self, packet: dict[str, Any], addr: tuple[str, int]) -> None:
         packet_type = str(packet.get("type", ""))
         if packet_type == "announce":
             device = await self.registry.upsert_announcement(packet, addr[0])
@@ -108,6 +148,21 @@ class UdpService:
             device_id = await self.registry.mark_pose_packet(packet.get("device_id"), addr[0])
             if device_id:
                 await self.hub.publish_pose(device_id, packet)
+
+    def _spawn_control_task(self, operation: Awaitable[None]) -> None:
+        task = asyncio.create_task(operation)
+        self._control_tasks.add(task)
+        task.add_done_callback(self._control_task_finished)
+
+    def _control_task_finished(self, task: asyncio.Task[None]) -> None:
+        self._control_tasks.discard(task)
+        if task.cancelled():
+            return
+        exception = task.exception()
+        if exception is not None:
+            asyncio.get_running_loop().call_exception_handler(
+                {"message": "SignVR UDP control packet failed", "exception": exception, "task": task}
+            )
 
     def host_ip_for(self, remote_ip: str) -> str:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

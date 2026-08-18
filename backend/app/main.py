@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -15,8 +14,9 @@ from .device_registry import DeviceRegistry
 from .models import (
     DeviceSelectResponse,
     RecordingCommandResponse,
-    SentenceImportRequest,
-    TakeQuality,
+    RoundCreateRequest,
+    SentenceSelectRequest,
+    StartRecordingRequest,
 )
 from .protocol import command_id, pair_packet, pedal_packet
 from .realtime import RealtimeHub
@@ -29,8 +29,8 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     config = settings or Settings.from_environment()
     registry = DeviceRegistry()
     hub = RealtimeHub()
-    recordings = RecordingService()
     repository = RecordingRepository(config.data_root)
+    recordings = RecordingService(repository)
     udp = UdpService(config, registry, hub)
 
     async def handle_signal(packet: dict) -> None:
@@ -48,9 +48,12 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         if start_udp:
             await udp.start()
             await udp.scan()
-        yield
-        if start_udp:
-            await udp.stop()
+        try:
+            yield
+        finally:
+            if start_udp:
+                await udp.stop()
+            await hub.close()
 
     app = FastAPI(title="VR Sign Host", version="0.1.0", lifespan=lifespan)
     app.add_middleware(
@@ -75,12 +78,57 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     async def get_state():
         return await recordings.snapshot()
 
-    @app.put("/api/sentences")
-    async def import_sentences(body: SentenceImportRequest):
+    @app.get("/api/recording/batches")
+    async def list_recording_batches() -> dict:
+        return {"root": "data/recordings", "batches": repository.list_batches()}
+
+    @app.get("/api/recording/batches/{batch_id}/rounds")
+    async def list_recording_rounds(batch_id: str) -> dict:
         try:
-            state = await recordings.import_sentences(body.sentences)
+            safe_batch = safe_segment(batch_id)
+            rounds = repository.list_rounds(safe_batch)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "batch_id": safe_batch,
+            "rounds": [item.model_dump(mode="json") for item in rounds],
+            "suggested_round_id": repository.suggested_round_id(safe_batch),
+        }
+
+    @app.post("/api/recording/batches/{batch_id}/rounds")
+    async def create_recording_round(batch_id: str, body: RoundCreateRequest):
+        try:
+            state = await recordings.create_round(
+                safe_segment(batch_id),
+                safe_segment(body.round_id),
+            )
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail="该轮次已经存在") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        return state
+
+    @app.post("/api/recording/batches/{batch_id}/rounds/{round_id}/select")
+    async def select_recording_round(batch_id: str, round_id: str):
+        try:
+            state = await recordings.select_round(
+                safe_segment(batch_id),
+                safe_segment(round_id),
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="未找到该录制轮次") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        return state
+
+    @app.put("/api/recording/current-sentence")
+    async def select_current_sentence(body: SentenceSelectRequest):
+        try:
+            state = await recordings.select_sentence(body.sentence_index)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
         return state
 
@@ -127,11 +175,34 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         return device.device_id
 
     @app.post("/api/recording/start", response_model=RecordingCommandResponse)
-    async def start_recording():
+    async def start_recording(body: StartRecordingRequest):
         device_id = await selected_device_id()
         previous = await recordings.snapshot()
+        if previous.recording_status.value != "ready":
+            raise HTTPException(status_code=409, detail="当前状态不能开始录制")
         try:
-            state, packet, cmd_id, start_at = await recordings.start()
+            batch_id = safe_segment(body.batch_id)
+            round_id = safe_segment(body.round_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if previous.batch_id != batch_id or previous.round_id != round_id:
+            raise HTTPException(status_code=409, detail="请先在网页端打开要录制的批次和轮次")
+        sentence = previous.sentences[previous.current_sentence_index]
+        try:
+            take_id, take_index, _ = repository.reserve_take(
+                batch_id,
+                round_id,
+                sentence.sentence_id,
+            )
+        except (ValueError, FileNotFoundError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        try:
+            state, packet, cmd_id, start_at = await recordings.start(
+                batch_id,
+                round_id,
+                take_id,
+                take_index,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         if start_udp:
@@ -141,7 +212,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
                 await recordings.restore(previous)
                 raise
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
-        asyncio.create_task(_mark_started(recordings, hub, start_at))
+        asyncio.create_task(_mark_started(recordings, hub, cmd_id, start_at))
         return RecordingCommandResponse(
             action="start_take", state=state, command_id=cmd_id, start_at_unix_ms=start_at
         )
@@ -256,17 +327,20 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     ) -> dict:
         if not await registry.validate_token(device_id, x_signvr_token):
             raise HTTPException(status_code=401, detail="Invalid device token")
-        directory = repository.take_directory(session_id, sentence_id, take_id)
-        pose_path = await repository.save_upload(pose_file, directory / f"{safe_segment(take_id)}.pose.jsonl")
-        meta_path = await repository.save_upload(meta_file, directory / f"{safe_segment(take_id)}.meta.json")
-        state = await recordings.attach_files(
-            take_id,
-            pose_file=str(pose_path.relative_to(repository.root)),
-            meta_file=str(meta_path.relative_to(repository.root)),
-        )
-        quality = _read_quality(meta_path)
-        if quality is not None:
-            state = await recordings.attach_quality(take_id, quality)
+        try:
+            directory = repository.take_directory(session_id, sentence_id, take_id)
+            safe_take_id = safe_segment(take_id)
+            pose_path, meta_path = await repository.save_uploads(
+                [
+                    (pose_file, directory / f"{safe_take_id}.pose.jsonl"),
+                    (meta_file, directory / f"{safe_take_id}.meta.json"),
+                ]
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail="该 Take 的动作文件已经存在，服务器拒绝覆盖") from exc
+        state = await recordings.refresh_after_upload(session_id, sentence_id)
         await hub.publish_event({"type": "take_uploaded", "payload": state.model_dump(mode="json")})
         return {"pose_file": str(pose_path), "meta_file": str(meta_path)}
 
@@ -277,19 +351,26 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         sentence_id: str = Form(...),
         video_file: UploadFile = File(...),
     ) -> dict:
-        directory = repository.take_directory(session_id, sentence_id, take_id)
-        video_path = await repository.save_upload(video_file, directory / f"{safe_segment(take_id)}.camera.webm")
-        state = await recordings.attach_files(
-            take_id,
-            video_file=str(video_path.relative_to(repository.root)),
-        )
+        try:
+            directory = repository.take_directory(session_id, sentence_id, take_id)
+            video_path = await repository.save_upload(
+                video_file,
+                directory / f"{safe_segment(take_id)}.camera.webm",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except FileExistsError as exc:
+            raise HTTPException(status_code=409, detail="该 Take 的相机视频已经存在，服务器拒绝覆盖") from exc
+        state = await recordings.refresh_after_upload(session_id, sentence_id)
         await hub.publish_event({"type": "camera_uploaded", "payload": state.model_dump(mode="json")})
         return {"video_file": str(video_path)}
 
     @app.websocket("/ws/events")
     async def event_socket(websocket: WebSocket) -> None:
-        await hub.add_events(websocket)
-        await websocket.send_json({"type": "state_changed", "payload": (await recordings.snapshot()).model_dump(mode="json")})
+        await hub.add_events(
+            websocket,
+            {"type": "state_changed", "payload": (await recordings.snapshot()).model_dump(mode="json")},
+        )
         try:
             while True:
                 await websocket.receive_text()
@@ -321,31 +402,18 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     return app
 
 
-def _read_quality(meta_path: Path) -> TakeQuality | None:
-    """Lift the hand tracking summary the Quest wrote into the take metadata."""
-    try:
-        payload = json.loads(meta_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    summary = payload.get("hand_capture_quality")
-    if not isinstance(summary, dict) or not summary.get("frames"):
-        return None
-    return TakeQuality(
-        frames=int(summary.get("frames", 0)),
-        clean_ratio=float(summary.get("clean_ratio", 0.0)),
-        left_tracked_ratio=float(summary.get("left_tracked_ratio", 0.0)),
-        right_tracked_ratio=float(summary.get("right_tracked_ratio", 0.0)),
-        left_inside_ratio=float(summary.get("left_inside_ratio", 0.0)),
-        right_inside_ratio=float(summary.get("right_inside_ratio", 0.0)),
-        guidance_enabled=bool(summary.get("guidance_enabled", True)),
-    )
-
-
-async def _mark_started(recordings: RecordingService, hub: RealtimeHub, start_at_unix_ms: int) -> None:
+async def _mark_started(
+    recordings: RecordingService,
+    hub: RealtimeHub,
+    command_id: str,
+    start_at_unix_ms: int,
+) -> None:
     from .protocol import unix_ms
 
     await asyncio.sleep(max(0, start_at_unix_ms - unix_ms()) / 1000)
-    state = await recordings.mark_recording_started()
+    state = await recordings.mark_recording_started(command_id)
+    if state is None:
+        return
     await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
 
 

@@ -19,8 +19,11 @@ export interface DeviceInfo {
 export interface SentenceItem {
   sentence_id: string
   index: number
+  category: string
   text: string
   status: 'completed' | 'current' | 'pending'
+  completed: boolean
+  take_count: number
 }
 
 export interface TakeQuality {
@@ -46,6 +49,8 @@ export interface TakeItem {
 export interface HostState {
   service_online: boolean
   session_id: string
+  batch_id: string | null
+  round_id: string | null
   recording_status: RecordingStatus
   selected_device_id: string | null
   current_sentence_index: number
@@ -63,6 +68,28 @@ export interface CommandResponse {
   state: HostState
   command_id: string
   start_at_unix_ms: number | null
+}
+
+export interface RecordingBatchesResponse {
+  root: string
+  batches: string[]
+}
+
+export interface RoundInfo {
+  batch_id: string
+  round_id: string
+  session_id: string
+  current_sentence_index: number
+  completed_sentences: number
+  total_sentences: number
+  created_at_unix_ms: number
+  updated_at_unix_ms: number
+}
+
+export interface RecordingRoundsResponse {
+  batch_id: string
+  rounds: RoundInfo[]
+  suggested_round_id: string
 }
 
 export interface SkeletonMessage {
@@ -91,4 +118,3 @@ export interface PoseStatusMessage {
 }
 
 export type PoseMessage = SkeletonMessage | FrameMessage | PoseStatusMessage
-
