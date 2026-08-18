@@ -1,9 +1,9 @@
 # VR 手语录制系统与场景设计
 
-- 文档状态：实现基线 v0.9
+- 文档状态：实现基线 v1.0
 - 更新日期：2026-08-18
 - 适用项目：SignVR / Quest 3
-- 当前阶段：主机纵向链路已运行；Unity 裸手录制界面与 VR 镜像 Take 回看已实现，等待 Quest 3 真机交互验收
+- 当前阶段：主机纵向链路已运行；Unity 裸手录制界面、VR 镜像 Take 回看与网页骨架动作视图均已实现，等待 Quest 3 真机交互验收
 - 目标读者：Unity、Python、React、数据处理与现场采集团队
 
 ## 1. 目标与范围
@@ -34,14 +34,14 @@
 10. 面部信息由外置摄像机视频负责。
 11. 外置摄像机、脚踏键和录制协调由主机上的 React 网页前端与 Python 后端管理。
 12. Quest 发现、控制确认和实时 Pose 使用 UDP；完整 Pose/Meta 与压缩预览使用 HTTP。
-13. Quest 实时预览默认为 640 × 360、8 FPS、JPEG 质量 60，由 Python 通过 WebSocket 转发给网页。
+13. 网页监控端不传输 Quest 渲染画面，改为转发 30 FPS 的原始 Meta 骨架数据，由 React 在 Canvas 上绘制关节与骨骼连线。
 14. 外置相机第一版由浏览器 `getUserMedia` 与 `MediaRecorder` 管理，不录制声音。
 15. 脚踏长按阈值第一版固定为 1.2 秒，短按在开始与结束之间切换。
 16. 正式录制不使用 Quest 控制器，只使用裸手追踪；脚踏键仍是高频录制操作的唯一入口。
 17. 裸手不使用隐藏手势快捷键，避免手语动作被误识别；低频操作只通过可见的 Poke 按钮触发。
 18. 动作回看在 Quest 的 VR 场景内完成，由真镜像机器人播放最近一次本地 Meta Pose Take。
 19. 提示词、录制状态和 REC 反馈固定在 HMD 视野中，不再允许拖动；常态只占据视野顶部与边缘，倒计时和长按重录才短暂进入中央视野。
-20. 网页预览使用独立固定摄像机，从正面稳定拍摄镜像机器人的头部到腰部，不复用老师不断转动的 HMD 画面。
+20. 网页动作视图使用正面正交投影绘制骨架，取景框平滑跟随身体；监控目标是动作捕捉质量本身，环境与角色外观由外置相机画面承担。
 21. `TouchScreenDevice_03` 只保留两个裸手 Poke 按钮：同一按钮切换“重播动作/退出重播”，其下方按钮切换“查看教程/关闭教程”。
 22. 手部越界提示使用 Quest 实际的左右手追踪状态与置信度，再叠加相对 HMD 的保守安全工作区；不把 RGB 透视相机视锥误当成 Meta 手部追踪的精确硬边界。
 
@@ -82,7 +82,7 @@ Unity 第一阶段实现已经完成：
 - `TeacherUI` 已改为中文录制状态、操作提示、全视野录制边框和长按重录百分比反馈。
 - 引入动态多图集 `Noto Sans SC` TMP 字体资产，覆盖中文提示词和运行时主机下发文本。
 - `TeacherUI` 已挂到 `CenterEyeAnchor`，提示词、REC、录制状态、倒计时和长按反馈均为 HMD 固定 UI；旧拖动把手和归位功能已移除。
-- 复用用户摆放的 `TouchScreenDevice_03`，使用 Meta Poke 按钮提供“重播动作/退出重播”和“查看教程/关闭教程”；旧 `VRDeskToolPanel` 已停用。
+- 复用用户摆放的 `TouchScreenDevice_03`，使用 Meta Poke 按钮提供“重播动作/退出重播”和“查看教程/关闭教程”；旧 `VRDeskToolPanel` 已在第四阶段删除。
 - 最近一次 Take 在 Quest 本地读取 `.pose.jsonl`，临时接管现有 `CharacterRetargeter`；既有 `MirrorTransforms` 继续输出真正镜像角色。
 - 新增可重复执行的录制场景光照准备流程，生成混合主光、两盏烘焙顶灯、Light Probe 网格、Reflection Probe、URP Volume、Lighting Settings 与一组低饱和环境材质模板。
 - 新增 HMD 内手部追踪边界提示：区分接近边界、超出安全区、低置信度和追踪丢失，并分别提示左手、右手或双手。
@@ -92,9 +92,17 @@ Unity 第一阶段实现已经完成：
 - 2026-08-18 已重新构建并安装 Android Development APK；Quest 3 上 OpenXR、HMD 和双手骨架初始化成功，应用进程稳定运行。
 - Quest 处于佩戴前台时已完成 UDP 配对 ACK；主机持续收到 640 × 360 预览帧和 Pose 包，浏览器 Blob 图像持续更新且控制台无错误。
 
+第四阶段场景整理与网页动作视图已完成：
+
+- `LeftEyeAnchor` 的 `MainCamera` 标签已清除，场景中只剩 `CenterEyeAnchor` 一个主相机，`Camera.main` 不再有歧义。
+- 已停用的 `VRDeskToolPanel` 及其子树从场景中删除，低频操作入口只剩 `TouchScreenDevice_03` 上的两个 Poke 按钮。
+- 网页监控端的 Quest 画面改为骨架实时渲染：主机转发 30 FPS 的 Meta 骨架包，React 在 Canvas 上做正面正交投影。Unity 端无需改动，`MetaBodyMotionStreamer` 原有的 UDP 数据直接复用。
+- 主机新增 `/ws/pose/{device_id}`，`UdpService` 按源 IP 解析 `device_id` 后转发 `skeleton`、`frame`、`status` 三类包，并缓存最近一份拓扑供中途连入的客户端使用。
+- 后端 6 项 pytest、前端 lint 与 build 均通过；已用真实 UDP 包与 WebSocket 客户端完成端到端验证。
+
 当前仍需真机验收的项目：
 
-- 在较长现场录制中继续验证新固定机位的持续 8 FPS 稳定性和设备温度；头显摘下后 Unity 会暂停，不能用该状态验证命令 ACK 或预览。
+- 骨架视图在真机长时间录制下的帧率与延迟表现，以及主机 CPU 占用。
 - Meta 身体追踪有效时的完整开始、停止、Pose/Meta 自动上传闭环。
 - 外置相机的最终型号、720p 帧率、驱动稳定性和现场 USB 带宽。
 - Quest 3 真机上的两个桌面 Poke 按钮触达范围、按钮尺寸和 HMD 文本物理尺寸。
@@ -406,12 +414,17 @@ Sessions/
 - 真镜像角色仍由现有 `MirrorTransforms` 从被驱动角色复制，因此实时与回看保持相同的左右翻转规则。
 - 新手教程在 VR 内分五步自动播放，也允许裸手点击“下一步”或“关闭教程”。
 
-### 10.7 网页固定预览
+### 10.7 网页动作视图
 
-- 预览摄像机独立于 HMD 摄像机，避免老师转头造成网页画面晃动。
-- 摄像机位于镜像角色正前方，运行时以角色 `Head` 与 `Hips` 的中点为目标，稳定包含头部到腰部。
-- 默认 FOV 为 44，输出继续使用 640 × 360、8 FPS、JPEG 60。
-- HMD 提示词、REC、教程与倒计时均使用 `Overlay UI` 层，并从网页预览摄像机剔除。
+网页监控端显示的是骨架，不是 Quest 渲染画面。
+
+- `MetaBodyMotionStreamer` 以 30 FPS 向主机单播原始 Meta 骨架：拓扑包含 `joint_names` 与 `parent_indices`，每帧包含 `positions`、`valid` 与 `confidence`。
+- 主机 `UdpService` 按源 IP 解析 `device_id` 后转发到 `RealtimeHub`，再经 `/ws/pose/{device_id}` 推送给 React；拓扑包只在数秒一次，因此主机缓存最近一份，供中途连入的客户端立即取用。
+- React 用 Canvas 做正面正交投影：屏幕横轴取骨架 X、纵轴取骨架 Y，取景框由有效关节包围盒指数平滑得出，避免画面抖动。
+- 无效或低置信度关节以灰色降透明度绘制，操作员可以直接看出丢手或遮挡。
+- 该链路不占用 Quest 的 GPU 回读与 JPEG 编码，也不随帧率升高而加剧发热。
+
+早期的 JPEG 画面预览（`QuestPreviewStreamer`、`/api/devices/{id}/preview-frame`、`/ws/preview/{id}`）在 Quest 端与主机端均保留，但网页已不再订阅。该路径在 URP + XR 下依赖 `WaitForEndOfFrame` 触发离屏渲染，时序不可靠；若将来需要真实画面，必须改用 Unity 6 的 `Camera.SubmitRenderRequest` 重写，并把每帧一次的 HTTP POST 换成长连接。
 
 ### 10.8 光照、材质与烘焙工作流
 
@@ -440,36 +453,33 @@ Sessions/
 
 ## 11. Unity 场景装配契约
 
-建议正式录制场景使用以下根对象：
+`Recording` 场景的实际根对象如下，共 7 个：
 
-- _Bootstrap
-  - 唯一启动入口。
-  - 明确初始化网络、录制状态机、采集器和 UI 的顺序。
-- XR_Rig
-  - Meta XR、头部、身体和双手数据源。
-- CaptureSystems
-  - Quest 控制客户端。
-  - Meta Pose Recorder。
-  - UDP Pose Streamer。
-  - 本地备份管理。
-- MirrorStage
-  - 镜框、镜面背景、站位标记和镜像角色。
-- TeacherUI
-  - 位于 `CenterEyeAnchor` 下的固定 HMD 提示词、倒计时、REC、录制状态、视野边框、长按进度和错误提示。
-- TouchScreenDevice_03/ScreenArea/SignVRControls
-  - 用户摆放的桌面触屏；包含回看切换和教程切换两个 Meta Poke 按钮。
-- VRTutorialPanel
-  - 位于 `CenterEyeAnchor` 下的 VR 内新手教程与导航按钮。
-- QuestPreviewCamera
-  - 运行时正面锁定镜像角色上半身的独立网页预览摄像机。
-- Diagnostics
-  - 开发版本使用的网络和追踪信息。
-- Environment/ImportedEnvironment
-  - 用户后续拖入的房间、墙地面与固定家具；最终烘焙时统一标记静态。
-- Environment/SignVR Lighting
-  - 录制场景主光、烘焙顶灯、Light Probe 网格、Reflection Probe 与全局后处理。
+- `[BuildingBlock] Camera Rig`
+  - Meta XR Rig。`TrackingSpace/CenterEyeAnchor` 是唯一带 `MainCamera` 标签的相机；`LeftEyeAnchor` 与 `RightEyeAnchor` 必须保持 `Untagged`，否则 `Camera.main` 的返回值不确定。
+  - `CenterEyeAnchor/TeacherUI`：`Overlay UI` 层的 HMD 固定提示词、倒计时、REC、录制状态、视野边框、长按进度和错误提示，挂 `OVROverlayCanvas`。
+  - `CenterEyeAnchor/VRTutorialPanel`：VR 内新手教程与导航按钮。
+  - `[BuildingBlock] Interaction` 下为左右手追踪与 Poke 交互器。
+- `_Recording`
+  - 唯一的录制系统入口，靠 `RecordingCoordinator` 的 `[DefaultExecutionOrder(-10000)]` 保证初始化顺序。
+  - 承载 `RecordingCoordinator`、`QuestDeviceGateway`、`QuestTakeUploader`、`QuestPreviewStreamer`、`RecordingReplayController`、`RecordingTutorialController`、`RecordingTouchscreenPresenter`、`HandCaptureBoundaryMonitor`、`RecordingDebugInput`。
+- `Objects`
+  - `StylizedCharacter`：被 `CharacterRetargeter` 驱动的骨架源，只提供数据不渲染。其 `Animator` 没有 Controller，由重定向器直接写骨骼，属预期状态。
+  - `MotionRecorder`：`MetaBodyMotionRecorder` 与 `MetaBodyMotionStreamer`。
+- `MirroredObjects`
+  - `StylizedCharacterMirrored`：由 `MirrorTransforms` 从被驱动角色复制并做左右翻转，是老师看到的镜像角色。
+- `Environment`
+  - `SignVR Lighting`：混合主光、两盏烘焙顶灯、Light Probe 网格、Reflection Probe 与全局 URP Volume。
+  - `ImportedEnvironment`：房间、墙地面与固定家具，烘焙时统一标记静态。
+  - `TouchScreenDevice_03/ScreenArea/SignVRControls`：桌面触屏上的 `ReplayToggle` 与 `TutorialToggle` 两个 Poke 按钮。
+  - 旧的三盏 Directional Light 与 `LightProbe` 仍在场景中，但 Light 组件已 `enabled = false`。
+- `UI`
+  - Meta Movement SDK 示例菜单，整棵树 `isActive = false`，不参与录制流程。
+- `EventSystem`
 
-场景引用通过 Inspector 显式连接，不依赖多层运行时 Find。运行时状态放在状态机中，不把可变录制状态保存在 ScriptableObject。
+尚未建立的是 `Diagnostics` 层：IP、端口、FPS、丢包和帧数目前没有可隐藏的集中展示入口。
+
+场景引用通过 Inspector 显式连接，不依赖多层运行时 Find。运行时状态放在状态机中，不把可变录制状态保存在 ScriptableObject。网页预览摄像机不是场景对象，由 `QuestPreviewStreamer` 在运行时创建并在禁用时销毁。
 
 ## 12. 主机网页与 Python 服务
 
@@ -480,7 +490,7 @@ Sessions/
 - Quest 扫描、选择与连接状态。
 - 单台外置相机选择、720p 预览与 WebM 录制。
 - UTF-8 逐行句子文本导入、当前句显示与句子队列。
-- Quest 640 × 360 JPEG 实时画面。
+- Quest 30 FPS 骨架实时动作视图，显示有效关节数与实际帧率。
 - 2 秒倒计时、录制计时、候选 Take 和三类文件接收状态。
 - 人工开始、结束、重新录制按钮。
 - 空格键短按与 1.2 秒长按进度反馈。
@@ -493,7 +503,7 @@ Sessions/
 - `UdpService`：5005 设备公告、命令 ACK 与现有 Pose 包入口。
 - `DeviceRegistry`：设备在线状态、选择、配对令牌与接收计数。
 - `RecordingRepository`：Pose、Meta 与相机视频分层落盘。
-- `RealtimeHub`：状态事件和 Quest JPEG WebSocket 转发。
+- `RealtimeHub`：状态事件、Quest 骨架包与 JPEG 预览的 WebSocket 转发，并缓存最近一份骨架拓扑。
 - `main`：HTTP API、上传入口与 React 静态文件服务。
 
 不在第一版引入大型消息总线、复杂依赖注入框架或分布式服务。
@@ -520,7 +530,7 @@ Sessions/
 - 手部重新稳定回到安全区后，提示不会闪烁并能在 0.35 秒内自动消失。
 - 完成录制后，VR 回看可在镜像机器人上播放最近一次 Take；同一按钮切换为“退出重播”，退出后实时身体驱动恢复。
 - 回看期间老师本人的 Quest 手部追踪、手部显示和 Poke 交互保持可用。
-- 网页 Quest 画面来自独立固定摄像机，稳定显示镜像角色头部到腰部且不包含 HMD Overlay UI。
+- 网页动作视图以 30 FPS 绘制骨架，取景框跟随身体但不抖动，丢手或低置信度关节以灰色区分。
 - 回看期间不得开始新录制；任意时刻长按脚踏键仍可重置当前句。
 - 网络断开时不得继续显示虚假的录制成功状态。
 - Quest UDP 丢包或断线时，本地备份仍可用于恢复。
@@ -536,6 +546,15 @@ Sessions/
 - 候选 Take 的最终选择是否允许撤销。
 
 ## 15. 变更记录
+
+### v1.0 - 2026-08-18
+
+- 网页监控端的 Quest 画面由 JPEG 推流改为骨架实时渲染。主机 `UdpService` 转发 `skeleton`、`frame`、`status` 三类包到新增的 `/ws/pose/{device_id}`，`RealtimeHub` 缓存最近一份拓扑；React 新增 `SkeletonPanel`，用 Canvas 做正面正交投影并标注有效关节数与实际帧率。
+- 原 JPEG 预览链路在 URP + XR 下依赖 `WaitForEndOfFrame` 触发离屏渲染，时序不可靠，是画面显示异常的根因；该链路代码保留但网页不再订阅，重启用时需改写为 `Camera.SubmitRenderRequest`。
+- 清除 `LeftEyeAnchor` 的 `MainCamera` 标签，消除 `Camera.main` 的双候选歧义。
+- 删除已停用的 `VRDeskToolPanel` 子树。
+- 按场景实际结构重写第 11 节装配契约，并同步第 10.7 节；`Diagnostics` 层仍未建立，保留为待办。
+- 后端 6 项 pytest 通过，前端 lint 与 build 通过，并用真实 UDP 包与 WebSocket 客户端验证了转发链路。
 
 ### v0.9 - 2026-08-18
 
