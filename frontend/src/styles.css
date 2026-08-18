@@ -71,6 +71,7 @@ button { color: inherit; }
 .video-frame { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #bec4c0; border-radius: 8px; background: #222826; }
 .video-frame.is-active { border-color: var(--red); box-shadow: 0 0 0 2px rgba(182,64,60,.12); }
 .video-frame video, .video-frame img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.skeleton-canvas { width: 100%; height: 100%; display: block; background: #1c2220; }
 .video-placeholder { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 10px; color: #9ba39f; font-size: 13px; background: #242a28; }
 .recording-badge { position: absolute; top: 10px; left: 10px; height: 26px; padding: 0 9px; display: flex; align-items: center; gap: 6px; border-radius: 5px; background: rgba(32,24,23,.82); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .08em; }
 .recording-badge span { width: 8px; height: 8px; border-radius: 50%; background: #e85750; }

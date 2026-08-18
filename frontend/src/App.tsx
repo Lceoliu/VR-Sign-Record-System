@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
+import { SkeletonPanel } from './components/SkeletonPanel'
 import { StatusStrip } from './components/StatusStrip'
 import { VideoPanel } from './components/VideoPanel'
 import type { DeviceInfo, HostState, RecordingStatus } from './types'
@@ -39,7 +40,6 @@ export default function App() {
   const [devices, setDevices] = useState<DeviceInfo[]>([])
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([])
   const [cameraId, setCameraId] = useState('')
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [cameraReady, setCameraReady] = useState(false)
   const [now, setNow] = useState(0)
   const [holdProgress, setHoldProgress] = useState(0)
@@ -90,27 +90,6 @@ export default function App() {
     }
     return () => socket.close()
   }, [])
-
-  useEffect(() => {
-    if (!selectedDeviceId) return
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/preview/${encodeURIComponent(selectedDeviceId)}`)
-    socket.binaryType = 'blob'
-    socket.onmessage = (event) => {
-      const url = URL.createObjectURL(event.data as Blob)
-      setPreviewUrl((previous) => {
-        if (previous) URL.revokeObjectURL(previous)
-        return url
-      })
-    }
-    return () => {
-      socket.close()
-      setPreviewUrl((previous) => {
-        if (previous) URL.revokeObjectURL(previous)
-        return null
-      })
-    }
-  }, [selectedDeviceId])
 
   const openCamera = useCallback(async (deviceId?: string) => {
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop())
@@ -340,7 +319,7 @@ export default function App() {
           </section>
           <div className="video-grid">
             <VideoPanel kind="camera" title="外置相机" meta={cameraReady ? '1280 × 720' : '未就绪'} videoRef={videoRef} active={state.recording_status === 'recording'} />
-            <VideoPanel kind="quest" title="Quest 实时画面" meta="640 × 360 · 8 FPS" imageUrl={previewUrl} active={state.recording_status === 'recording'} />
+            <SkeletonPanel title="Quest 实时动作" deviceId={selectedDeviceId} active={state.recording_status === 'recording'} />
           </div>
           <StatusStrip status={state.recording_status} displayTime={formatTimer(state.recording_status, state.started_at_unix_ms, now)} />
           {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>关闭</button></div>}

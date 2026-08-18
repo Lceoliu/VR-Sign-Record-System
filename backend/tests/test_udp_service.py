@@ -19,6 +19,43 @@ class FakeDatagramTransport:
         self.sent.append((data, address))
 
 
+def test_pose_packets_are_forwarded_to_console(tmp_path):
+    async def scenario() -> None:
+        registry = DeviceRegistry()
+        await registry.upsert_announcement(
+            {"device_id": "quest-test", "name": "Quest 3 Test", "control_port": 5006},
+            "192.168.1.42",
+        )
+        hub = RealtimeHub()
+        forwarded: list[tuple[str, dict]] = []
+        hub.publish_pose = lambda device_id, packet: _record(forwarded, device_id, packet)  # type: ignore[method-assign]
+        service = UdpService(Settings(data_root=tmp_path), registry, hub)
+
+        # The Quest omits device_id on pose packets, so the source IP resolves it.
+        await service.handle_packet(
+            encode_packet({"type": "skeleton", "joint_names": ["Root"], "parent_indices": [-1]}),
+            ("192.168.1.42", 5005),
+        )
+        await service.handle_packet(
+            encode_packet({"type": "frame", "sequence": 1, "joint_count": 1, "positions": [0.0, 1.0, 2.0]}),
+            ("192.168.1.42", 5005),
+        )
+        await service.handle_packet(
+            encode_packet({"type": "frame", "sequence": 2}),
+            ("10.0.0.9", 5005),
+        )
+
+        assert [device_id for device_id, _ in forwarded] == ["quest-test", "quest-test"]
+        assert [packet["type"] for _, packet in forwarded] == ["skeleton", "frame"]
+        assert (await registry.get("quest-test")).pose_packets == 2
+
+    anyio.run(scenario)
+
+
+async def _record(sink: list, device_id: str, packet: dict) -> None:
+    sink.append((device_id, packet))
+
+
 def test_command_wait_resolves_matching_ack(tmp_path):
     async def scenario() -> None:
         registry = DeviceRegistry()

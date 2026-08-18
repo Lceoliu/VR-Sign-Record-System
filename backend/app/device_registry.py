@@ -79,12 +79,14 @@ class DeviceRegistry:
             record = self._devices.get(device_id)
             return bool(record and record.session_token and secrets.compare_digest(record.session_token, token))
 
-    async def mark_pose_packet(self, device_id: str | None, ip: str) -> None:
+    async def mark_pose_packet(self, device_id: str | None, ip: str) -> str | None:
         async with self._lock:
             record = self._resolve_record(device_id, ip)
-            if record:
-                record.info.pose_packets += 1
-                record.info.last_seen_unix_ms = unix_ms()
+            if record is None:
+                return None
+            record.info.pose_packets += 1
+            record.info.last_seen_unix_ms = unix_ms()
+            return record.info.device_id
 
     async def mark_preview_frame(self, device_id: str) -> None:
         async with self._lock:

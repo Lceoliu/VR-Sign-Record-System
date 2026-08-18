@@ -52,3 +52,30 @@ export interface CommandResponse {
   start_at_unix_ms: number | null
 }
 
+export interface SkeletonMessage {
+  type: 'skeleton'
+  skeleton_type: string
+  joint_names: string[]
+  parent_indices: number[]
+}
+
+export interface FrameMessage {
+  type: 'frame'
+  sequence: number
+  timestamp: number
+  confidence: number
+  joint_count: number
+  positions: number[]
+  valid: boolean[]
+}
+
+export interface PoseStatusMessage {
+  type: 'status'
+  pose_valid: boolean
+  joint_count: number
+  valid_joint_count: number
+  confidence: number
+}
+
+export type PoseMessage = SkeletonMessage | FrameMessage | PoseStatusMessage
+

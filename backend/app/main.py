@@ -241,6 +241,15 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         except WebSocketDisconnect:
             await hub.remove_preview(device_id, websocket)
 
+    @app.websocket("/ws/pose/{device_id}")
+    async def pose_socket(websocket: WebSocket, device_id: str) -> None:
+        await hub.add_pose(device_id, websocket)
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            await hub.remove_pose(device_id, websocket)
+
     frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
     if frontend_dist.exists():
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")

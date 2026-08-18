@@ -97,7 +97,9 @@ class UdpService:
             await self.hub.publish_event({"type": "command_ack", "payload": packet})
             return
         if packet_type in {"status", "skeleton", "frame"}:
-            await self.registry.mark_pose_packet(packet.get("device_id"), addr[0])
+            device_id = await self.registry.mark_pose_packet(packet.get("device_id"), addr[0])
+            if device_id:
+                await self.hub.publish_pose(device_id, packet)
 
     def host_ip_for(self, remote_ip: str) -> str:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
