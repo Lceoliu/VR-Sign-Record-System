@@ -46,6 +46,21 @@ namespace SignVR.Recording
 
         public event Action PresentationChanged;
 
+        /// <summary>
+        /// Time of the last pedal press. The teacher cannot hear the pedal click,
+        /// so the UI flashes unconditionally on every press to confirm it landed,
+        /// independently of whether the press also changed the flow state.
+        /// </summary>
+        public float LastPedalPulseTime { get; private set; } = float.NegativeInfinity;
+
+        /// <summary>
+        /// True while the headset shows passthrough. Recording is suspended so the
+        /// teacher can look at the interpreter without ending the session.
+        /// </summary>
+        public bool IsPaused { get; private set; }
+
+        public bool IsHelpRequested { get; private set; }
+
         public RecordingFlowState State => stateMachine.State;
         public string SessionId { get; private set; } = string.Empty;
         public string SentenceId { get; private set; } = string.Empty;
@@ -170,6 +185,13 @@ namespace SignVR.Recording
             RecordingTakeContext take,
             float delaySeconds)
         {
+            if (IsPaused)
+            {
+                LastError = "已暂停，请先恢复场景";
+                NotifyPresentationChanged();
+                return false;
+            }
+
             if (!stateMachine.BeginCountdown())
             {
                 return false;
@@ -228,6 +250,46 @@ namespace SignVR.Recording
             return stateMachine.CompleteReview(
                 reviewReturnState == RecordingFlowState.Completed
             );
+        }
+
+        public void PulsePedal()
+        {
+            LastPedalPulseTime = Time.unscaledTime;
+            NotifyPresentationChanged();
+        }
+
+        public void SetPaused(bool paused)
+        {
+            if (IsPaused == paused)
+            {
+                return;
+            }
+
+            IsPaused = paused;
+
+            // Leaving a take half-recorded is worse than losing it: stop cleanly
+            // so the partial take is still saved and traceable.
+            if (paused && State == RecordingFlowState.Recording)
+            {
+                StopCurrentTake();
+            }
+            else if (paused && State == RecordingFlowState.Countdown)
+            {
+                StopCurrentTake();
+            }
+
+            NotifyPresentationChanged();
+        }
+
+        public void SetHelpRequested(bool requested)
+        {
+            if (IsHelpRequested == requested)
+            {
+                return;
+            }
+
+            IsHelpRequested = requested;
+            NotifyPresentationChanged();
         }
 
         public void SetResetHoldProgress(float progress)

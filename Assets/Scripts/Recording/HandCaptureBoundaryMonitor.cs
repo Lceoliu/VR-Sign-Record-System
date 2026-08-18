@@ -34,6 +34,15 @@ namespace SignVR.Recording
         [SerializeField]
         private TMP_Text warningLabel;
 
+        [Header("Directional edge glow")]
+        [Tooltip("视野边缘的方向性光晕；手往哪边超界，对应方向就渐强。")]
+        [SerializeField]
+        private RecordingBoundaryGlow boundaryGlow;
+
+        [Tooltip("录制前显示的安全区包络，帮助老师建立空间直觉。")]
+        [SerializeField]
+        private GameObject safeZonePreview;
+
         [Header("Conservative HMD-relative working volume")]
         [SerializeField]
         [Min(0.05f)]
@@ -64,6 +73,11 @@ namespace SignVR.Recording
         [Range(0.02f, 0.4f)]
         private float distanceWarningMargin = 0.15f;
 
+        [Tooltip("归一化余量阈值：手的剩余余量低于该值时开始渐强提示。0.18 约等于旧的 10° 角度余量。")]
+        [SerializeField]
+        [Range(0.05f, 0.6f)]
+        private float warningMarginFraction = 0.18f;
+
         [SerializeField]
         [Range(0f, 0.5f)]
         private float warningDelaySeconds = 0.12f;
@@ -76,9 +90,32 @@ namespace SignVR.Recording
         private float clearTimer;
         private string pendingMessage = string.Empty;
         private Color pendingColor;
+        private HandCaptureSample leftSample;
+        private HandCaptureSample rightSample;
 
         public HandCaptureBoundaryStatus LeftStatus { get; private set; }
         public HandCaptureBoundaryStatus RightStatus { get; private set; }
+
+        /// <summary>
+        /// Whether the teacher sees any boundary guidance at all. The operator can
+        /// turn this off from the console so the same teacher can record one pass
+        /// with guidance and one without, which is what the A/B comparison needs.
+        /// Quality sampling keeps running either way, otherwise the two passes
+        /// would not be comparable.
+        /// </summary>
+        public bool GuidanceEnabled { get; private set; } = true;
+
+        public HandCaptureFrame CurrentFrame =>
+            new() { left = leftSample, right = rightSample };
+
+        public void SetGuidanceEnabled(bool enabled)
+        {
+            GuidanceEnabled = enabled;
+            if (!enabled)
+            {
+                HideImmediately();
+            }
+        }
 
         public void Configure(
             RecordingCoordinator recordingCoordinator,
@@ -119,14 +156,19 @@ namespace SignVR.Recording
 
         private void Update()
         {
-            if (!ShouldMonitorCurrentState())
+            // Sampling runs in every state and regardless of the guidance switch,
+            // so the guidance-on and guidance-off passes stay comparable.
+            LeftStatus = Evaluate(leftHand, out leftSample, out leftAxis);
+            RightStatus = Evaluate(rightHand, out rightSample, out rightAxis);
+
+            if (!ShouldMonitorCurrentState() || !GuidanceEnabled)
             {
                 HideImmediately();
                 return;
             }
 
-            LeftStatus = Evaluate(leftHand);
-            RightStatus = Evaluate(rightHand);
+            RefreshSafeZonePreview();
+            RefreshGlow();
 
             bool shouldWarn = TryBuildWarning(
                 LeftStatus,
@@ -163,60 +205,208 @@ namespace SignVR.Recording
                    coordinator.State == RecordingFlowState.Recording;
         }
 
-        private HandCaptureBoundaryStatus Evaluate(OVRHand hand)
+        private HandCaptureBoundaryStatus Evaluate(
+            OVRHand hand,
+            out HandCaptureSample sample,
+            out BoundaryAxis axis)
         {
+            sample = default;
+            sample.boundary_margin = 1f;
+            axis = BoundaryAxis.Depth;
+
             if (!hand.IsDataValid || !hand.IsTracked)
             {
+                sample.status = nameof(HandCaptureBoundaryStatus.TrackingLost);
                 return HandCaptureBoundaryStatus.TrackingLost;
             }
 
-            if (
-                !hand.IsDataHighConfidence ||
-                hand.HandConfidence == OVRHand.TrackingConfidence.Low
-            )
-            {
-                return HandCaptureBoundaryStatus.LowConfidence;
-            }
+            sample.tracked = true;
+            sample.confidence =
+                hand.HandConfidence == OVRHand.TrackingConfidence.High ? 1f : 0f;
+            sample.high_confidence =
+                hand.IsDataHighConfidence &&
+                hand.HandConfidence != OVRHand.TrackingConfidence.Low;
 
             Vector3 localPosition = hmd.InverseTransformPoint(
                 hand.transform.position
             );
             float depth = localPosition.z;
-            if (depth <= 0f)
+
+            // Margin is computed before the confidence early-out so a low-confidence
+            // hand still reports where it was, which is what the offline analysis of
+            // signing space versus tracking volume needs.
+            float margin = depth <= 0f
+                ? -1f
+                : ComputeMargin(localPosition, depth, out axis);
+            sample.boundary_margin = margin;
+            sample.inside_safe_zone = margin >= 0f;
+
+            if (!sample.high_confidence)
             {
+                sample.status = nameof(HandCaptureBoundaryStatus.LowConfidence);
+                return HandCaptureBoundaryStatus.LowConfidence;
+            }
+
+            if (margin < 0f)
+            {
+                sample.status = nameof(HandCaptureBoundaryStatus.OutsideBoundary);
                 return HandCaptureBoundaryStatus.OutsideBoundary;
             }
 
-            float horizontalAngle = Mathf.Abs(
-                Mathf.Atan2(localPosition.x, depth) * Mathf.Rad2Deg
-            );
-            float verticalAngle =
-                Mathf.Atan2(localPosition.y, depth) * Mathf.Rad2Deg;
-            float verticalLimit = verticalAngle >= 0f
-                ? upperHalfAngle
-                : lowerHalfAngle;
-
-            if (
-                depth < nearDistance ||
-                depth > farDistance ||
-                horizontalAngle > horizontalHalfAngle ||
-                Mathf.Abs(verticalAngle) > verticalLimit
-            )
+            if (margin <= warningMarginFraction)
             {
-                return HandCaptureBoundaryStatus.OutsideBoundary;
-            }
-
-            if (
-                depth < nearDistance + distanceWarningMargin ||
-                depth > farDistance - distanceWarningMargin ||
-                horizontalAngle > horizontalHalfAngle - angularWarningMargin ||
-                Mathf.Abs(verticalAngle) > verticalLimit - angularWarningMargin
-            )
-            {
+                sample.status = nameof(HandCaptureBoundaryStatus.NearBoundary);
                 return HandCaptureBoundaryStatus.NearBoundary;
             }
 
+            sample.status = nameof(HandCaptureBoundaryStatus.Safe);
             return HandCaptureBoundaryStatus.Safe;
+        }
+
+        /// <summary>
+        /// Normalized headroom to the nearest safe-zone wall: 1 at the centre,
+        /// 0 on the boundary, negative outside. Also reports which wall is closest
+        /// so the glow can light the matching screen edge.
+        /// </summary>
+        private float ComputeMargin(
+            Vector3 localPosition,
+            float depth,
+            out BoundaryAxis axis)
+        {
+            float horizontalAngle =
+                Mathf.Atan2(localPosition.x, depth) * Mathf.Rad2Deg;
+            float verticalAngle =
+                Mathf.Atan2(localPosition.y, depth) * Mathf.Rad2Deg;
+
+            float horizontalMargin =
+                1f - Mathf.Abs(horizontalAngle) / horizontalHalfAngle;
+            float verticalLimit =
+                verticalAngle >= 0f ? upperHalfAngle : lowerHalfAngle;
+            float verticalMargin =
+                1f - Mathf.Abs(verticalAngle) / verticalLimit;
+
+            float depthSpan = Mathf.Max(0.01f, farDistance - nearDistance);
+            float depthMargin = Mathf.Min(
+                (depth - nearDistance) / depthSpan,
+                (farDistance - depth) / depthSpan
+            );
+
+            axis = BoundaryAxis.Depth;
+            float smallest = depthMargin;
+            if (horizontalMargin < smallest)
+            {
+                smallest = horizontalMargin;
+                axis = horizontalAngle >= 0f
+                    ? BoundaryAxis.Right
+                    : BoundaryAxis.Left;
+            }
+            if (verticalMargin < smallest)
+            {
+                smallest = verticalMargin;
+                axis = verticalAngle >= 0f
+                    ? BoundaryAxis.Up
+                    : BoundaryAxis.Down;
+            }
+
+            return smallest;
+        }
+
+        private enum BoundaryAxis { Left, Right, Up, Down, Depth }
+
+        private BoundaryAxis leftAxis;
+        private BoundaryAxis rightAxis;
+
+        /// <summary>
+        /// Turns each hand's remaining headroom into edge intensities. The glow
+        /// starts rising as soon as the hand enters the warning band and reaches
+        /// full strength once it is outside, so it reads as a distance rather than
+        /// an on/off alarm.
+        /// </summary>
+        private void RefreshGlow()
+        {
+            if (boundaryGlow == null)
+            {
+                return;
+            }
+
+            float glowLeft = 0f;
+            float glowRight = 0f;
+            float glowUp = 0f;
+            float glowDown = 0f;
+
+            Accumulate(leftSample, leftAxis, ref glowLeft, ref glowRight, ref glowUp, ref glowDown);
+            Accumulate(rightSample, rightAxis, ref glowLeft, ref glowRight, ref glowUp, ref glowDown);
+
+            boundaryGlow.SetIntensities(glowLeft, glowRight, glowUp, glowDown);
+            boundaryGlow.gameObject.SetActive(boundaryGlow.HasAnyGlow);
+        }
+
+        private void Accumulate(
+            HandCaptureSample sample,
+            BoundaryAxis axis,
+            ref float glowLeft,
+            ref float glowRight,
+            ref float glowUp,
+            ref float glowDown)
+        {
+            if (!sample.tracked)
+            {
+                // A lost hand cannot be localised, so warn on every edge at once.
+                float lost = 0.7f;
+                glowLeft = Mathf.Max(glowLeft, lost);
+                glowRight = Mathf.Max(glowRight, lost);
+                glowUp = Mathf.Max(glowUp, lost);
+                glowDown = Mathf.Max(glowDown, lost);
+                return;
+            }
+
+            float margin = sample.boundary_margin;
+            if (margin > warningMarginFraction)
+            {
+                return;
+            }
+
+            float intensity = margin < 0f
+                ? 1f
+                : Mathf.InverseLerp(warningMarginFraction, 0f, margin);
+
+            switch (axis)
+            {
+                case BoundaryAxis.Left:
+                    glowLeft = Mathf.Max(glowLeft, intensity);
+                    break;
+                case BoundaryAxis.Right:
+                    glowRight = Mathf.Max(glowRight, intensity);
+                    break;
+                case BoundaryAxis.Up:
+                    glowUp = Mathf.Max(glowUp, intensity);
+                    break;
+                case BoundaryAxis.Down:
+                    glowDown = Mathf.Max(glowDown, intensity);
+                    break;
+                default:
+                    glowLeft = Mathf.Max(glowLeft, intensity * 0.6f);
+                    glowRight = Mathf.Max(glowRight, intensity * 0.6f);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// The envelope is shown only before a take, so the teacher can wave around
+        /// and learn where the edges are instead of discovering them through
+        /// warnings while signing.
+        /// </summary>
+        private void RefreshSafeZonePreview()
+        {
+            if (safeZonePreview == null)
+            {
+                return;
+            }
+
+            safeZonePreview.SetActive(
+                coordinator.State == RecordingFlowState.Ready ||
+                coordinator.State == RecordingFlowState.Completed
+            );
         }
 
         private static bool TryBuildWarning(
@@ -291,6 +481,17 @@ namespace SignVR.Recording
             warningTimer = 0f;
             clearTimer = 0f;
             warningRoot.SetActive(false);
+
+            if (boundaryGlow != null)
+            {
+                boundaryGlow.Clear();
+                boundaryGlow.gameObject.SetActive(false);
+            }
+
+            if (safeZonePreview != null)
+            {
+                safeZonePreview.SetActive(false);
+            }
         }
 
 #if UNITY_EDITOR

@@ -33,6 +33,12 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
     [SerializeField]
     private MetaSourceDataProvider sourceDataProvider;
 
+    [Tooltip("可选：提供每帧手部追踪质量，写入 Pose 流与 Take 元数据。")]
+    [SerializeField]
+    private SignVR.Recording.HandCaptureBoundaryMonitor boundaryMonitor;
+
+    private SignVR.Recording.HandCaptureQualitySummary handCaptureQuality = new();
+
     [Header("Recording")]
     [SerializeField]
     private bool recordAutomatically = true;
@@ -122,6 +128,10 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         public Vector3Record[] positions;
         public QuaternionRecord[] rotations;
         public Vector3Record[] scales;
+
+        // Per-frame hand tracking quality, so a take can be filtered on measured
+        // reliability instead of someone judging it from the video.
+        public SignVR.Recording.HandCaptureFrame hand_capture;
     }
 
     [Serializable]
@@ -141,6 +151,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         public string pose_file;
         public string app_version;
         public string device_model;
+        public SignVR.Recording.HandCaptureQualitySummary hand_capture_quality;
     }
 
     private void Awake()
@@ -237,6 +248,8 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             );
             return false;
         }
+
+        handCaptureQuality = new SignVR.Recording.HandCaptureQualitySummary();
 
         string directory = Path.Combine(
             Application.persistentDataPath,
@@ -344,8 +357,17 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
                 positions = positions,
                 rotations = rotations,
-                scales = scales
+                scales = scales,
+
+                hand_capture = boundaryMonitor != null
+                    ? boundaryMonitor.CurrentFrame
+                    : default
             };
+
+            if (boundaryMonitor != null)
+            {
+                handCaptureQuality.Accumulate(frame.hand_capture);
+            }
 
             writer.WriteLine(
                 JsonUtility.ToJson(frame, false)
@@ -431,8 +453,13 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             pose_frame_count = sampleIndex,
             pose_file = Path.GetFileName(outputPath),
             app_version = Application.version,
-            device_model = SystemInfo.deviceModel
+            device_model = SystemInfo.deviceModel,
+            hand_capture_quality = handCaptureQuality
         };
+
+        handCaptureQuality.Finalize(
+            boundaryMonitor == null || boundaryMonitor.GuidanceEnabled
+        );
 
         File.WriteAllText(
             metadataPath,

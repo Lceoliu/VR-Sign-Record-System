@@ -29,6 +29,9 @@ namespace SignVR.Recording
         [SerializeField]
         private QuestPreviewStreamer previewStreamer;
 
+        [SerializeField]
+        private HandCaptureBoundaryMonitor boundaryMonitor;
+
         [Header("Discovery")]
         [SerializeField]
         [Range(1, 65535)]
@@ -93,6 +96,23 @@ namespace SignVR.Recording
             public string take_id;
             public int take_index;
             public long start_at_unix_ms;
+
+            // pedal: "down" / "hold" / "up"; hold carries progress in 0..1.
+            public string phase;
+            public float progress;
+
+            // set_guidance toggles the hand boundary guidance for A/B recording.
+            public bool enabled;
+        }
+
+        [Serializable]
+        private sealed class SignalPacket
+        {
+            public string type = "signal";
+            public int version = ProtocolVersion;
+            public string device_id;
+            public string signal;
+            public bool active;
         }
 
         [Serializable]
@@ -145,11 +165,37 @@ namespace SignVR.Recording
             }
 
             if (coordinator == null || recorder == null || motionStreamer == null ||
-                takeUploader == null || previewStreamer == null)
+                takeUploader == null || previewStreamer == null ||
+                boundaryMonitor == null)
             {
                 Debug.LogError("[QuestDeviceGateway] Scene dependencies are not assigned.");
                 enabled = false;
             }
+        }
+
+        /// <summary>
+        /// Raises a help flag on the operator console. A deaf teacher cannot call
+        /// out from inside the headset, so this is their only way to ask for help
+        /// without ending the session.
+        /// </summary>
+        public void SendHelpSignal(bool active)
+        {
+            if (pairedHostAddress == null)
+            {
+                return;
+            }
+
+            var packet = new SignalPacket
+            {
+                device_id = deviceId,
+                signal = "help",
+                active = active
+            };
+
+            SendPacket(
+                packet,
+                new IPEndPoint(pairedHostAddress, hostAnnouncementPort)
+            );
         }
 
         private void OnEnable()
@@ -283,6 +329,13 @@ namespace SignVR.Recording
                     coordinator.ResetCurrentPrompt();
                     accepted = true;
                     break;
+                case "pedal":
+                    accepted = HandlePedal(packet);
+                    break;
+                case "set_guidance":
+                    boundaryMonitor.SetGuidanceEnabled(packet.enabled);
+                    accepted = true;
+                    break;
                 default:
                     accepted = false;
                     break;
@@ -294,6 +347,29 @@ namespace SignVR.Recording
                 accepted,
                 accepted ? packet.action : "command_rejected"
             );
+        }
+
+        /// <summary>
+        /// Mirrors the operator pedal into the headset. The teacher cannot hear
+        /// the pedal click, so every press needs an immediate visual receipt and
+        /// the long-press ring has to fill inside the HMD, not only in the browser.
+        /// </summary>
+        private bool HandlePedal(CommandPacket packet)
+        {
+            switch (packet.phase)
+            {
+                case "down":
+                    coordinator.PulsePedal();
+                    return true;
+                case "hold":
+                    coordinator.SetResetHoldProgress(packet.progress);
+                    return true;
+                case "up":
+                    coordinator.CancelResetHold();
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         private bool StartRemoteTake(CommandPacket packet)

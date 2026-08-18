@@ -57,6 +57,14 @@ namespace SignVR.Recording
         [SerializeField]
         private Color errorColor = new Color(0.75f, 0.08f, 0.08f, 1f);
 
+        [Header("Pedal receipt")]
+        [SerializeField]
+        [Range(0.05f, 0.6f)]
+        private float pedalFlashSeconds = 0.18f;
+
+        [SerializeField]
+        private Color pedalFlashColor = new Color(1f, 1f, 1f, 1f);
+
         private RecordingCoordinator coordinator;
 
         public void ConfigureEnhancements(
@@ -109,11 +117,26 @@ namespace SignVR.Recording
                 coordinator.State == RecordingFlowState.Countdown ||
                 coordinator.State == RecordingFlowState.Recording ||
                 coordinator.State == RecordingFlowState.Reviewing ||
-                coordinator.ResetHoldProgress > 0f
+                coordinator.ResetHoldProgress > 0f ||
+                PedalFlashStrength() > 0f
             )
             {
                 Refresh();
             }
+        }
+
+        /// <summary>
+        /// 1 right after the pedal is pressed, fading to 0 over the flash window.
+        /// </summary>
+        private float PedalFlashStrength()
+        {
+            float elapsed = Time.unscaledTime - coordinator.LastPedalPulseTime;
+            if (elapsed < 0f || elapsed >= pedalFlashSeconds)
+            {
+                return 0f;
+            }
+
+            return 1f - (elapsed / pedalFlashSeconds);
         }
 
         private void Refresh()
@@ -140,6 +163,15 @@ namespace SignVR.Recording
         {
             string label;
             Color color;
+
+            if (coordinator.IsHelpRequested || coordinator.IsPaused)
+            {
+                ApplyState(
+                    coordinator.IsHelpRequested ? "已呼叫帮助，请稍候" : "已暂停 · 透视模式",
+                    busyColor
+                );
+                return;
+            }
 
             switch (coordinator.State)
             {
@@ -185,6 +217,11 @@ namespace SignVR.Recording
                     break;
             }
 
+            ApplyState(label, color);
+        }
+
+        private void ApplyState(string label, Color color)
+        {
             if (statusText != null)
             {
                 statusText.text = label;
@@ -327,6 +364,17 @@ namespace SignVR.Recording
                         : 0f;
                     visible = alpha > 0f;
                     break;
+            }
+
+            // The pedal flash overrides whatever the state was drawing. The teacher
+            // cannot hear the pedal, so "the press registered" outranks every other
+            // message the frame might be carrying at that moment.
+            float flash = PedalFlashStrength();
+            if (flash > 0f)
+            {
+                visible = true;
+                color = pedalFlashColor;
+                alpha = Mathf.Max(alpha, flash * 0.75f);
             }
 
             viewportFrame.gameObject.SetActive(visible);

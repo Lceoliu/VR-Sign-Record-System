@@ -15,7 +15,9 @@ namespace SignVR.Recording
             NextTutorialStep,
             CloseTutorial,
             ToggleReplay,
-            ToggleTutorial
+            ToggleTutorial,
+            TogglePassthrough,
+            ToggleHelp
         }
 
         [SerializeField]
@@ -32,6 +34,12 @@ namespace SignVR.Recording
 
         [SerializeField]
         private RecordingTutorialController tutorialController;
+
+        [SerializeField]
+        private RecordingPassthroughController passthroughController;
+
+        [SerializeField]
+        private RecordingHelpController helpController;
 
         public void Configure(
             PointableUnityEventWrapper wrapper,
@@ -103,6 +111,12 @@ namespace SignVR.Recording
                     break;
                 case ActionType.ToggleTutorial:
                     tutorialController.ToggleTutorial();
+                    break;
+                case ActionType.TogglePassthrough:
+                    passthroughController.TogglePassthrough();
+                    break;
+                case ActionType.ToggleHelp:
+                    helpController.ToggleHelp();
                     break;
             }
         }
