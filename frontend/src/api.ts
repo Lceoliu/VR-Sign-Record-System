@@ -21,6 +21,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sentences }),
     }),
+  // Fire-and-forget: a dropped pedal receipt must never block the pedal itself.
+  pedal: (phase: 'down' | 'hold' | 'up', progress = 0) => {
+    void fetch(`/api/pedal/${phase}?progress=${progress.toFixed(3)}`, { method: 'POST' }).catch(
+      () => undefined,
+    )
+  },
+  setGuidance: (enabled: boolean) =>
+    request<{ guidance_enabled: boolean }>(`/api/guidance/${enabled}`, { method: 'POST' }),
+  acknowledgeHelp: () => request<{ help_requested: boolean }>('/api/help/true', { method: 'POST' }),
   start: () => request<CommandResponse>('/api/recording/start', { method: 'POST' }),
   stop: () => request<CommandResponse>('/api/recording/stop', { method: 'POST' }),
   reset: () => request<CommandResponse>('/api/recording/reset', { method: 'POST' }),

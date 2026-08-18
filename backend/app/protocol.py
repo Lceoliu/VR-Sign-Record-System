@@ -38,6 +38,33 @@ def discovery_packet(reply_port: int) -> dict[str, Any]:
     }
 
 
+def pedal_packet(*, cmd_id: str, phase: str, progress: float = 0.0) -> dict[str, Any]:
+    """Mirror the pedal into the headset.
+
+    The teacher cannot hear the pedal click, so the press has to produce an
+    immediate visual receipt in the HMD, and the long-press ring has to fill
+    inside the headset rather than only in the operator's browser.
+    """
+    return {
+        "type": "command",
+        "version": PROTOCOL_VERSION,
+        "command_id": cmd_id,
+        "action": "pedal",
+        "phase": phase,
+        "progress": progress,
+    }
+
+
+def guidance_packet(*, cmd_id: str, enabled: bool) -> dict[str, Any]:
+    return {
+        "type": "command",
+        "version": PROTOCOL_VERSION,
+        "command_id": cmd_id,
+        "action": "set_guidance",
+        "enabled": enabled,
+    }
+
+
 def pair_packet(
     *,
     cmd_id: str,

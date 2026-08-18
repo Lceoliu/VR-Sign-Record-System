@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,8 +12,13 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 from .device_registry import DeviceRegistry
-from .models import DeviceSelectResponse, RecordingCommandResponse, SentenceImportRequest
-from .protocol import command_id, pair_packet
+from .models import (
+    DeviceSelectResponse,
+    RecordingCommandResponse,
+    SentenceImportRequest,
+    TakeQuality,
+)
+from .protocol import command_id, pair_packet, pedal_packet
 from .realtime import RealtimeHub
 from .recording_service import RecordingService
 from .repository import RecordingRepository, safe_segment
@@ -26,6 +32,16 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     recordings = RecordingService()
     repository = RecordingRepository(config.data_root)
     udp = UdpService(config, registry, hub)
+
+    async def handle_signal(packet: dict) -> None:
+        if str(packet.get("signal")) != "help":
+            return
+        state = await recordings.set_help_requested(bool(packet.get("active")))
+        await hub.publish_event(
+            {"type": "state_changed", "payload": state.model_dump(mode="json")}
+        )
+
+    udp.on_signal = handle_signal
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -161,6 +177,51 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
         return RecordingCommandResponse(action="reset_take", state=state, command_id=cmd_id)
 
+    @app.post("/api/pedal/{phase}", status_code=202)
+    async def pedal_event(phase: str, progress: float = 0.0) -> dict:
+        """Mirror the pedal into the headset.
+
+        Sent on every press regardless of whether it changes the recording state:
+        a deaf teacher has no other way to tell that the pedal registered.
+        """
+        if phase not in {"down", "hold", "up"}:
+            raise HTTPException(status_code=400, detail="Unknown pedal phase")
+        device = await registry.selected()
+        if device is None or not start_udp:
+            return {"status": "ignored"}
+        packet = pedal_packet(
+            cmd_id=command_id(), phase=phase, progress=max(0.0, min(1.0, progress))
+        )
+        try:
+            await udp.send_to_device(device.device_id, packet)
+        except KeyError:
+            return {"status": "ignored"}
+        return {"status": "sent", "phase": phase}
+
+    @app.post("/api/guidance/{enabled}")
+    async def set_guidance(enabled: bool):
+        """Toggle the in-headset boundary guidance for the A/B recording passes."""
+        state, packet, cmd_id = await recordings.set_guidance_enabled(enabled)
+        device = await registry.selected()
+        if device is not None and start_udp:
+            try:
+                await _send_and_require_ack(udp, device.device_id, packet)
+            except HTTPException:
+                await recordings.set_guidance_enabled(not enabled)
+                raise
+        await hub.publish_event(
+            {"type": "state_changed", "payload": state.model_dump(mode="json")}
+        )
+        return {"guidance_enabled": enabled, "command_id": cmd_id}
+
+    @app.post("/api/help/{acknowledged}")
+    async def acknowledge_help(acknowledged: bool):
+        state = await recordings.set_help_requested(not acknowledged)
+        await hub.publish_event(
+            {"type": "state_changed", "payload": state.model_dump(mode="json")}
+        )
+        return {"help_requested": state.help_requested}
+
     @app.post("/api/devices/{device_id}/preview-frame", status_code=202)
     async def upload_preview(
         device_id: str,
@@ -203,6 +264,9 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
             pose_file=str(pose_path.relative_to(repository.root)),
             meta_file=str(meta_path.relative_to(repository.root)),
         )
+        quality = _read_quality(meta_path)
+        if quality is not None:
+            state = await recordings.attach_quality(take_id, quality)
         await hub.publish_event({"type": "take_uploaded", "payload": state.model_dump(mode="json")})
         return {"pose_file": str(pose_path), "meta_file": str(meta_path)}
 
@@ -255,6 +319,26 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 
     return app
+
+
+def _read_quality(meta_path: Path) -> TakeQuality | None:
+    """Lift the hand tracking summary the Quest wrote into the take metadata."""
+    try:
+        payload = json.loads(meta_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    summary = payload.get("hand_capture_quality")
+    if not isinstance(summary, dict) or not summary.get("frames"):
+        return None
+    return TakeQuality(
+        frames=int(summary.get("frames", 0)),
+        clean_ratio=float(summary.get("clean_ratio", 0.0)),
+        left_tracked_ratio=float(summary.get("left_tracked_ratio", 0.0)),
+        right_tracked_ratio=float(summary.get("right_tracked_ratio", 0.0)),
+        left_inside_ratio=float(summary.get("left_inside_ratio", 0.0)),
+        right_inside_ratio=float(summary.get("right_inside_ratio", 0.0)),
+        guidance_enabled=bool(summary.get("guidance_enabled", True)),
+    )
 
 
 async def _mark_started(recordings: RecordingService, hub: RealtimeHub, start_at_unix_ms: int) -> None:

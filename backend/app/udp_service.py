@@ -32,6 +32,7 @@ class UdpService:
         self.hub = hub
         self.transport: asyncio.DatagramTransport | None = None
         self._pending_acks: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self.on_signal: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
@@ -95,6 +96,13 @@ class UdpService:
             if future and not future.done():
                 future.set_result(packet)
             await self.hub.publish_event({"type": "command_ack", "payload": packet})
+            return
+        if packet_type == "signal":
+            # The teacher pressed the help button inside the headset. They cannot
+            # call out, so this has to surface on the console immediately.
+            await self.hub.publish_event({"type": "device_signal", "payload": packet})
+            if self.on_signal is not None:
+                await self.on_signal(packet)
             return
         if packet_type in {"status", "skeleton", "frame"}:
             device_id = await self.registry.mark_pose_packet(packet.get("device_id"), addr[0])

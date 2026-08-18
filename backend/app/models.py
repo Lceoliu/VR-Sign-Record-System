@@ -36,6 +36,18 @@ class SentenceItem(BaseModel):
     status: Literal["completed", "current", "pending"] = "pending"
 
 
+class TakeQuality(BaseModel):
+    """Measured hand tracking quality for a take, read from its meta.json."""
+
+    frames: int = 0
+    clean_ratio: float = 0.0
+    left_tracked_ratio: float = 0.0
+    right_tracked_ratio: float = 0.0
+    left_inside_ratio: float = 0.0
+    right_inside_ratio: float = 0.0
+    guidance_enabled: bool = True
+
+
 class TakeItem(BaseModel):
     take_id: str
     take_index: int
@@ -43,6 +55,7 @@ class TakeItem(BaseModel):
     pose_file: str | None = None
     meta_file: str | None = None
     video_file: str | None = None
+    quality: TakeQuality | None = None
 
 
 class HostState(BaseModel):
@@ -56,6 +69,10 @@ class HostState(BaseModel):
     takes: list[TakeItem] = Field(default_factory=list)
     countdown_seconds: float = 2.0
     started_at_unix_ms: int | None = None
+    # Boundary guidance is toggled per recording pass so the same teacher can be
+    # recorded with and without it for the A/B comparison.
+    guidance_enabled: bool = True
+    help_requested: bool = False
 
 
 class SentenceImportRequest(BaseModel):

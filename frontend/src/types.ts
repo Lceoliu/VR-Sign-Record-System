@@ -23,6 +23,16 @@ export interface SentenceItem {
   status: 'completed' | 'current' | 'pending'
 }
 
+export interface TakeQuality {
+  frames: number
+  clean_ratio: number
+  left_tracked_ratio: number
+  right_tracked_ratio: number
+  left_inside_ratio: number
+  right_inside_ratio: number
+  guidance_enabled: boolean
+}
+
 export interface TakeItem {
   take_id: string
   take_index: number
@@ -30,6 +40,7 @@ export interface TakeItem {
   pose_file: string | null
   meta_file: string | null
   video_file: string | null
+  quality: TakeQuality | null
 }
 
 export interface HostState {
@@ -43,6 +54,8 @@ export interface HostState {
   takes: TakeItem[]
   countdown_seconds: number
   started_at_unix_ms: number | null
+  guidance_enabled: boolean
+  help_requested: boolean
 }
 
 export interface CommandResponse {

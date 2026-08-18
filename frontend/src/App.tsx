@@ -1,8 +1,12 @@
 import {
+  Activity,
+  BellRing,
   Camera,
   Check,
   ChevronRight,
   Circle,
+  Eye,
+  EyeOff,
   FileJson,
   FileText,
   Headset,
@@ -206,10 +210,17 @@ export default function App() {
       event.preventDefault()
       keyDownAtRef.current = performance.now()
       longPressTriggeredRef.current = false
+      // The teacher cannot hear the pedal, so every press is echoed into the
+      // headset immediately, before any state change is decided.
+      api.pedal('down')
       holdTimerRef.current = window.setInterval(() => {
         const elapsed = performance.now() - (keyDownAtRef.current ?? performance.now())
         const progress = Math.min(1, elapsed / HOLD_DURATION_MS)
         setHoldProgress(progress)
+        // Throttled to ~10 Hz: enough for a smooth ring, light enough for UDP.
+        if (Math.floor(elapsed / 100) !== Math.floor((elapsed - 30) / 100)) {
+          api.pedal('hold', progress)
+        }
         if (progress >= 1 && !longPressTriggeredRef.current) {
           longPressTriggeredRef.current = true
           void resetRecording()
@@ -220,6 +231,7 @@ export default function App() {
       if (event.code !== 'Space' || keyDownAtRef.current === null) return
       event.preventDefault()
       if (holdTimerRef.current !== null) window.clearInterval(holdTimerRef.current)
+      api.pedal('up')
       if (!longPressTriggeredRef.current) {
         if (isRecording) void stopRecording()
         else void startRecording()
@@ -310,6 +322,18 @@ export default function App() {
             <span>导入句子文本</span>
             <input type="file" accept=".txt,text/plain" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importSentenceFile(file) }} />
           </label>
+
+          <section className="device-section">
+            <div className="section-heading"><h3>追踪边界提示</h3></div>
+            <button
+              className={`guidance-toggle ${state.guidance_enabled ? 'on' : 'off'}`}
+              onClick={() => void api.setGuidance(!state.guidance_enabled).catch((reason: Error) => setError(reason.message))}
+            >
+              {state.guidance_enabled ? <Eye size={17} /> : <EyeOff size={17} />}
+              <span>{state.guidance_enabled ? '提示已开启' : '提示已关闭'}</span>
+            </button>
+            <p className="guidance-hint">对照录制时关闭，实验组录制时开启；两种情况都会记录追踪质量。</p>
+          </section>
         </aside>
 
         <main className="main-stage">
@@ -321,6 +345,13 @@ export default function App() {
             <VideoPanel kind="camera" title="外置相机" meta={cameraReady ? '1280 × 720' : '未就绪'} videoRef={videoRef} active={state.recording_status === 'recording'} />
             <SkeletonPanel title="Quest 实时动作" deviceId={selectedDeviceId} active={state.recording_status === 'recording'} />
           </div>
+          {state.help_requested && (
+            <div className="help-banner" role="alert">
+              <BellRing size={20} />
+              <span>老师在头显内呼叫帮助</span>
+              <button onClick={() => void api.acknowledgeHelp().catch(() => undefined)}>我已处理</button>
+            </div>
+          )}
           <StatusStrip status={state.recording_status} displayTime={formatTimer(state.recording_status, state.started_at_unix_ms, now)} />
           {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError(null)}>关闭</button></div>}
         </main>
@@ -348,6 +379,13 @@ export default function App() {
                   <div><FileText size={15} /><span>pose.jsonl</span><i className={take.pose_file ? 'received' : ''}>{take.pose_file ? '已接收' : '等待'}</i></div>
                   <div><FileJson size={15} /><span>meta.json</span><i className={take.meta_file ? 'received' : ''}>{take.meta_file ? '已接收' : '等待'}</i></div>
                   <div><Camera size={15} /><span>camera.webm</span><i className={take.video_file ? 'received' : ''}>{take.video_file ? '已接收' : '等待'}</i></div>
+                  {take.quality && (
+                    <div className={`take-quality ${take.quality.clean_ratio >= 0.9 ? 'good' : take.quality.clean_ratio >= 0.75 ? 'fair' : 'poor'}`}>
+                      <Activity size={15} />
+                      <span>追踪质量</span>
+                      <i>{Math.round(take.quality.clean_ratio * 100)}%{take.quality.guidance_enabled ? '' : ' · 无提示'}</i>
+                    </div>
+                  )}
                 </article>
               ))}
             </div>

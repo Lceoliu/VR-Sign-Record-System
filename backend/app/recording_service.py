@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 
-from .models import HostState, RecordingStatus, SentenceItem, TakeItem
+from .models import HostState, RecordingStatus, SentenceItem, TakeItem, TakeQuality
 from .protocol import command_id, unix_ms
 
 
@@ -37,6 +37,29 @@ class RecordingService:
     async def set_selected_device(self, device_id: str) -> HostState:
         async with self._lock:
             self._state.selected_device_id = device_id
+            return self._state.model_copy(deep=True)
+
+    async def set_guidance_enabled(self, enabled: bool) -> tuple[HostState, dict, str]:
+        async with self._lock:
+            self._state.guidance_enabled = enabled
+            cmd_id = command_id()
+            from .protocol import guidance_packet
+
+            packet = guidance_packet(cmd_id=cmd_id, enabled=enabled)
+            return self._state.model_copy(deep=True), packet, cmd_id
+
+    async def set_help_requested(self, requested: bool) -> HostState:
+        async with self._lock:
+            self._state.help_requested = requested
+            return self._state.model_copy(deep=True)
+
+    async def attach_quality(self, take_id: str, quality: TakeQuality) -> HostState:
+        async with self._lock:
+            take = next(
+                (item for item in self._state.takes if item.take_id == take_id), None
+            )
+            if take is not None:
+                take.quality = quality
             return self._state.model_copy(deep=True)
 
     async def import_sentences(self, values: list[str]) -> HostState:
