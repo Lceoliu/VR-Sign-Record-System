@@ -11,6 +11,14 @@ namespace SignVR.Recording
     {
         [Header("Source")]
         [SerializeField]
+        [Tooltip(
+            "网页监控端已改用骨架动作视图，默认不再上传 JPEG 画面。" +
+            "仅在确实需要 Quest 渲染画面时开启，注意它会带来 GPU 回读、" +
+            "JPEG 编码与逐帧 HTTP 上传的开销。"
+        )]
+        private bool streamJpegPreview;
+
+        [SerializeField]
         private Camera sourceCamera;
 
         [SerializeField]
@@ -66,6 +74,12 @@ namespace SignVR.Recording
 
         private void Awake()
         {
+            if (!streamJpegPreview)
+            {
+                enabled = false;
+                return;
+            }
+
             if (sourceCamera == null)
             {
                 sourceCamera = Camera.main;
@@ -90,6 +104,13 @@ namespace SignVR.Recording
             string deviceId,
             string token)
         {
+            // The gateway calls this on every pair, so the switch is re-checked
+            // here rather than relying on the component being enabled.
+            if (!streamJpegPreview)
+            {
+                return;
+            }
+
             previewUrl =
                 $"{hostBaseUrl.TrimEnd('/')}/api/devices/" +
                 $"{UnityWebRequest.EscapeURL(deviceId)}/preview-frame";
