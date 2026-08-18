@@ -3,11 +3,32 @@ using System.IO;
 using System.Text;
 using Meta.XR.Movement;
 using Meta.XR.Movement.Retargeting;
+using SignVR.Recording;
 using Unity.Collections;
 using UnityEngine;
 
 public sealed class MetaBodyMotionRecorder : MonoBehaviour
 {
+    public readonly struct RecordingArtifact
+    {
+        public RecordingArtifact(
+            RecordingTakeContext take,
+            string posePath,
+            string metadataPath,
+            string captureStatus)
+        {
+            Take = take;
+            PosePath = posePath;
+            MetadataPath = metadataPath;
+            CaptureStatus = captureStatus;
+        }
+
+        public RecordingTakeContext Take { get; }
+        public string PosePath { get; }
+        public string MetadataPath { get; }
+        public string CaptureStatus { get; }
+    }
+
     [Header("Source")]
     [SerializeField]
     private MetaSourceDataProvider sourceDataProvider;
@@ -39,10 +60,20 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
     private long sampleIndex;
     private string outputPath;
+    private string metadataPath;
+    private DateTime recordingStartedUtc;
+    private RecordingTakeContext currentTake;
 
     public bool IsRecording => isRecording;
     public long SampleCount => sampleIndex;
     public string CurrentOutputPath => outputPath;
+    public string CurrentMetadataPath => metadataPath;
+    public RecordingTakeContext CurrentTake => currentTake;
+    public bool IsPoseReady =>
+        sourceDataProvider != null &&
+        sourceDataProvider.IsPoseValid();
+
+    public event Action<RecordingArtifact> RecordingFinalized;
 
     [Serializable]
     private struct Vector3Record
@@ -91,6 +122,25 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         public Vector3Record[] positions;
         public QuaternionRecord[] rotations;
         public Vector3Record[] scales;
+    }
+
+    [Serializable]
+    private sealed class TakeMetadata
+    {
+        public string session_id;
+        public string sentence_id;
+        public string sentence_text;
+        public string take_id;
+        public int take_index;
+        public string capture_status;
+        public string review_status;
+        public string reset_reason;
+        public string utc_started;
+        public string utc_stopped;
+        public long pose_frame_count;
+        public string pose_file;
+        public string app_version;
+        public string device_model;
     }
 
     private void Awake()
@@ -161,9 +211,22 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
     public void StartRecording()
     {
-        if (isRecording || sourceDataProvider == null)
+        RecordingTakeContext legacyTake =
+            RecordingTakeContext.CreateLocal(
+                "legacy-session",
+                "legacy-sentence",
+                "Legacy recording",
+                1
+            );
+
+        TryStartRecording(legacyTake);
+    }
+
+    public bool TryStartRecording(RecordingTakeContext take)
+    {
+        if (isRecording || sourceDataProvider == null || !take.IsValid)
         {
-            return;
+            return false;
         }
 
         if (!sourceDataProvider.IsPoseValid())
@@ -172,31 +235,39 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
                 "[MetaBodyMotionRecorder] " +
                 "Body pose is not valid yet."
             );
-            return;
+            return false;
         }
 
         string directory = Path.Combine(
             Application.persistentDataPath,
-            "Recordings"
+            "Recordings",
+            take.SafeSessionId,
+            take.SafeSentenceId
         );
         Debug.Log($"Motion saved to: {directory}");
 
         Directory.CreateDirectory(directory);
 
-        string sessionName =
-            "meta_body_" +
-            DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-
         outputPath = Path.Combine(
             directory,
-            sessionName + "_frames.jsonl"
+            take.FileStem + ".pose.jsonl"
+        );
+        metadataPath = Path.Combine(
+            directory,
+            take.FileStem + ".meta.json"
         );
 
         writer = new StreamWriter(
-            outputPath,
-            false,
+            new FileStream(
+                outputPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.Read,
+                65536
+            ),
             new UTF8Encoding(false),
-            65536
+            65536,
+            false
         );
 
         recordingStartTime =
@@ -211,11 +282,15 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         sampleIndex = 0;
         isRecording = true;
         hasRecorded = true;
+        currentTake = take;
+        recordingStartedUtc = DateTime.UtcNow;
 
         Debug.Log(
             "[MetaBodyMotionRecorder] Recording started: " +
             outputPath
         );
+
+        return true;
     }
 
     private void CaptureFrame(double now)
@@ -294,6 +369,21 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
     public void StopRecording()
     {
+        StopRecordingInternal("completed", string.Empty);
+    }
+
+    public void StopRecordingAsInterrupted()
+    {
+        StopRecordingInternal(
+            "interrupted_by_retake",
+            "reset_current_sentence"
+        );
+    }
+
+    private void StopRecordingInternal(
+        string captureStatus,
+        string resetReason)
+    {
         if (!isRecording)
         {
             return;
@@ -305,9 +395,49 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         writer?.Dispose();
         writer = null;
 
+        WriteTakeMetadata(captureStatus, resetReason);
+
+        RecordingFinalized?.Invoke(
+            new RecordingArtifact(
+                currentTake,
+                outputPath,
+                metadataPath,
+                captureStatus
+            )
+        );
+
         Debug.Log(
             "[MetaBodyMotionRecorder] Recording stopped. " +
             $"Samples: {sampleIndex}. File: {outputPath}"
+        );
+    }
+
+    private void WriteTakeMetadata(
+        string captureStatus,
+        string resetReason)
+    {
+        var metadata = new TakeMetadata
+        {
+            session_id = currentTake.SessionId,
+            sentence_id = currentTake.SentenceId,
+            sentence_text = currentTake.PromptText,
+            take_id = currentTake.TakeId,
+            take_index = currentTake.TakeIndex,
+            capture_status = captureStatus,
+            review_status = "candidate",
+            reset_reason = resetReason,
+            utc_started = recordingStartedUtc.ToString("O"),
+            utc_stopped = DateTime.UtcNow.ToString("O"),
+            pose_frame_count = sampleIndex,
+            pose_file = Path.GetFileName(outputPath),
+            app_version = Application.version,
+            device_model = SystemInfo.deviceModel
+        };
+
+        File.WriteAllText(
+            metadataPath,
+            JsonUtility.ToJson(metadata, true),
+            new UTF8Encoding(false)
         );
     }
 
@@ -315,17 +445,26 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
     {
         if (paused)
         {
-            StopRecording();
+            StopRecordingInternal(
+                "interrupted_application_pause",
+                "application_pause"
+            );
         }
     }
 
     private void OnApplicationQuit()
     {
-        StopRecording();
+        StopRecordingInternal(
+            "interrupted_application_quit",
+            "application_quit"
+        );
     }
 
     private void OnDestroy()
     {
-        StopRecording();
+        StopRecordingInternal(
+            "interrupted_component_destroy",
+            "component_destroy"
+        );
     }
 }

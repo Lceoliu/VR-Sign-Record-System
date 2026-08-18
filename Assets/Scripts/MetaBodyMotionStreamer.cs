@@ -304,6 +304,34 @@ public sealed class MetaBodyMotionStreamer : MonoBehaviour
         }
     }
 
+    public bool ConfigureDestination(
+        string host,
+        int port,
+        bool startImmediately = true)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            throw new ArgumentException("Remote host is empty.", nameof(host));
+        }
+
+        if (port < 1 || port > 65535)
+        {
+            throw new ArgumentOutOfRangeException(nameof(port));
+        }
+
+        StopStreaming();
+        remoteHost = host;
+        remotePort = port;
+        streamAutomatically = startImmediately;
+
+        if (startImmediately)
+        {
+            StartStreaming();
+        }
+
+        return IsStreaming;
+    }
+
     public void StopStreaming()
     {
         if (udpClient == null)
