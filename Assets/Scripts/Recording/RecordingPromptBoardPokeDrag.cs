@@ -45,9 +45,9 @@ namespace SignVR.Recording
                 return;
             }
 
-            board.position =
-                boardStartPosition +
-                (pointerEvent.Pose.position - pointerStartPosition);
+            Vector3 position = boardStartPosition;
+            position.y += pointerEvent.Pose.position.y - pointerStartPosition.y;
+            board.position = position;
         }
 
         private void EndDrag(PointerEvent _)

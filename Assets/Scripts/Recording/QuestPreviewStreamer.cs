@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Networking;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace SignVR.Recording
 {
@@ -12,11 +13,10 @@ namespace SignVR.Recording
         [Header("Source")]
         [SerializeField]
         [Tooltip(
-            "网页监控端已改用骨架动作视图，默认不再上传 JPEG 画面。" +
-            "仅在确实需要 Quest 渲染画面时开启，注意它会带来 GPU 回读、" +
-            "JPEG 编码与逐帧 HTTP 上传的开销。"
+            "向网页监控端上传独立正面摄像机的压缩 JPEG 画面。" +
+            "关闭可节省 GPU 回读、JPEG 编码与 HTTP 上传开销。"
         )]
-        private bool streamJpegPreview;
+        private bool streamJpegPreview = true;
 
         [SerializeField]
         private Camera sourceCamera;
@@ -64,12 +64,14 @@ namespace SignVR.Recording
             Transform head,
             Transform hips,
             Vector3 cameraPosition,
-            float verticalFieldOfView)
+            float verticalFieldOfView,
+            bool enableJpegStreaming)
         {
             upperBodyHead = head;
             upperBodyHips = hips;
             fixedCameraPosition = cameraPosition;
             fieldOfView = verticalFieldOfView;
+            streamJpegPreview = enableJpegStreaming;
         }
 
         private void Awake()
@@ -151,6 +153,10 @@ namespace SignVR.Recording
                 cameraObject.transform.SetParent(transform, false);
                 previewCamera = cameraObject.AddComponent<Camera>();
                 previewCamera.enabled = false;
+                UniversalAdditionalCameraData cameraData =
+                    cameraObject.AddComponent<UniversalAdditionalCameraData>();
+                cameraData.allowXRRendering = false;
+                cameraData.renderPostProcessing = false;
             }
         }
 
@@ -165,15 +171,23 @@ namespace SignVR.Recording
                 {
                     previewCamera.CopyFrom(sourceCamera);
                     PositionPreviewCamera();
-                    previewCamera.stereoTargetEye = StereoTargetEyeMask.None;
                     previewCamera.aspect = (float)width / height;
                     previewCamera.fieldOfView = fieldOfView;
                     previewCamera.targetTexture = renderTexture;
 
-                    int overlayUiLayer = LayerMask.NameToLayer("Overlay UI");
-                    if (overlayUiLayer >= 0)
+                    int mirroredCharacterLayer =
+                        LayerMask.NameToLayer("MirroredCharacter");
+                    if (mirroredCharacterLayer >= 0)
                     {
-                        previewCamera.cullingMask &= ~(1 << overlayUiLayer);
+                        previewCamera.cullingMask = 1 << mirroredCharacterLayer;
+                    }
+                    else
+                    {
+                        int overlayUiLayer = LayerMask.NameToLayer("Overlay UI");
+                        if (overlayUiLayer >= 0)
+                        {
+                            previewCamera.cullingMask &= ~(1 << overlayUiLayer);
+                        }
                     }
 
                     previewCamera.enabled = true;

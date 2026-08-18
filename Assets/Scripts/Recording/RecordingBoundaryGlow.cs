@@ -87,6 +87,18 @@ namespace SignVR.Recording
 
         public bool HasAnyGlow => left > 0f || right > 0f || up > 0f || down > 0f;
 
+        /// <summary>
+        /// Switches between the quiet boundary cue and the high-priority tracking
+        /// loss alarm without requiring separate full-screen graphics.
+        /// </summary>
+        public void SetVisualStyle(Color tint, float frequency, float depth)
+        {
+            color = tint;
+            pulseHz = Mathf.Max(0f, frequency);
+            pulseDepth = Mathf.Clamp(depth, 0f, 0.6f);
+            SetVerticesDirty();
+        }
+
         protected override void OnPopulateMesh(VertexHelper vertexHelper)
         {
             vertexHelper.Clear();

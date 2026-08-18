@@ -90,7 +90,7 @@ namespace SignVR.Recording
             );
         }
 
-        private static string SanitizeFileSegment(string value)
+        internal static string SanitizeFileSegment(string value)
         {
             char[] invalidCharacters = Path.GetInvalidFileNameChars();
             var builder = new StringBuilder(value.Length);

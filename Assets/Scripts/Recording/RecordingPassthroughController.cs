@@ -1,6 +1,8 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace SignVR.Recording
 {
@@ -44,6 +46,10 @@ namespace SignVR.Recording
         private Color cachedBackgroundColor;
         private Material cachedSkybox;
         private bool cachedFlagsValid;
+        private bool targetPassthroughState;
+        private Coroutine transitionRoutine;
+
+        private static readonly WaitForEndOfFrame EndOfFrame = new();
 
         public bool IsPassthroughActive { get; private set; }
 
@@ -72,67 +78,137 @@ namespace SignVR.Recording
             {
                 ovrManager = FindAnyObjectByType<OVRManager>();
             }
+
+            // Keep one native passthrough layer alive for the whole app session.
+            // Recreating its compositor layer during every VR/MR switch can leave
+            // stale tiles in the eye buffer on Quest.
+            if (passthroughLayer != null)
+            {
+                passthroughLayer.textureOpacity = 0f;
+                passthroughLayer.enabled = true;
+            }
+
+            // This scene has no active post-process effects. Keeping the HMD
+            // camera path stable avoids rebuilding URP passes during a switch.
+            SetPostProcessing(false);
         }
 
         public void TogglePassthrough()
         {
-            SetPassthrough(!IsPassthroughActive);
+            SetPassthrough(!targetPassthroughState);
         }
 
         public void SetPassthrough(bool active)
         {
-            if (IsPassthroughActive == active)
+            if (
+                targetPassthroughState == active &&
+                (transitionRoutine != null || IsPassthroughActive == active)
+            )
             {
                 return;
             }
 
-            if (active && !TryEnablePassthroughLayer())
+            if (active && !HasPassthroughSetup())
             {
                 Debug.LogWarning(
-                    "[RecordingPassthroughController] Passthrough is unavailable on this device."
+                    "[SignVRPassthrough] Unavailable: " +
+                    $"ovrManager={(ovrManager == null ? "null" : "ok")}, " +
+                    $"layer={(passthroughLayer == null ? "null" : "ok")}."
                 );
                 return;
             }
 
-            IsPassthroughActive = active;
-
-            ApplyCameraClear(active);
-            SetGroupActive(virtualScenery, !active);
-            SetGroupActive(virtualCharacters, !active);
-            SetGroupActive(keepVisible, true);
-
-            if (passthroughLayer != null)
+            targetPassthroughState = active;
+            if (transitionRoutine != null)
             {
-                passthroughLayer.enabled = active;
+                StopCoroutine(transitionRoutine);
             }
-
-            if (!active && ovrManager != null)
-            {
-                // Turn the global flag back off, otherwise the compositor keeps
-                // blending and the UI stays washed out after returning to the room.
-                ovrManager.isInsightPassthroughEnabled = false;
-            }
-
-            // Passthrough doubles as the pause affordance: no take may start while
-            // the teacher is looking at the real room.
-            coordinator.SetPaused(active);
+            transitionRoutine = StartCoroutine(
+                active ? EnterPassthrough() : ExitPassthrough()
+            );
         }
 
-        /// <summary>
-        /// Passthrough is left off at startup: switching it on globally makes the
-        /// compositor alpha-blend the whole frame, which washes out the HMD UI.
-        /// It is turned on only for the duration of the passthrough break.
-        /// </summary>
-        private bool TryEnablePassthroughLayer()
+        private IEnumerator EnterPassthrough()
         {
-            if (ovrManager == null || passthroughLayer == null)
+            // Pause immediately, but keep the virtual room opaque until the Quest
+            // compositor reports that passthrough is actually initialized.
+            coordinator.SetPaused(true);
+            passthroughLayer.textureOpacity = 0f;
+            passthroughLayer.enabled = true;
+
+            while (!OVRManager.IsInsightPassthroughInitialized())
             {
-                return false;
+                if (OVRManager.HasInsightPassthroughInitFailed())
+                {
+                    AbortPassthroughEntry();
+                    yield break;
+                }
+
+                yield return null;
             }
 
-            ovrManager.isInsightPassthroughEnabled = true;
-            passthroughLayer.overlayType = OVROverlay.OverlayType.Underlay;
-            return true;
+            passthroughLayer.textureOpacity = 1f;
+            yield return EndOfFrame;
+            ApplyCameraClear(true);
+            SetGroupActive(virtualScenery, false);
+            SetGroupActive(virtualCharacters, false);
+            SetGroupActive(keepVisible, true);
+            yield return EndOfFrame;
+
+            IsPassthroughActive = true;
+            transitionRoutine = null;
+            LogState();
+        }
+
+        private void AbortPassthroughEntry()
+        {
+            passthroughLayer.textureOpacity = 0f;
+            passthroughLayer.enabled = false;
+            SetGroupActive(virtualScenery, true);
+            SetGroupActive(virtualCharacters, true);
+            SetGroupActive(keepVisible, true);
+            ApplyCameraClear(false);
+            targetPassthroughState = false;
+            IsPassthroughActive = false;
+            transitionRoutine = null;
+            coordinator.SetPaused(false);
+            Debug.LogError(
+                "[SignVRPassthrough] Quest reported that passthrough initialization failed."
+            );
+        }
+
+        private IEnumerator ExitPassthrough()
+        {
+            // Restore a complete opaque virtual frame before stopping the native
+            // passthrough stream. This prevents stale compositor tiles from being
+            // exposed during the transition back to immersion.
+            SetGroupActive(virtualScenery, true);
+            SetGroupActive(virtualCharacters, true);
+            SetGroupActive(keepVisible, true);
+            ApplyCameraClear(false);
+            yield return EndOfFrame;
+            yield return null;
+
+            passthroughLayer.textureOpacity = 0f;
+            IsPassthroughActive = false;
+            coordinator.SetPaused(false);
+            transitionRoutine = null;
+            LogState();
+        }
+
+        private bool HasPassthroughSetup()
+        {
+            return ovrManager != null && passthroughLayer != null;
+        }
+
+        private void LogState()
+        {
+            Debug.Log(
+                $"[SignVRPassthrough] active={IsPassthroughActive}, " +
+                $"insightEnabled={ovrManager.isInsightPassthroughEnabled}, " +
+                $"layerEnabled={passthroughLayer.enabled}, " +
+                $"clearFlags={hmdCamera.clearFlags}, bg={hmdCamera.backgroundColor}."
+            );
         }
 
         private void ApplyCameraClear(bool active)
@@ -162,6 +238,15 @@ namespace SignVR.Recording
             }
         }
 
+        private void SetPostProcessing(bool enabled)
+        {
+            var cameraData = hmdCamera.GetComponent<UniversalAdditionalCameraData>();
+            if (cameraData != null)
+            {
+                cameraData.renderPostProcessing = enabled;
+            }
+        }
+
         private static void SetGroupActive(List<GameObject> group, bool active)
         {
             foreach (GameObject item in group)
@@ -171,6 +256,27 @@ namespace SignVR.Recording
                     item.SetActive(active);
                 }
             }
+        }
+
+        private void OnDisable()
+        {
+            if (transitionRoutine != null)
+            {
+                StopCoroutine(transitionRoutine);
+                transitionRoutine = null;
+            }
+
+            targetPassthroughState = false;
+            IsPassthroughActive = false;
+            SetGroupActive(virtualScenery, true);
+            SetGroupActive(virtualCharacters, true);
+            SetGroupActive(keepVisible, true);
+            ApplyCameraClear(false);
+            if (passthroughLayer != null)
+            {
+                passthroughLayer.textureOpacity = 0f;
+            }
+            coordinator?.SetPaused(false);
         }
     }
 }

@@ -138,13 +138,26 @@ namespace SignVR.Recording
             SessionId = sessionId;
             SentenceId = sentenceId;
             PromptText = promptText ?? string.Empty;
-            nextTakeIndex = startingTakeIndex;
             CurrentTake = default;
-            HasLastArtifact = false;
-            LastArtifact = default;
+            HasLastArtifact = recorder.TryFindLatestArtifact(
+                sessionId,
+                sentenceId,
+                out MetaBodyMotionRecorder.RecordingArtifact restoredArtifact
+            );
+            LastArtifact = HasLastArtifact ? restoredArtifact : default;
+            nextTakeIndex = HasLastArtifact
+                ? Mathf.Max(startingTakeIndex, restoredArtifact.Take.TakeIndex + 1)
+                : startingTakeIndex;
             CountdownRemaining = 0f;
             ResetHoldProgress = 0f;
             LastError = string.Empty;
+            if (HasLastArtifact)
+            {
+                Debug.Log(
+                    "[RecordingCoordinator] Restored replay candidate " +
+                    $"{restoredArtifact.Take.TakeId} from local storage."
+                );
+            }
             NotifyPresentationChanged();
             return true;
         }

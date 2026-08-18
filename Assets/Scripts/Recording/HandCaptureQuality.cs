@@ -14,12 +14,14 @@ namespace SignVR.Recording
     {
         public bool tracked;
         public bool high_confidence;
+        public bool pose_source_inferred;
         public float confidence;
         public bool inside_safe_zone;
 
         /// <summary>
-        /// Normalized headroom before leaving the safe zone: 1 at the centre,
-        /// 0 exactly on the boundary, negative once outside.
+        /// Camera-source state used by the capture-quality export. One means a
+        /// direct, high-confidence camera pose; zero means degraded confidence;
+        /// negative one means WMM is supplying an inferred pose.
         /// </summary>
         public float boundary_margin;
 

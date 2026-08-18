@@ -19,6 +19,18 @@ namespace SignVR.Recording
         private CharacterRetargeter liveRetargeter;
 
         [SerializeField]
+        private OVRHand leftLiveHand;
+
+        [SerializeField]
+        private OVRHand rightLiveHand;
+
+        [SerializeField]
+        private SkinnedMeshRenderer leftLiveHandRenderer;
+
+        [SerializeField]
+        private SkinnedMeshRenderer rightLiveHandRenderer;
+
+        [SerializeField]
         [Range(0.25f, 2f)]
         private float playbackSpeed = 1f;
 
@@ -39,11 +51,18 @@ namespace SignVR.Recording
         public float LoadingProgress { get; private set; }
         public float PlaybackProgress { get; private set; }
         public float DurationSeconds { get; private set; }
+        public string LastError { get; private set; } = string.Empty;
+        public bool HasError => !string.IsNullOrWhiteSpace(LastError);
 
         public string StatusLabel
         {
             get
             {
+                if (HasError)
+                {
+                    return LastError;
+                }
+
                 if (IsLoading)
                 {
                     return $"正在载入动作 {Mathf.RoundToInt(LoadingProgress * 100f)}%";
@@ -115,34 +134,66 @@ namespace SignVR.Recording
 
         public void Configure(
             RecordingCoordinator recordingCoordinator,
-            CharacterRetargeter characterRetargeter)
+            CharacterRetargeter characterRetargeter,
+            OVRHand leftHand,
+            OVRHand rightHand)
         {
             coordinator = recordingCoordinator;
             liveRetargeter = characterRetargeter;
+            leftLiveHand = leftHand;
+            rightLiveHand = rightHand;
+            leftLiveHandRenderer = leftHand.GetComponent<SkinnedMeshRenderer>();
+            rightLiveHandRenderer = rightHand.GetComponent<SkinnedMeshRenderer>();
         }
 
         public void PlayLastTake()
         {
+            LastError = string.Empty;
+
             if (IsReviewing)
             {
                 RestartPlayback();
                 return;
             }
 
-            if (
-                coordinator == null ||
-                liveRetargeter == null ||
-                !coordinator.HasLastArtifact
-            )
+            if (coordinator == null || liveRetargeter == null)
             {
+                RejectPlayback(
+                    "回放组件未就绪，请呼叫工作人员",
+                    "Coordinator or retargeter is not assigned."
+                );
+                return;
+            }
+
+            if (!coordinator.HasLastArtifact)
+            {
+                RejectPlayback(
+                    "当前句还没有可回看的动作",
+                    $"No finalized Take. State={coordinator.State}."
+                );
                 return;
             }
 
             string posePath = coordinator.LastArtifact.PosePath;
-            if (!File.Exists(posePath) || !coordinator.TryBeginReview())
+            if (!File.Exists(posePath))
             {
+                RejectPlayback(
+                    "回放文件不存在，请重新录制本句",
+                    $"Pose file is missing at {posePath}."
+                );
                 return;
             }
+
+            if (!coordinator.TryBeginReview())
+            {
+                RejectPlayback(
+                    "请等待当前操作完成后再回放",
+                    $"Cannot enter review from {coordinator.State}."
+                );
+                return;
+            }
+
+            Debug.Log($"[RecordingReplay] Loading {posePath}.");
 
             loadRoutine = StartCoroutine(LoadAndPlay(posePath));
         }
@@ -207,7 +258,14 @@ namespace SignVR.Recording
             PlaybackProgress = 0f;
             IsPaused = false;
             IsComplete = false;
-            ApplyFrame(frames[0]);
+            if (!ApplyFrame(frames[0]))
+            {
+                AbortReview(
+                    "机器人回放启动失败，请呼叫工作人员",
+                    "The retargeter rejected the first playback frame."
+                );
+                return;
+            }
             PresentationChanged?.Invoke();
         }
 
@@ -222,13 +280,19 @@ namespace SignVR.Recording
             frames.Clear();
             PresentationChanged?.Invoke();
 
-            long fileLength = new FileInfo(posePath).Length;
-            using (var stream = new FileStream(
-                       posePath,
-                       FileMode.Open,
-                       FileAccess.Read,
-                       FileShare.ReadWrite))
-            using (var reader = new StreamReader(stream))
+            if (!TryOpenPoseFile(
+                    posePath,
+                    out FileStream stream,
+                    out StreamReader reader,
+                    out string openError))
+            {
+                AbortReview("无法读取回放文件，请重新录制本句", openError);
+                yield break;
+            }
+
+            long fileLength = stream.Length;
+            using (stream)
+            using (reader)
             {
                 int linesRead = 0;
                 while (!reader.EndOfStream)
@@ -236,8 +300,14 @@ namespace SignVR.Recording
                     string line = reader.ReadLine();
                     if (!string.IsNullOrWhiteSpace(line))
                     {
-                        RecordedFrame frame =
-                            JsonUtility.FromJson<RecordedFrame>(line);
+                        if (!TryParseFrame(line, out RecordedFrame frame))
+                        {
+                            AbortReview(
+                                "回放文件内容损坏，请重新录制本句",
+                                $"Invalid JSON at pose line {linesRead + 1}."
+                            );
+                            yield break;
+                        }
                         if (frame != null && frame.IsUsable)
                         {
                             frames.Add(frame);
@@ -245,7 +315,7 @@ namespace SignVR.Recording
                     }
 
                     linesRead++;
-                    if (linesRead % 120 == 0)
+                    if (linesRead % 24 == 0)
                     {
                         LoadingProgress = fileLength > 0
                             ? Mathf.Clamp01((float)stream.Position / fileLength)
@@ -262,11 +332,21 @@ namespace SignVR.Recording
 
             if (frames.Count == 0)
             {
-                Debug.LogError(
-                    "[RecordingReplayController] The Take contains no valid pose frames."
+                AbortReview(
+                    "这次录制没有可回放的动作帧，请重新录制",
+                    "The Take contains no valid pose frames."
                 );
-                CleanupPlayback();
-                coordinator.EndReview();
+                yield break;
+            }
+
+            if (!ValidateRetargeter(
+                    frames[0].joint_count,
+                    out string retargeterError))
+            {
+                AbortReview(
+                    "机器人回放配置不匹配，请呼叫工作人员",
+                    retargeterError
+                );
                 yield break;
             }
 
@@ -277,11 +357,27 @@ namespace SignVR.Recording
             retargeterWasEnabled = liveRetargeter.enabled;
             liveRetargeter.enabled = false;
             retargeterOverrideActive = true;
+            MSDKUtility.ResetInterpolators(liveRetargeter.RetargetingHandle);
+            Debug.Log(
+                $"[RecordingReplay] Loaded {frames.Count} frames, " +
+                $"duration {DurationSeconds:F2}s."
+            );
             RestartPlayback();
         }
 
         private void Update()
         {
+            if (
+                HasError &&
+                coordinator != null &&
+                coordinator.State != RecordingFlowState.Ready &&
+                coordinator.State != RecordingFlowState.Completed
+            )
+            {
+                LastError = string.Empty;
+                PresentationChanged?.Invoke();
+            }
+
             if (!IsReviewing || IsLoading)
             {
                 return;
@@ -313,7 +409,14 @@ namespace SignVR.Recording
                 frameIndex++;
             }
 
-            ApplyFrame(frames[frameIndex]);
+            if (!ApplyFrame(frames[frameIndex]))
+            {
+                AbortReview(
+                    "机器人回放中断，请呼叫工作人员",
+                    $"Retargeter rejected playback frame {frameIndex}."
+                );
+                return;
+            }
             PlaybackProgress = DurationSeconds > 0f
                 ? Mathf.Clamp01((float)(recordingTime / DurationSeconds))
                 : 1f;
@@ -327,6 +430,24 @@ namespace SignVR.Recording
             }
         }
 
+        private void LateUpdate()
+        {
+            if (!IsReviewing && !IsLoading)
+            {
+                return;
+            }
+
+            KeepTrackedHandVisible(leftLiveHand, leftLiveHandRenderer);
+            KeepTrackedHandVisible(rightLiveHand, rightLiveHandRenderer);
+        }
+
+        private static void KeepTrackedHandVisible(
+            OVRHand hand,
+            SkinnedMeshRenderer renderer)
+        {
+            renderer.enabled = hand.IsDataValid && hand.IsTracked;
+        }
+
         private double CurrentRecordingTime()
         {
             return Math.Max(
@@ -336,7 +457,7 @@ namespace SignVR.Recording
             );
         }
 
-        private void ApplyFrame(RecordedFrame frame)
+        private bool ApplyFrame(RecordedFrame frame)
         {
             var pose = new NativeArray<MSDKUtility.NativeTransform>(
                 frame.joint_count,
@@ -356,6 +477,7 @@ namespace SignVR.Recording
                 liveRetargeter.IsValid = true;
                 liveRetargeter.CalculatePose(pose);
                 liveRetargeter.UpdatePose();
+                return liveRetargeter.RetargeterValid;
             }
             finally
             {
@@ -363,7 +485,7 @@ namespace SignVR.Recording
             }
         }
 
-        private void CleanupPlayback()
+        private void CleanupPlayback(bool clearError = true)
         {
             if (loadRoutine != null)
             {
@@ -373,10 +495,18 @@ namespace SignVR.Recording
 
             if (liveRetargeter != null && retargeterOverrideActive)
             {
+                if (liveRetargeter.RetargetingHandle != 0)
+                {
+                    MSDKUtility.ResetInterpolators(
+                        liveRetargeter.RetargetingHandle
+                    );
+                }
                 liveRetargeter.enabled = retargeterWasEnabled;
-                liveRetargeter.IsValid = false;
             }
             retargeterOverrideActive = false;
+
+            RestoreHandRenderer(leftLiveHand, leftLiveHandRenderer);
+            RestoreHandRenderer(rightLiveHand, rightLiveHandRenderer);
 
             frames.Clear();
             frameIndex = 0;
@@ -387,7 +517,124 @@ namespace SignVR.Recording
             LoadingProgress = 0f;
             PlaybackProgress = 0f;
             DurationSeconds = 0f;
+            if (clearError)
+            {
+                LastError = string.Empty;
+            }
             PresentationChanged?.Invoke();
+        }
+
+        private static void RestoreHandRenderer(
+            OVRHand hand,
+            SkinnedMeshRenderer renderer)
+        {
+            renderer.enabled = hand.IsDataValid && hand.IsDataHighConfidence;
+        }
+
+        private static bool TryOpenPoseFile(
+            string posePath,
+            out FileStream stream,
+            out StreamReader reader,
+            out string error)
+        {
+            stream = null;
+            reader = null;
+            error = string.Empty;
+
+            try
+            {
+                stream = new FileStream(
+                    posePath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite
+                );
+                reader = new StreamReader(stream);
+                return true;
+            }
+            catch (IOException exception)
+            {
+                stream?.Dispose();
+                error = exception.Message;
+                return false;
+            }
+            catch (UnauthorizedAccessException exception)
+            {
+                stream?.Dispose();
+                error = exception.Message;
+                return false;
+            }
+        }
+
+        private static bool TryParseFrame(
+            string json,
+            out RecordedFrame frame)
+        {
+            try
+            {
+                frame = JsonUtility.FromJson<RecordedFrame>(json);
+                return true;
+            }
+            catch (ArgumentException)
+            {
+                frame = null;
+                return false;
+            }
+        }
+
+        private bool ValidateRetargeter(
+            int recordedJointCount,
+            out string error)
+        {
+            ulong handle = liveRetargeter.RetargetingHandle;
+            if (handle == 0)
+            {
+                error = "CharacterRetargeter has not initialized its native handle.";
+                return false;
+            }
+
+            if (!MSDKUtility.GetSkeletonInfo(
+                    handle,
+                    MSDKUtility.SkeletonType.SourceSkeleton,
+                    out MSDKUtility.SkeletonInfo skeletonInfo))
+            {
+                error = "Cannot read the retargeter's source skeleton info.";
+                return false;
+            }
+
+            if (skeletonInfo.JointCount != recordedJointCount)
+            {
+                error =
+                    $"Recorded joint count {recordedJointCount} does not match " +
+                    $"retargeter source joint count {skeletonInfo.JointCount}.";
+                return false;
+            }
+
+            error = string.Empty;
+            return true;
+        }
+
+        private void RejectPlayback(string userMessage, string diagnostic)
+        {
+            LastError = userMessage;
+            Debug.LogWarning($"[RecordingReplay] Aborted: {diagnostic}");
+            PresentationChanged?.Invoke();
+        }
+
+        private void AbortReview(string userMessage, string diagnostic)
+        {
+            bool coordinatorIsReviewing =
+                coordinator != null &&
+                coordinator.State == RecordingFlowState.Reviewing;
+
+            LastError = userMessage;
+            Debug.LogError($"[RecordingReplay] Failed: {diagnostic}");
+            loadRoutine = null;
+            CleanupPlayback(false);
+            if (coordinatorIsReviewing)
+            {
+                coordinator.EndReview();
+            }
         }
 
         private void OnDisable()

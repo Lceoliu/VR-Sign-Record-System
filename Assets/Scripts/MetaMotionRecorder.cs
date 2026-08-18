@@ -81,6 +81,104 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
     public event Action<RecordingArtifact> RecordingFinalized;
 
+    public bool TryFindLatestArtifact(
+        string sessionId,
+        string sentenceId,
+        out RecordingArtifact artifact)
+    {
+        artifact = default;
+
+        string directory = Path.Combine(
+            Application.persistentDataPath,
+            "Recordings",
+            RecordingTakeContext.SanitizeFileSegment(sessionId),
+            RecordingTakeContext.SanitizeFileSegment(sentenceId)
+        );
+        if (!Directory.Exists(directory))
+        {
+            return false;
+        }
+
+        TakeMetadata latest = null;
+        string latestMetadataPath = null;
+        string latestPosePath = null;
+        DateTime latestWriteTimeUtc = DateTime.MinValue;
+
+        foreach (string candidatePath in Directory.GetFiles(
+                     directory,
+                     "*.meta.json",
+                     SearchOption.TopDirectoryOnly))
+        {
+            if (!TryReadMetadata(candidatePath, out TakeMetadata candidate))
+            {
+                continue;
+            }
+
+            if (
+                candidate.session_id != sessionId ||
+                candidate.sentence_id != sentenceId ||
+                candidate.take_index < 1 ||
+                string.IsNullOrWhiteSpace(candidate.take_id) ||
+                string.IsNullOrWhiteSpace(candidate.pose_file)
+            )
+            {
+                continue;
+            }
+
+            string candidatePosePath = Path.Combine(
+                directory,
+                candidate.pose_file
+            );
+            if (!File.Exists(candidatePosePath))
+            {
+                continue;
+            }
+
+            DateTime writeTimeUtc = File.GetLastWriteTimeUtc(candidatePath);
+            bool isNewer =
+                latest == null ||
+                candidate.take_index > latest.take_index ||
+                candidate.take_index == latest.take_index &&
+                writeTimeUtc > latestWriteTimeUtc;
+            if (!isNewer)
+            {
+                continue;
+            }
+
+            latest = candidate;
+            latestMetadataPath = candidatePath;
+            latestPosePath = candidatePosePath;
+            latestWriteTimeUtc = writeTimeUtc;
+        }
+
+        if (latest == null)
+        {
+            return false;
+        }
+
+        DateTime createdAtUtc = DateTime.TryParse(
+            latest.utc_started,
+            out DateTime parsedStartedAt
+        )
+            ? parsedStartedAt.ToUniversalTime()
+            : latestWriteTimeUtc;
+        var take = new RecordingTakeContext(
+            latest.session_id,
+            latest.sentence_id,
+            latest.sentence_text,
+            latest.take_index,
+            latest.take_id,
+            createdAtUtc
+        );
+        artifact = new RecordingArtifact(
+            take,
+            latestPosePath,
+            latestMetadataPath,
+            latest.capture_status
+        );
+        return true;
+    }
+
     [Serializable]
     private struct Vector3Record
     {
@@ -152,6 +250,37 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         public string app_version;
         public string device_model;
         public SignVR.Recording.HandCaptureQualitySummary hand_capture_quality;
+    }
+
+    private static bool TryReadMetadata(
+        string metadataPath,
+        out TakeMetadata metadata)
+    {
+        try
+        {
+            metadata = JsonUtility.FromJson<TakeMetadata>(
+                File.ReadAllText(metadataPath)
+            );
+            return metadata != null;
+        }
+        catch (IOException exception)
+        {
+            Debug.LogWarning(
+                $"[MetaBodyMotionRecorder] Cannot read replay metadata " +
+                $"{metadataPath}: {exception.Message}"
+            );
+            metadata = null;
+            return false;
+        }
+        catch (ArgumentException exception)
+        {
+            Debug.LogWarning(
+                $"[MetaBodyMotionRecorder] Invalid replay metadata " +
+                $"{metadataPath}: {exception.Message}"
+            );
+            metadata = null;
+            return false;
+        }
     }
 
     private void Awake()

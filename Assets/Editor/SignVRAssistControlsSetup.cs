@@ -16,8 +16,6 @@ namespace SignVR.EditorTools
     public static class SignVRAssistControlsSetup
     {
         private const string RecordingRootName = "_Recording";
-        private const string ControlsPath =
-            "Environment/TouchScreenDevice_03/ScreenArea/SignVRControls";
         private const string GlowName = "BoundaryGlow";
         private const string OverlayLayerName = "Overlay UI";
 
@@ -34,8 +32,7 @@ namespace SignVR.EditorTools
             var coordinator = recordingRoot.GetComponent<RecordingCoordinator>();
             var gateway = recordingRoot.GetComponent<QuestDeviceGateway>();
             var monitor = recordingRoot.GetComponent<HandCaptureBoundaryMonitor>();
-            var presenter = recordingRoot.GetComponent<RecordingTouchscreenPresenter>();
-            if (coordinator == null || gateway == null || monitor == null || presenter == null)
+            if (coordinator == null || gateway == null || monitor == null)
             {
                 Debug.LogError("[SignVRAssistControlsSetup] Recording components are missing.");
                 return;
@@ -50,22 +47,11 @@ namespace SignVR.EditorTools
             WirePassthrough(passthrough, coordinator, ovrManager, centerEye);
             WireHelp(help, coordinator, gateway);
 
-            GameObject exitButton = GameObject.Find($"{ControlsPath}/ExitImmerse");
-            GameObject helpButton = GameObject.Find($"{ControlsPath}/HelpToggle");
-            if (exitButton == null || helpButton == null)
-            {
-                Debug.LogError(
-                    "[SignVRAssistControlsSetup] ExitImmerse / HelpToggle not found under SignVRControls."
-                );
-                return;
-            }
-
-            WirePokeAction(exitButton, RecordingPokeAction.ActionType.TogglePassthrough, passthrough, help);
-            WirePokeAction(helpButton, RecordingPokeAction.ActionType.ToggleHelp, passthrough, help);
-
             RecordingBoundaryGlow glow = EnsureBoundaryGlow();
             WireMonitor(monitor, glow);
-            WirePresenter(presenter, passthrough, help, exitButton, helpButton);
+
+            // TouchScreenDevice_03 and all descendants are user-authored. This
+            // setup command deliberately does not inspect or mutate that subtree.
 
             SetReference(gateway, "boundaryMonitor", monitor);
 

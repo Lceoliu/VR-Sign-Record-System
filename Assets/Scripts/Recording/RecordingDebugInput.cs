@@ -9,6 +9,9 @@ namespace SignVR.Recording
         private RecordingCoordinator coordinator;
 
         [SerializeField]
+        private RecordingReplayController replayController;
+
+        [SerializeField]
         [Min(0.1f)]
         [Tooltip("Development simulation only. The Python host will own the production hold threshold.")]
         private float simulatedHoldSeconds = 1.2f;
@@ -34,12 +37,29 @@ namespace SignVR.Recording
 #if !UNITY_EDITOR && !DEVELOPMENT_BUILD
             enabled = false;
 #endif
+            if (replayController == null)
+            {
+                replayController = GetComponent<RecordingReplayController>();
+            }
         }
 
         private void Update()
         {
             if (coordinator == null || Keyboard.current == null)
             {
+                return;
+            }
+
+            if (Keyboard.current.rKey.wasPressedThisFrame)
+            {
+                if (replayController.IsReviewing || replayController.IsLoading)
+                {
+                    replayController.StopReview();
+                }
+                else
+                {
+                    replayController.PlayLastTake();
+                }
                 return;
             }
 

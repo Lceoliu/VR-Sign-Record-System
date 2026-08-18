@@ -19,6 +19,12 @@ namespace SignVR.Recording
         [SerializeField]
         private Vector3 maximumLocalPosition = new(500f, 500f, 400f);
 
+        [SerializeField]
+        private Quaternion defaultLocalRotation = Quaternion.identity;
+
+        [SerializeField]
+        private bool heightOnly;
+
         public void Configure(
             RecordingCoordinator recordingCoordinator,
             GameObject handle,
@@ -27,12 +33,39 @@ namespace SignVR.Recording
             coordinator = recordingCoordinator;
             grabHandle = handle;
             defaultLocalPosition = initialLocalPosition;
+            defaultLocalRotation = transform.localRotation;
+            heightOnly = false;
+        }
+
+        public void ConfigureHeightOnly(
+            RecordingCoordinator recordingCoordinator,
+            GameObject handle,
+            Vector3 initialLocalPosition,
+            float minimumLocalY,
+            float maximumLocalY,
+            Quaternion initialLocalRotation)
+        {
+            coordinator = recordingCoordinator;
+            grabHandle = handle;
+            defaultLocalPosition = initialLocalPosition;
+            minimumLocalPosition = new Vector3(
+                initialLocalPosition.x,
+                minimumLocalY,
+                initialLocalPosition.z
+            );
+            maximumLocalPosition = new Vector3(
+                initialLocalPosition.x,
+                maximumLocalY,
+                initialLocalPosition.z
+            );
+            defaultLocalRotation = initialLocalRotation;
+            heightOnly = true;
         }
 
         public void ResetPlacement()
         {
             transform.localPosition = defaultLocalPosition;
-            transform.localRotation = Quaternion.identity;
+            transform.localRotation = defaultLocalRotation;
         }
 
         private void Update()
@@ -55,23 +88,34 @@ namespace SignVR.Recording
         private void LateUpdate()
         {
             Vector3 position = transform.localPosition;
-            position.x = Mathf.Clamp(
-                position.x,
-                minimumLocalPosition.x,
-                maximumLocalPosition.x
-            );
+            if (heightOnly)
+            {
+                position.x = defaultLocalPosition.x;
+                position.z = defaultLocalPosition.z;
+            }
+            else
+            {
+                position.x = Mathf.Clamp(
+                    position.x,
+                    minimumLocalPosition.x,
+                    maximumLocalPosition.x
+                );
+            }
             position.y = Mathf.Clamp(
                 position.y,
                 minimumLocalPosition.y,
                 maximumLocalPosition.y
             );
-            position.z = Mathf.Clamp(
-                position.z,
-                minimumLocalPosition.z,
-                maximumLocalPosition.z
-            );
+            if (!heightOnly)
+            {
+                position.z = Mathf.Clamp(
+                    position.z,
+                    minimumLocalPosition.z,
+                    maximumLocalPosition.z
+                );
+            }
             transform.localPosition = position;
-            transform.localRotation = Quaternion.identity;
+            transform.localRotation = defaultLocalRotation;
         }
     }
 }

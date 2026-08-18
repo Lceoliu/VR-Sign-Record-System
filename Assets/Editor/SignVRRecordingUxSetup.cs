@@ -21,6 +21,8 @@ public static class SignVRRecordingUxSetup
         "Packages/com.meta.xr.sdk.interaction/Runtime/Sample/Prefabs/OculusInteractionSamplePokeButton.prefab";
     private const string ConsoleMaterialPath =
         "Assets/Materials/RecordingDeskConsole.mat";
+    private const string TrackingGuideMaterialPath =
+        "Assets/Materials/QuestHandTrackingGuide.mat";
 
     private static readonly Color Ink =
         new(0.055f, 0.065f, 0.075f, 1f);
@@ -59,25 +61,24 @@ public static class SignVRRecordingUxSetup
         var rightHand = FindSceneComponent<OVRHand>(
             "[BuildingBlock] Camera Rig/TrackingSpace/RightHandAnchor/[BuildingBlock] Hand Tracking right"
         );
+        var ovrManager = FindSceneComponent<OVRManager>(
+            "[BuildingBlock] Camera Rig"
+        );
         Transform mirroredCharacter = FindTransformByPath(
             "MirroredObjects/StylizedCharacterMirrored"
         );
 
         GameObject recordingRoot = coordinator.gameObject;
+        ConfigureWideMotionTracking(ovrManager);
         RecordingReplayController replay =
             GetOrAdd<RecordingReplayController>(recordingRoot);
-        replay.Configure(coordinator, retargeter);
+        replay.Configure(coordinator, retargeter, leftHand, rightHand);
 
-        RecordingTutorialController tutorial =
-            SetupTutorial(recordingRoot, coordinator, centerEye, font);
-        SetupTouchscreenControls(
-            recordingRoot,
-            coordinator,
-            replay,
-            tutorial,
-            font
-        );
-        SetupTeacherUi(teacherUI, replay, centerEye, font);
+        SetupTutorial(recordingRoot, coordinator, centerEye, font);
+        // TouchScreenDevice_03 is a user-authored scene area. Do not create,
+        // hide, move, relabel, or re-parent anything under it from setup code.
+        Material trackingGuideMaterial = EnsureTrackingGuideMaterial();
+        SetupTeacherUi(teacherUI, replay, coordinator, centerEye, font);
         HandCaptureBoundaryMonitor handBoundaryMonitor =
             SetupHandCaptureWarning(
                 recordingRoot,
@@ -86,6 +87,7 @@ public static class SignVRRecordingUxSetup
                 teacherUI.transform,
                 leftHand,
                 rightHand,
+                trackingGuideMaterial,
                 font
             );
         SetupPreviewCamera(previewStreamer, mirroredCharacter);
@@ -103,8 +105,8 @@ public static class SignVRRecordingUxSetup
         AssetDatabase.SaveAssets();
 
         Debug.Log(
-            "[SignVRRecordingUxSetup] Head-locked HMD HUD, touchscreen " +
-            "bare-hand controls, hand-capture warning, and fixed upper-body " +
+            "[SignVRRecordingUxSetup] Head-locked status HUD, desk hologram, " +
+            "measured hand-capture boundary, and fixed upper-body " +
             "preview are configured."
         );
     }
@@ -236,15 +238,16 @@ public static class SignVRRecordingUxSetup
     private static void SetupTeacherUi(
         RecordingTeacherUI teacherUI,
         RecordingReplayController replay,
+        RecordingCoordinator coordinator,
         Transform centerEye,
         TMP_FontAsset font)
     {
         RectTransform root = (RectTransform)teacherUI.transform;
         Undo.SetTransformParent(root, centerEye, "Attach teacher HUD to HMD");
-        root.localPosition = new Vector3(0f, 0f, 1f);
+        root.localPosition = new Vector3(0f, 0f, 0.75f);
         root.localRotation = Quaternion.identity;
         root.localScale = Vector3.one * 0.001f;
-        root.sizeDelta = new Vector2(1100f, 700f);
+        root.sizeDelta = new Vector2(1000f, 600f);
 
         Canvas canvas = teacherUI.GetComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
@@ -276,46 +279,40 @@ public static class SignVRRecordingUxSetup
         promptText.fontSize = 39f;
         promptText.fontStyle = FontStyles.Bold;
         promptText.color = Ink;
+        boardRoot.gameObject.SetActive(false);
+
+        TMP_Text deskPromptText = SetupDeskPrompt(coordinator, centerEye, font);
 
         RectTransform statusPanel = root.Find("StatusPanel") as RectTransform;
-        statusPanel.anchoredPosition = new Vector2(-320f, 292f);
-        statusPanel.sizeDelta = new Vector2(430f, 64f);
+        statusPanel.anchoredPosition = new Vector2(0f, 252f);
+        statusPanel.sizeDelta = new Vector2(560f, 76f);
         Image statusBackground = statusPanel.GetComponent<Image>();
         statusBackground.color = new Color(Ink.r, Ink.g, Ink.b, 0.82f);
 
         RectTransform statusIndicator =
             statusPanel.Find("StatusIndicator") as RectTransform;
-        statusIndicator.anchoredPosition = new Vector2(-190f, 0f);
-        statusIndicator.sizeDelta = new Vector2(24f, 24f);
+        statusIndicator.anchoredPosition = new Vector2(-244f, 0f);
+        statusIndicator.sizeDelta = new Vector2(30f, 30f);
 
         TMP_Text statusText =
             statusPanel.Find("StatusText").GetComponent<TMP_Text>();
         RectTransform statusTextRect = (RectTransform)statusText.transform;
-        statusTextRect.anchoredPosition = new Vector2(-45f, 0f);
-        statusTextRect.sizeDelta = new Vector2(255f, 54f);
-        statusText.fontSize = 25f;
+        statusTextRect.anchoredPosition = new Vector2(18f, 0f);
+        statusTextRect.sizeDelta = new Vector2(470f, 66f);
+        statusText.fontSize = 34f;
+        statusText.alignment = TextAlignmentOptions.Center;
         statusText.color = Color.white;
 
         TMP_Text takeText =
             statusPanel.Find("TakeText").GetComponent<TMP_Text>();
-        RectTransform takeTextRect = (RectTransform)takeText.transform;
-        takeTextRect.anchoredPosition = new Vector2(145f, 0f);
-        takeTextRect.sizeDelta = new Vector2(120f, 46f);
-        takeText.fontSize = 18f;
-        takeText.color = new Color(0.76f, 0.82f, 0.84f, 1f);
+        takeText.text = string.Empty;
+        takeText.gameObject.SetActive(false);
 
-        TMP_Text guidance = EnsureUiText(
-            root,
-            "GuidanceText",
-            "踩一下外接空格键开始录制",
-            22f,
-            Color.white,
-            font,
-            TextAlignmentOptions.Center,
-            new Vector2(0f, -292f),
-            new Vector2(800f, 42f)
-        );
-        guidance.fontStyle = FontStyles.Bold;
+        Transform guidanceTransform = root.Find("GuidanceText");
+        if (guidanceTransform != null)
+        {
+            Undo.DestroyObjectImmediate(guidanceTransform.gameObject);
+        }
 
         RectTransform frameRect = root.Find("RecordingViewportFrame") as RectTransform;
         if (frameRect == null)
@@ -323,41 +320,262 @@ public static class SignVRRecordingUxSetup
             frameRect = CreateRect(
                 root,
                 "RecordingViewportFrame",
-                new Vector2(1050f, 650f),
+                new Vector2(970f, 570f),
                 Vector2.zero
             );
         }
-        frameRect.sizeDelta = new Vector2(1050f, 650f);
+        frameRect.sizeDelta = new Vector2(970f, 570f);
         RecordingViewportFrameGraphic frame =
             GetOrAdd<RecordingViewportFrameGraphic>(frameRect.gameObject);
         frame.raycastTarget = false;
-        frame.Thickness = 8f;
+        frame.Thickness = 6f;
         frameRect.SetAsLastSibling();
 
         TMP_Text countdown =
             root.Find("CountdownText")?.GetComponent<TMP_Text>();
         if (countdown != null)
         {
-            countdown.fontSize = 112f;
+            countdown.text = string.Empty;
+            countdown.gameObject.SetActive(false);
         }
 
+        RectTransform resetRoot = root.Find("ResetProgressRoot") as RectTransform;
+        if (resetRoot != null)
+        {
+            resetRoot.anchoredPosition = Vector2.zero;
+            resetRoot.sizeDelta = new Vector2(280f, 280f);
+        }
         TMP_Text resetLabel = teacherUI.transform.Find(
             "ResetProgressRoot/ResetProgressLabel"
         )?.GetComponent<TMP_Text>();
+        if (resetLabel != null)
+        {
+            resetLabel.fontSize = 28f;
+        }
 
         teacherUI.ConfigureEnhancements(
             font,
-            guidance,
+            null,
             resetLabel,
             frame,
             replay
         );
+        teacherUI.ConfigurePromptText(deskPromptText);
 
         int overlayLayer = LayerMask.NameToLayer("Overlay UI");
         if (overlayLayer >= 0)
         {
             SetLayerRecursively(root.gameObject, overlayLayer);
         }
+    }
+
+    private static TMP_Text SetupDeskPrompt(
+        RecordingCoordinator coordinator,
+        Transform centerEye,
+        TMP_FontAsset font)
+    {
+        Transform environment = FindTransformByPath("Environment");
+        Transform table = FindTransformByPath("Environment/Table_01A");
+        Renderer[] tableRenderers =
+            table.GetComponentsInChildren<Renderer>(true);
+        if (tableRenderers.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "Environment/Table_01A has no renderer bounds."
+            );
+        }
+
+        Bounds tableBounds = tableRenderers[0].bounds;
+        for (int index = 1; index < tableRenderers.Length; index++)
+        {
+            tableBounds.Encapsulate(tableRenderers[index].bounds);
+        }
+
+        RectTransform canvasRect =
+            environment.Find("DeskPromptCanvas") as RectTransform;
+        bool createdCanvas = canvasRect == null;
+        if (canvasRect == null)
+        {
+            var canvasObject = new GameObject(
+                "DeskPromptCanvas",
+                typeof(RectTransform),
+                typeof(Canvas),
+                typeof(CanvasScaler)
+            );
+            Undo.RegisterCreatedObjectUndo(
+                canvasObject,
+                "Create desk prompt hologram"
+            );
+            canvasRect = (RectTransform)canvasObject.transform;
+        }
+
+        Undo.SetTransformParent(
+            canvasRect,
+            environment,
+            "Attach desk prompt hologram"
+        );
+        canvasRect.sizeDelta = new Vector2(860f, 210f);
+        canvasRect.localScale = Vector3.one * 0.001f;
+
+        if (createdCanvas)
+        {
+            Vector3 worldPosition = new(
+                tableBounds.center.x,
+                tableBounds.max.y + 0.19f,
+                tableBounds.center.z
+            );
+            Vector3 facing = worldPosition - centerEye.position;
+            facing.y = 0f;
+            canvasRect.SetPositionAndRotation(
+                worldPosition,
+                Quaternion.LookRotation(facing.normalized, Vector3.up)
+            );
+        }
+
+        Canvas canvas = GetOrAdd<Canvas>(canvasRect.gameObject);
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.overrideSorting = false;
+        CanvasScaler scaler = GetOrAdd<CanvasScaler>(canvasRect.gameObject);
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+        scaler.dynamicPixelsPerUnit = 2f;
+
+        RectTransform panel =
+            canvasRect.Find("HologramPanel") as RectTransform ??
+            CreateStretchRect(canvasRect, "HologramPanel", Vector2.zero, Vector2.zero);
+        Image panelImage = GetOrAdd<Image>(panel.gameObject);
+        panelImage.color = new Color(0.025f, 0.085f, 0.095f, 0.78f);
+        panelImage.raycastTarget = false;
+        Outline outline = GetOrAdd<Outline>(panel.gameObject);
+        outline.effectColor = new Color(0.30f, 0.68f, 0.70f, 0.72f);
+        outline.effectDistance = new Vector2(2f, -2f);
+        outline.useGraphicAlpha = true;
+
+        TMP_Text header = EnsureUiText(
+            panel,
+            "Header",
+            "本句提示",
+            20f,
+            new Color(0.53f, 0.82f, 0.82f, 1f),
+            font,
+            TextAlignmentOptions.Center,
+            new Vector2(0f, 78f),
+            new Vector2(130f, 30f)
+        );
+        header.fontStyle = FontStyles.Bold;
+        header.fontSharedMaterial = font.material;
+
+        TMP_Text prompt = EnsureUiText(
+            panel,
+            "PromptText",
+            "请准备录制当前句子的手语动作",
+            44f,
+            new Color(0.90f, 0.98f, 0.97f, 1f),
+            font,
+            TextAlignmentOptions.Center,
+            new Vector2(0f, -8f),
+            new Vector2(790f, 132f)
+        );
+        prompt.enableAutoSizing = true;
+        prompt.fontSizeMin = 28f;
+        prompt.fontSizeMax = 44f;
+        prompt.fontStyle = FontStyles.Bold;
+        prompt.fontSharedMaterial = font.material;
+
+        ConfigureHologramLine(panel, "TopLine", new Vector2(0f, 96f));
+        ConfigureHologramLine(panel, "BottomLine", new Vector2(0f, -96f));
+
+        Transform dragTarget = panel.Find("PromptHeightDrag");
+        if (dragTarget == null)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
+                PokeButtonPrefabPath
+            );
+            var instance = (GameObject)PrefabUtility.InstantiatePrefab(
+                prefab,
+                panel
+            );
+            instance.name = "PromptHeightDrag";
+            dragTarget = instance.transform;
+        }
+
+        dragTarget.localPosition = new Vector3(0f, 82f, -12f);
+        dragTarget.localRotation = Quaternion.identity;
+        dragTarget.localScale = new Vector3(120f, 30f, 38f);
+        foreach (TMP_Text text in dragTarget.GetComponentsInChildren<TMP_Text>(true))
+        {
+            text.text = "上下调节";
+            text.font = font;
+            text.color = Color.white;
+        }
+
+        PointableUnityEventWrapper dragEvents =
+            dragTarget.GetComponentInChildren<PointableUnityEventWrapper>(true);
+        PokeInteractable pokeInteractable =
+            dragTarget.GetComponentInChildren<PokeInteractable>(true);
+        var pokeSerialized = new SerializedObject(pokeInteractable);
+        pokeSerialized.FindProperty("_cancelSelectNormal").floatValue = 1f;
+        pokeSerialized.FindProperty("_cancelSelectTangent").floatValue = 1f;
+        pokeSerialized.ApplyModifiedPropertiesWithoutUndo();
+
+        RecordingPromptBoardPokeDrag pokeDrag =
+            GetOrAdd<RecordingPromptBoardPokeDrag>(dragTarget.gameObject);
+        pokeDrag.Configure(dragEvents, canvasRect);
+
+        Vector3 minimumWorld = new(
+            canvasRect.position.x,
+            tableBounds.max.y + 0.10f,
+            canvasRect.position.z
+        );
+        Vector3 maximumWorld = minimumWorld + Vector3.up * 0.90f;
+        float minimumLocalY = environment.InverseTransformPoint(minimumWorld).y;
+        float maximumLocalY = environment.InverseTransformPoint(maximumWorld).y;
+        RecordingPromptBoard promptBoard =
+            GetOrAdd<RecordingPromptBoard>(canvasRect.gameObject);
+        promptBoard.ConfigureHeightOnly(
+            coordinator,
+            dragTarget.gameObject,
+            canvasRect.localPosition,
+            minimumLocalY,
+            maximumLocalY,
+            canvasRect.localRotation
+        );
+        EditorUtility.SetDirty(pokeDrag);
+        EditorUtility.SetDirty(promptBoard);
+        panel.SetAsFirstSibling();
+
+        int overlayLayer = LayerMask.NameToLayer("Overlay UI");
+        if (overlayLayer >= 0)
+        {
+            SetLayerRecursively(canvasRect.gameObject, overlayLayer);
+        }
+        canvasRect.gameObject.SetActive(true);
+        return prompt;
+    }
+
+    private static void ConfigureHologramLine(
+        Transform parent,
+        string name,
+        Vector2 anchoredPosition)
+    {
+        RectTransform line = parent.Find(name) as RectTransform;
+        if (line == null)
+        {
+            line = CreateRect(
+                parent,
+                name,
+                new Vector2(790f, 3f),
+                anchoredPosition
+            );
+        }
+        else
+        {
+            line.sizeDelta = new Vector2(790f, 3f);
+            line.anchoredPosition = anchoredPosition;
+        }
+
+        Image image = GetOrAdd<Image>(line.gameObject);
+        image.color = new Color(0.30f, 0.68f, 0.70f, 0.72f);
+        image.raycastTarget = false;
     }
 
     private static HandCaptureBoundaryMonitor SetupHandCaptureWarning(
@@ -367,6 +585,7 @@ public static class SignVRRecordingUxSetup
         Transform teacherUiRoot,
         OVRHand leftHand,
         OVRHand rightHand,
+        Material trackingGuideMaterial,
         TMP_FontAsset font)
     {
         RectTransform warningRoot =
@@ -376,27 +595,27 @@ public static class SignVRRecordingUxSetup
             warningRoot = CreateRect(
                 teacherUiRoot,
                 "HandTrackingWarningRoot",
-                new Vector2(720f, 56f),
-                new Vector2(0f, -235f)
+                new Vector2(800f, 66f),
+                new Vector2(0f, -252f)
             );
         }
 
-        warningRoot.anchoredPosition = new Vector2(0f, -235f);
-        warningRoot.sizeDelta = new Vector2(720f, 56f);
+        warningRoot.anchoredPosition = new Vector2(0f, -252f);
+        warningRoot.sizeDelta = new Vector2(800f, 66f);
         Image warningBackground = GetOrAdd<Image>(warningRoot.gameObject);
-        warningBackground.color = new Color(0.10f, 0.08f, 0.055f, 0.88f);
+        warningBackground.color = new Color(0.10f, 0.08f, 0.055f, 0.78f);
         warningBackground.raycastTarget = false;
 
         TMP_Text warningLabel = EnsureUiText(
             warningRoot,
             "WarningText",
             "双手追踪区域正常",
-            24f,
+            29f,
             Color.white,
             font,
             TextAlignmentOptions.Center,
             Vector2.zero,
-            new Vector2(680f, 48f)
+            new Vector2(760f, 58f)
         );
         warningLabel.fontStyle = FontStyles.Bold;
         warningLabel.raycastTarget = false;
@@ -408,6 +627,16 @@ public static class SignVRRecordingUxSetup
             SetLayerRecursively(warningRoot.gameObject, overlayLayer);
         }
 
+        QuestHandTrackingBoundaryGuide trackingGuide =
+            GetOrAdd<QuestHandTrackingBoundaryGuide>(recordingRoot);
+        trackingGuide.Configure(
+            coordinator,
+            centerEye,
+            leftHand,
+            rightHand,
+            trackingGuideMaterial
+        );
+
         HandCaptureBoundaryMonitor monitor =
             GetOrAdd<HandCaptureBoundaryMonitor>(recordingRoot);
         monitor.Configure(
@@ -416,8 +645,10 @@ public static class SignVRRecordingUxSetup
             leftHand,
             rightHand,
             warningRoot.gameObject,
-            warningLabel
+            warningLabel,
+            trackingGuide
         );
+        EditorUtility.SetDirty(trackingGuide);
         warningRoot.gameObject.SetActive(false);
         return monitor;
     }
@@ -550,6 +781,12 @@ public static class SignVRRecordingUxSetup
             "Environment/TouchScreenDevice_03/ScreenArea"
         );
         Transform screenUi = screenArea.Find("ScreenUI");
+        OVROverlayCanvas screenOverlay =
+            screenUi.GetComponent<OVROverlayCanvas>();
+        if (screenOverlay != null)
+        {
+            Undo.DestroyObjectImmediate(screenOverlay);
+        }
         RectTransform replayReference =
             screenUi.Find("replay") as RectTransform;
         if (replayReference == null)
@@ -657,11 +894,34 @@ public static class SignVRRecordingUxSetup
             );
         }
 
+        int previewLayer = LayerMask.NameToLayer("MirroredCharacter");
+        if (previewLayer < 0)
+        {
+            throw new InvalidOperationException(
+                "The MirroredCharacter layer is required for the web preview."
+            );
+        }
+        foreach (Renderer renderer in
+                 mirroredCharacter.GetComponentsInChildren<Renderer>(true))
+        {
+            renderer.gameObject.layer = previewLayer;
+            EditorUtility.SetDirty(renderer.gameObject);
+        }
+
+        Vector3 framingCenter = (head.position + hips.position) * 0.5f +
+                                Vector3.up * 0.12f;
+        Vector3 characterForward = Vector3.ProjectOnPlane(
+            mirroredCharacter.forward,
+            Vector3.up
+        ).normalized;
+        Vector3 cameraPosition = framingCenter + characterForward * 1.05f;
+
         previewStreamer.ConfigureView(
             head,
             hips,
-            new Vector3(0f, 1.35f, -0.65f),
-            50f
+            cameraPosition,
+            50f,
+            true
         );
         EditorUtility.SetDirty(previewStreamer);
     }
@@ -920,6 +1180,58 @@ public static class SignVRRecordingUxSetup
         material.SetColor("_BaseColor", Slate);
         AssetDatabase.CreateAsset(material, ConsoleMaterialPath);
         return material;
+    }
+
+    private static Material EnsureTrackingGuideMaterial()
+    {
+        Material existing = AssetDatabase.LoadAssetAtPath<Material>(
+            TrackingGuideMaterialPath
+        );
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Particles/Unlit");
+        var material = new Material(shader)
+        {
+            name = "QuestHandTrackingGuide",
+            color = Color.white,
+            renderQueue = 3000
+        };
+        material.SetFloat("_Surface", 1f);
+        material.SetFloat("_ZWrite", 0f);
+        material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        AssetDatabase.CreateAsset(material, TrackingGuideMaterialPath);
+        return material;
+    }
+
+    private static void ConfigureWideMotionTracking(OVRManager ovrManager)
+    {
+        // Keep native passthrough initialized for the lifetime of the app. The
+        // in-world button only shows or hides its layer, avoiding compositor
+        // reinitialization during immersive/passthrough transitions.
+        ovrManager.isInsightPassthroughEnabled = true;
+        ovrManager.wideMotionModeHandPosesEnabled = true;
+        ovrManager.enableDynamicResolution = false;
+        var managerSerialized = new SerializedObject(ovrManager);
+        managerSerialized.FindProperty(
+            "requestBodyTrackingPermissionOnStartup"
+        ).boolValue = true;
+        managerSerialized.ApplyModifiedPropertiesWithoutUndo();
+        EditorUtility.SetDirty(ovrManager);
+
+        OVRProjectConfig projectConfig = OVRProjectConfig.CachedProjectConfig;
+        if (projectConfig == null)
+        {
+            throw new InvalidOperationException(
+                "OculusProjectConfig is unavailable; cannot enable Quest 3 WMM."
+            );
+        }
+
+        projectConfig.bodyTrackingSupport =
+            OVRProjectConfig.FeatureSupport.Required;
+        OVRProjectConfig.CommitProjectConfig(projectConfig);
     }
 
     private static void ApplyFontToScene(TMP_FontAsset font)

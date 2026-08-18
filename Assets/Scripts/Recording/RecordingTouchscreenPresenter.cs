@@ -89,8 +89,9 @@ namespace SignVR.Recording
                 coordinator.State == RecordingFlowState.Ready ||
                 coordinator.State == RecordingFlowState.Completed;
             bool controlsAvailable = (idle || reviewing) && !passthrough;
+            bool replayAvailable = reviewing || coordinator.HasLastArtifact;
 
-            replayButton.SetActive(controlsAvailable);
+            replayButton.SetActive(controlsAvailable && replayAvailable);
             replayLabel.text = reviewing ? "退出重播" : "重播动作";
 
             tutorialButton.SetActive(controlsAvailable && !reviewing);
