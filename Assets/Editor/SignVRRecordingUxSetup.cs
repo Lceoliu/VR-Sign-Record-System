@@ -24,6 +24,9 @@ public static class SignVRRecordingUxSetup
     private const string TrackingGuideMaterialPath =
         "Assets/Materials/QuestHandTrackingGuide.mat";
 
+    private const string BoundaryWallMaterialPath =
+        "Assets/Materials/SignVRBoundaryWall.mat";
+
     private static readonly Color Ink =
         new(0.055f, 0.065f, 0.075f, 1f);
     private static readonly Color Paper =
@@ -634,7 +637,8 @@ public static class SignVRRecordingUxSetup
             centerEye,
             leftHand,
             rightHand,
-            trackingGuideMaterial
+            trackingGuideMaterial,
+            EnsureBoundaryWallMaterial()
         );
 
         HandCaptureBoundaryMonitor monitor =
@@ -1203,6 +1207,34 @@ public static class SignVRRecordingUxSetup
         material.SetFloat("_ZWrite", 0f);
         material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
         AssetDatabase.CreateAsset(material, TrackingGuideMaterialPath);
+        return material;
+    }
+
+    /// <summary>
+    /// Material for the translucent frustum sides. A wireframe reads as a
+    /// diagram; these surfaces give the boundary a body the teacher can touch.
+    /// </summary>
+    private static Material EnsureBoundaryWallMaterial()
+    {
+        Material existing = AssetDatabase.LoadAssetAtPath<Material>(
+            BoundaryWallMaterialPath
+        );
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        Shader shader = Shader.Find("SignVR/Boundary Wall");
+        if (shader == null)
+        {
+            Debug.LogError(
+                "[SignVRRecordingUxSetup] Shader SignVR/Boundary Wall not found."
+            );
+            return null;
+        }
+
+        var material = new Material(shader) { name = "SignVRBoundaryWall" };
+        AssetDatabase.CreateAsset(material, BoundaryWallMaterialPath);
         return material;
     }
 

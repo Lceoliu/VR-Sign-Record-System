@@ -7469,11 +7469,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6781307535824638274, guid: 323cb65d2594c79499a11a99ff0fb347, type: 3}
       propertyPath: m_LocalScale.x
-      value: 2.49
+      value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 6781307535824638274, guid: 323cb65d2594c79499a11a99ff0fb347, type: 3}
       propertyPath: m_LocalScale.y
-      value: 2.77
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 7080989388379098266, guid: 323cb65d2594c79499a11a99ff0fb347, type: 3}
       propertyPath: m_Layer
@@ -11783,9 +11783,22 @@ MonoBehaviour:
   leftHand: {fileID: 382529570}
   rightHand: {fileID: 1474670431}
   lineMaterial: {fileID: 2100000, guid: 5f2c3818dcac15a48b9e1d02becef491, type: 2}
+  centerHoldSeconds: 0.55
+  transitionHoldSeconds: 0.08
+  minimumCalibrationTravel: 0.14
+  safeBoundaryRatio: 0.78
+  visibleViewportRatio: 0.84
+  displayNearDistance: 0.28
+  displayFarDistance: 1.15
   lineWidth: 0.008
   measuredColor: {r: 0.18, g: 0.72, b: 0.76, a: 0.34}
   activeColor: {r: 1, g: 0.56, b: 0.16, a: 0.88}
+  calibrationColor: {r: 0.18, g: 0.82, b: 1, a: 0.92}
+  wallMaterial: {fileID: 2100000, guid: 60f4431d64021be4b8d9dd5c584d3c5e, type: 2}
+  recordingWallAlpha: 0.35
+  inferredHandColor: {r: 0.42, g: 0.45, b: 0.48, a: 0.35}
+  exitMarkerSeconds: 2.5
+  exitMarkerRadius: 0.05
 --- !u!1 &1305517203
 GameObject:
   m_ObjectHideFlags: 0

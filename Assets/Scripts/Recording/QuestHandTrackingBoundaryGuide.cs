@@ -100,6 +100,37 @@ namespace SignVR.Recording
         private float transitionSeconds;
         private Camera hmdCamera;
 
+        [Header("Soft wall")]
+        [Tooltip("视锥侧面的半透明材质；留空则只画边线。")]
+        [SerializeField]
+        private Material wallMaterial;
+
+        [Tooltip("录制时软墙整体透明度倍数，避免干扰手语。")]
+        [SerializeField]
+        [Range(0f, 1f)]
+        private float recordingWallAlpha = 0.35f;
+
+        [Header("Out-of-view feedback")]
+        [Tooltip("手离开相机追踪后，虚拟手染成的颜色。")]
+        [SerializeField]
+        private Color inferredHandColor = new(0.42f, 0.45f, 0.48f, 0.35f);
+
+        [SerializeField]
+        [Min(0.5f)]
+        private float exitMarkerSeconds = 2.5f;
+
+        [SerializeField]
+        [Min(0.01f)]
+        private float exitMarkerRadius = 0.05f;
+
+        private readonly MeshRenderer[] wallRenderers = new MeshRenderer[DirectionCount];
+        private readonly Mesh[] wallMeshes = new Mesh[DirectionCount];
+        private readonly Vector3[] wallVertices = new Vector3[4];
+        private MaterialPropertyBlock wallProperties;
+
+        private HandExitFeedback leftExit;
+        private HandExitFeedback rightExit;
+
         public bool GuidanceEnabled { get; private set; } = true;
         public bool IsCalibrating => !HasCompleteCalibration;
 
@@ -151,6 +182,23 @@ namespace SignVR.Recording
             Down
         }
 
+        /// <summary>
+        /// Per-hand state for the out-of-view feedback: the hand itself is greyed
+        /// out while Quest is only inferring its pose, and the last place it was
+        /// still really seen is marked so the teacher knows where it slipped out.
+        /// </summary>
+        private sealed class HandExitFeedback
+        {
+            public OVRHand hand;
+            public SkinnedMeshRenderer renderer;
+            public MaterialPropertyBlock properties;
+            public LineRenderer[] marker;
+            public bool wasDirect;
+            public Vector3 lastDirectPoint;
+            public float markerSecondsLeft;
+            public bool dimmed;
+        }
+
         [Serializable]
         private struct BoundarySample
         {
@@ -173,13 +221,15 @@ namespace SignVR.Recording
             Transform hmdTransform,
             OVRHand left,
             OVRHand right,
-            Material material)
+            Material material,
+            Material wallSurfaceMaterial)
         {
             coordinator = recordingCoordinator;
             hmd = hmdTransform;
             leftHand = left;
             rightHand = right;
             lineMaterial = material;
+            wallMaterial = wallSurfaceMaterial;
         }
 
         public void SetGuidanceEnabled(bool enabled)
@@ -188,6 +238,8 @@ namespace SignVR.Recording
             if (!enabled)
             {
                 HideAll();
+                RestoreHandTint(leftExit);
+                RestoreHandTint(rightExit);
             }
         }
 
@@ -237,6 +289,9 @@ namespace SignVR.Recording
             }
 
             hmdCamera = hmd.GetComponent<Camera>();
+            CreateWalls();
+            leftExit = CreateExitFeedback(leftHand, "LeftHandExit");
+            rightExit = CreateExitFeedback(rightHand, "RightHandExit");
             LoadCalibration();
         }
 
@@ -258,6 +313,8 @@ namespace SignVR.Recording
             }
 
             RefreshFrustum(FindActiveDirection());
+            RefreshExitFeedback(leftExit);
+            RefreshExitFeedback(rightExit);
         }
 
         private void UpdateCalibration()
@@ -415,6 +472,7 @@ namespace SignVR.Recording
             SetFrustumEdge(5, 5, 6, GuideDirection.Right, null, activeDirection);
             SetFrustumEdge(6, 6, 7, GuideDirection.Down, null, activeDirection);
             SetFrustumEdge(7, 7, 4, GuideDirection.Left, null, activeDirection);
+            RefreshWalls();
         }
 
         private void BuildFrustumCorners()
@@ -671,6 +729,256 @@ namespace SignVR.Recording
             calibrationTargetIndex = DirectionCount;
         }
 
+        // ---- Soft wall -------------------------------------------------------
+
+        /// <summary>
+        /// Builds the four frustum sides as translucent surfaces parented to the
+        /// HMD, so their geometry only has to change when the calibration does.
+        /// </summary>
+        private void CreateWalls()
+        {
+            if (wallMaterial == null)
+            {
+                return;
+            }
+
+            wallProperties = new MaterialPropertyBlock();
+
+            for (int index = 0; index < DirectionCount; index++)
+            {
+                var wallObject = new GameObject($"MeasuredWall{(GuideDirection)index}");
+                wallObject.transform.SetParent(hmd, false);
+
+                var mesh = new Mesh { name = wallObject.name };
+                mesh.MarkDynamic();
+                mesh.vertices = new Vector3[4];
+                // UVs run corner to corner so the shader can fade in near the rim.
+                mesh.uv = new[]
+                {
+                    new Vector2(0f, 0f),
+                    new Vector2(0f, 1f),
+                    new Vector2(1f, 1f),
+                    new Vector2(1f, 0f)
+                };
+                mesh.triangles = new[] { 0, 1, 2, 0, 2, 3 };
+
+                wallObject.AddComponent<MeshFilter>().sharedMesh = mesh;
+                var meshRenderer = wallObject.AddComponent<MeshRenderer>();
+                meshRenderer.sharedMaterial = wallMaterial;
+                meshRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                meshRenderer.receiveShadows = false;
+                meshRenderer.lightProbeUsage = LightProbeUsage.Off;
+                meshRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+                meshRenderer.enabled = false;
+
+                wallMeshes[index] = mesh;
+                wallRenderers[index] = meshRenderer;
+            }
+        }
+
+        private void RefreshWalls()
+        {
+            if (wallProperties == null)
+            {
+                return;
+            }
+
+            SetWall(GuideDirection.Left, 0, 3, 7, 4);
+            SetWall(GuideDirection.Right, 1, 5, 6, 2);
+            SetWall(GuideDirection.Up, 0, 4, 5, 1);
+            SetWall(GuideDirection.Down, 3, 2, 6, 7);
+
+            // Hand positions drive the local touch highlight inside the shader.
+            wallProperties.SetVector("_HandLeft", HandShaderPosition(leftHand));
+            wallProperties.SetVector("_HandRight", HandShaderPosition(rightHand));
+            wallProperties.SetFloat("_GlobalAlpha", CurrentWallAlpha());
+
+            foreach (MeshRenderer wall in wallRenderers)
+            {
+                if (wall != null)
+                {
+                    wall.SetPropertyBlock(wallProperties);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Outside a take the wall is fully present so the teacher can explore it;
+        /// once recording starts it drops back so it never competes with signing.
+        /// </summary>
+        private float CurrentWallAlpha()
+        {
+            return coordinator.State == RecordingFlowState.Recording ||
+                   coordinator.State == RecordingFlowState.Countdown
+                ? recordingWallAlpha
+                : 1f;
+        }
+
+        private Vector4 HandShaderPosition(OVRHand hand)
+        {
+            if (!IsDirect(hand))
+            {
+                return new Vector4(0f, 0f, 0f, 0f);
+            }
+
+            Vector3 position = hand.transform.position;
+            return new Vector4(position.x, position.y, position.z, 1f);
+        }
+
+        private void SetWall(GuideDirection face, int a, int b, int c, int d)
+        {
+            Mesh mesh = wallMeshes[(int)face];
+            MeshRenderer wall = wallRenderers[(int)face];
+            if (mesh == null || wall == null)
+            {
+                return;
+            }
+
+            wallVertices[0] = corners[a];
+            wallVertices[1] = corners[b];
+            wallVertices[2] = corners[c];
+            wallVertices[3] = corners[d];
+            mesh.vertices = wallVertices;
+            mesh.RecalculateBounds();
+            wall.enabled = true;
+        }
+
+        // ---- Out-of-view feedback -------------------------------------------
+
+        private HandExitFeedback CreateExitFeedback(OVRHand hand, string markerName)
+        {
+            var ring = new LineRenderer[FrustumEdgeCount];
+            for (int index = 0; index < ring.Length; index++)
+            {
+                ring[index] = CreateLine($"{markerName}{index}");
+            }
+
+            return new HandExitFeedback
+            {
+                hand = hand,
+                renderer = hand.GetComponent<SkinnedMeshRenderer>(),
+                properties = new MaterialPropertyBlock(),
+                marker = ring
+            };
+        }
+
+        /// <summary>
+        /// Greys the hand out while its pose is only inferred, and drops a ring at
+        /// the last point where it was still genuinely tracked. The message is not
+        /// that a rule was broken, but that the cameras stopped seeing this hand,
+        /// and exactly where.
+        /// </summary>
+        private void RefreshExitFeedback(HandExitFeedback feedback)
+        {
+            if (feedback == null || feedback.hand == null)
+            {
+                return;
+            }
+
+            bool direct = IsDirect(feedback.hand);
+            bool tracked = feedback.hand.IsDataValid && feedback.hand.IsTracked;
+
+            if (direct)
+            {
+                feedback.lastDirectPoint = feedback.hand.transform.position;
+            }
+            else if (feedback.wasDirect && tracked)
+            {
+                // Just slipped out: pin the marker where it was last really seen.
+                feedback.markerSecondsLeft = exitMarkerSeconds;
+            }
+
+            feedback.wasDirect = direct;
+            ApplyHandTint(feedback, GuidanceEnabled && tracked && !direct);
+
+            if (feedback.markerSecondsLeft > 0f)
+            {
+                feedback.markerSecondsLeft -= Time.unscaledDeltaTime;
+                if (direct || !GuidanceEnabled)
+                {
+                    feedback.markerSecondsLeft = 0f;
+                }
+            }
+
+            RefreshExitMarker(feedback);
+        }
+
+        private void ApplyHandTint(HandExitFeedback feedback, bool dim)
+        {
+            if (feedback.renderer == null || feedback.dimmed == dim)
+            {
+                return;
+            }
+
+            feedback.dimmed = dim;
+            feedback.properties.Clear();
+            if (dim)
+            {
+                // The hand material exposes several colour slots depending on the
+                // shader variant, so tint every one that exists.
+                feedback.properties.SetColor("_Color", inferredHandColor);
+                feedback.properties.SetColor("_ColorTop", inferredHandColor);
+                feedback.properties.SetColor("_ColorBottom", inferredHandColor);
+            }
+
+            feedback.renderer.SetPropertyBlock(feedback.properties);
+        }
+
+        private void RestoreHandTint(HandExitFeedback feedback)
+        {
+            if (feedback == null)
+            {
+                return;
+            }
+
+            feedback.markerSecondsLeft = 0f;
+            ApplyHandTint(feedback, false);
+            RefreshExitMarker(feedback);
+        }
+
+        private void RefreshExitMarker(HandExitFeedback feedback)
+        {
+            if (feedback.marker == null)
+            {
+                return;
+            }
+
+            if (feedback.markerSecondsLeft <= 0f)
+            {
+                foreach (LineRenderer segment in feedback.marker)
+                {
+                    if (segment != null)
+                    {
+                        segment.enabled = false;
+                    }
+                }
+                return;
+            }
+
+            float fade = Mathf.Clamp01(feedback.markerSecondsLeft / exitMarkerSeconds);
+            Color color = activeColor;
+            color.a *= fade;
+
+            // A ring facing the teacher, so it reads the same from any angle.
+            Vector3 center = feedback.lastDirectPoint;
+            Vector3 right = hmd.right * exitMarkerRadius;
+            Vector3 up = hmd.up * exitMarkerRadius;
+            int segments = feedback.marker.Length;
+
+            for (int index = 0; index < segments; index++)
+            {
+                float a0 = index / (float)segments * Mathf.PI * 2f;
+                float a1 = (index + 1) / (float)segments * Mathf.PI * 2f;
+                SetLine(
+                    feedback.marker[index],
+                    center + right * Mathf.Cos(a0) + up * Mathf.Sin(a0),
+                    center + right * Mathf.Cos(a1) + up * Mathf.Sin(a1),
+                    color,
+                    lineWidth * 1.4f
+                );
+            }
+        }
+
         private LineRenderer CreateLine(string lineName)
         {
             var lineObject = new GameObject(lineName);
@@ -712,6 +1020,14 @@ namespace SignVR.Recording
                 if (line != null)
                 {
                     line.enabled = false;
+                }
+            }
+
+            foreach (MeshRenderer wall in wallRenderers)
+            {
+                if (wall != null)
+                {
+                    wall.enabled = false;
                 }
             }
         }
