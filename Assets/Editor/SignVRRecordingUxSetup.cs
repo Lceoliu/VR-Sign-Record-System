@@ -93,7 +93,7 @@ public static class SignVRRecordingUxSetup
                 trackingGuideMaterial,
                 font
             );
-        SetupPreviewCamera(previewStreamer, mirroredCharacter);
+        SetupPreviewCamera(previewStreamer, retargeter.transform);
 
         ApplyFontToScene(font);
         SetInitialChinesePrompt(coordinator);
@@ -882,49 +882,31 @@ public static class SignVRRecordingUxSetup
 
     private static void SetupPreviewCamera(
         QuestPreviewStreamer previewStreamer,
-        Transform mirroredCharacter)
+        Transform character)
     {
-        Transform head = mirroredCharacter
+        Transform head = character
             .GetComponentsInChildren<Transform>(true)
             .FirstOrDefault(transform => transform.name == "Head");
-        Transform hips = mirroredCharacter
+        Transform hips = character
             .GetComponentsInChildren<Transform>(true)
             .FirstOrDefault(transform => transform.name == "Hips");
 
         if (head == null || hips == null)
         {
             throw new InvalidOperationException(
-                "The mirrored character Head or Hips transform was not found."
+                "The character Head or Hips transform was not found."
             );
-        }
-
-        int previewLayer = LayerMask.NameToLayer("MirroredCharacter");
-        if (previewLayer < 0)
-        {
-            throw new InvalidOperationException(
-                "The MirroredCharacter layer is required for the web preview."
-            );
-        }
-        foreach (Renderer renderer in
-                 mirroredCharacter.GetComponentsInChildren<Renderer>(true))
-        {
-            renderer.gameObject.layer = previewLayer;
-            EditorUtility.SetDirty(renderer.gameObject);
         }
 
         Vector3 framingCenter = (head.position + hips.position) * 0.5f +
                                 Vector3.up * 0.12f;
-        Vector3 characterForward = Vector3.ProjectOnPlane(
-            mirroredCharacter.forward,
-            Vector3.up
-        ).normalized;
-        Vector3 cameraPosition = framingCenter + characterForward * 1.05f;
+        Vector3 cameraPosition = new Vector3(-0.47f, 1.4f, -1.65f);
 
         previewStreamer.ConfigureView(
             head,
             hips,
             cameraPosition,
-            50f,
+            60f,
             true
         );
         EditorUtility.SetDirty(previewStreamer);

@@ -35,4 +35,20 @@
 
 Android IL2CPP 开发包输出到 `Builds/Android/`（该目录不入库）。安装到 Quest 3 后，应用会在局域网内广播 UDP 公告等待主机配对。
 
+正式产品身份为：
+
+- Company：`SignVR`
+- Product：`SignVR Recorder`
+- Android Application ID：`com.signvr.recorder`
+- Version：`1.0.0`，Version Code `1`
+
+执行 Unity 菜单 `SignVR -> Release -> Apply Product Identity` 可统一写入这些设置。正式构建的签名密码不进入仓库；设置以下进程环境变量后执行 `SignVR -> Release -> Apply Android Signing From Environment`：
+
+- `SIGNVR_ANDROID_KEYSTORE_PATH`
+- `SIGNVR_ANDROID_KEYSTORE_PASSWORD`
+- `SIGNVR_ANDROID_KEY_ALIAS`
+- `SIGNVR_ANDROID_KEY_ALIAS_PASSWORD`
+
+Keystore 必须在仓库外安全备份。以后所有升级包都必须使用同一密钥，否则 Quest 无法覆盖安装，卸载后还会丢失应用本地尚未上传的数据和设备绑定。
+
 主机与 Quest 必须处于同一可信局域网，端口约定见主机仓库的 README。

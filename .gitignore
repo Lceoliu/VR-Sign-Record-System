@@ -57,3 +57,7 @@ sysinfo.txt
 # Unity Japan Office 素材包 6.4 GB，从官方渠道重新导入，见 README.md
 /Assets/UnityJapanOffice/
 /Assets/UnityJapanOffice.meta
+
+# Release signing keys must be backed up separately and never committed.
+*.keystore
+*.jks

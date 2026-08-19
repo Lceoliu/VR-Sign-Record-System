@@ -176,20 +176,16 @@ namespace SignVR.Recording
 
         public bool BeginRemoteTake(
             RecordingTakeContext take,
-            long startAtUnixMilliseconds)
+            float remoteCountdownSeconds)
         {
             if (!take.IsValid)
             {
                 throw new ArgumentException("Remote take is invalid.", nameof(take));
             }
 
-            double nowUnixMilliseconds =
-                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-
-            float delaySeconds = Mathf.Max(
-                0f,
-                (float)((startAtUnixMilliseconds - nowUnixMilliseconds) / 1000.0)
-            );
+            float delaySeconds = remoteCountdownSeconds > 0f
+                ? remoteCountdownSeconds
+                : countdownSeconds;
 
             return BeginTake(take, delaySeconds);
         }

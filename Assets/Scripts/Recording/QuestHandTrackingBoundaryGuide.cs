@@ -15,6 +15,7 @@ namespace SignVR.Recording
     {
         private const string CalibrationKey =
             "SignVR.QuestHandTrackingBoundary.v2";
+        private const bool InteractiveCalibrationEnabled = false;
         private const int DirectionCount = 4;
         private const int FrustumEdgeCount = 8;
 
@@ -132,13 +133,14 @@ namespace SignVR.Recording
         private HandExitFeedback rightExit;
 
         public bool GuidanceEnabled { get; private set; } = true;
-        public bool IsCalibrating => !HasCompleteCalibration;
+        public bool IsCalibrating =>
+            InteractiveCalibrationEnabled && !HasCompleteCalibration;
 
         public string CalibrationInstruction
         {
             get
             {
-                if (HasCompleteCalibration)
+                if (!InteractiveCalibrationEnabled || HasCompleteCalibration)
                 {
                     return string.Empty;
                 }

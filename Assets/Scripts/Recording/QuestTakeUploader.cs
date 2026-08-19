@@ -25,7 +25,6 @@ namespace SignVR.Recording
         private bool uploading;
         private string baseUrl;
         private string deviceId;
-        private string sessionToken;
 
         [Serializable]
         private sealed class StoredMetadata
@@ -73,12 +72,10 @@ namespace SignVR.Recording
 
         public void ConfigureHost(
             string hostBaseUrl,
-            string questDeviceId,
-            string token)
+            string questDeviceId)
         {
             baseUrl = hostBaseUrl.TrimEnd('/');
             deviceId = questDeviceId;
-            sessionToken = token;
             QueueStoredRecordings();
             TryStartNextUpload();
         }
@@ -201,7 +198,6 @@ namespace SignVR.Recording
 
                 using (UnityWebRequest request = UnityWebRequest.Post(url, sections))
                 {
-                    request.SetRequestHeader("x-signvr-token", sessionToken);
                     yield return request.SendWebRequest();
 
                     uploaded = request.result == UnityWebRequest.Result.Success;
