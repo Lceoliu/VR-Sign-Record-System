@@ -1,0 +1,63 @@
+# Unity generated
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# User settings
+UserSettings/
+
+# IDE
+.vs/
+.idea/
+.vscode/
+
+# Visual Studio / Rider
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Crash reports
+sysinfo.txt
+
+# Performance Testing 包的运行产物
+/Assets/Resources/PerformanceTestRunInfo.json*
+/Assets/Resources/PerformanceTestRunSettings.json*
+
+# Unity Android native build cache
+.utmp/
+
+# 光照烘焙产物：房间素材摆放完成后需重新烘焙，见设计文档 10.8
+/Assets/Scenes/Recording/
+/Assets/Scenes/Recording.meta
+
+# 调试截图与编辑器场景恢复备份
+/Assets/Screenshots/
+/Assets/Screenshots.meta
+/Assets/_Recovery/
+/Assets/_Recovery.meta
+
+# 第三方开发工具包，来源由 Packages/manifest.json 声明
+/Packages/com.besty.unity-skills/
+
+# Unity Japan Office 素材包 6.4 GB，从官方渠道重新导入，见 README.md
+/Assets/UnityJapanOffice/
+/Assets/UnityJapanOffice.meta
+
+# Release signing keys must be backed up separately and never committed.
+*.keystore
+*.jks
