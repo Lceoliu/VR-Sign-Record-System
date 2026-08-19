@@ -79,6 +79,29 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         sourceDataProvider != null &&
         sourceDataProvider.IsPoseValid();
 
+    public MetaSourceDataProvider SourceDataProvider => sourceDataProvider;
+
+    public void ConfigureSource(MetaSourceDataProvider provider)
+    {
+        sourceDataProvider = provider;
+    }
+
+    /// <summary>
+    /// Hands start/stop ownership to RecordingCoordinator. Coordinated takes
+    /// must not be started or truncated by the legacy timed recording path.
+    /// </summary>
+    public void ConfigureManagedRecording()
+    {
+        recordAutomatically = false;
+        recordingDurationSeconds = 0f;
+    }
+
+    public void ConfigureBoundaryMonitor(
+        SignVR.Recording.HandCaptureBoundaryMonitor monitor)
+    {
+        boundaryMonitor = monitor;
+    }
+
     public event Action<RecordingArtifact> RecordingFinalized;
 
     public bool TryFindLatestArtifact(

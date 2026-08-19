@@ -32,6 +32,14 @@ namespace SignVR.Recording
         private double pressedAt;
         private int promptIndex;
 
+        public void Configure(
+            RecordingCoordinator recordingCoordinator,
+            RecordingReplayController replay = null)
+        {
+            coordinator = recordingCoordinator;
+            replayController = replay;
+        }
+
         private void Awake()
         {
 #if !UNITY_EDITOR && !DEVELOPMENT_BUILD
@@ -52,6 +60,14 @@ namespace SignVR.Recording
 
             if (Keyboard.current.rKey.wasPressedThisFrame)
             {
+                if (replayController == null)
+                {
+                    Debug.LogWarning(
+                        "[RecordingDebugInput] Replay is not configured for this scene."
+                    );
+                    return;
+                }
+
                 if (replayController.IsReviewing || replayController.IsLoading)
                 {
                     replayController.StopReview();

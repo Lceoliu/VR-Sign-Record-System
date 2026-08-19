@@ -80,6 +80,22 @@ namespace SignVR.Recording
             streamJpegPreview = enableJpegStreaming;
         }
 
+        /// <summary>
+        /// Keeps the preview dependency available to the recording gateway in
+        /// scenes that do not author a preview character/camera. Pose capture
+        /// and take upload remain enabled; a scene with a camera can opt in via
+        /// ConfigureView.
+        /// </summary>
+        public void ConfigureDisabled()
+        {
+            streamJpegPreview = false;
+            if (captureRoutine != null)
+            {
+                StopCoroutine(captureRoutine);
+                captureRoutine = null;
+            }
+        }
+
         private void Awake()
         {
             width = 480;

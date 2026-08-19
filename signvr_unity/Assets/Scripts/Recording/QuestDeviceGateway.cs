@@ -60,6 +60,27 @@ namespace SignVR.Recording
         public string LastPacketType { get; private set; } = string.Empty;
         public string LastReceiveError { get; private set; } = string.Empty;
 
+        /// <summary>
+        /// Injects the recording stack before this component is enabled.  The
+        /// source project serialized these references in one scene; the target
+        /// project also supports additive/runtime scene composition.
+        /// </summary>
+        public void Configure(
+            RecordingCoordinator recordingCoordinator,
+            MetaBodyMotionRecorder recordingRecorder,
+            MetaBodyMotionStreamer recordingStreamer,
+            QuestTakeUploader uploader,
+            QuestPreviewStreamer preview,
+            HandCaptureBoundaryMonitor monitor)
+        {
+            coordinator = recordingCoordinator;
+            recorder = recordingRecorder;
+            motionStreamer = recordingStreamer;
+            takeUploader = uploader;
+            previewStreamer = preview;
+            boundaryMonitor = monitor;
+        }
+
         [Serializable]
         private sealed class PacketEnvelope
         {
@@ -178,8 +199,7 @@ namespace SignVR.Recording
             }
 
             if (coordinator == null || recorder == null || motionStreamer == null ||
-                takeUploader == null || previewStreamer == null ||
-                boundaryMonitor == null)
+                takeUploader == null)
             {
                 Debug.LogError("[QuestDeviceGateway] Scene dependencies are not assigned.");
                 enabled = false;
@@ -214,8 +234,20 @@ namespace SignVR.Recording
 
         private void OnEnable()
         {
-            StartListener();
-            announcementRoutine = StartCoroutine(AnnouncementLoop());
+            try
+            {
+                StartListener();
+                announcementRoutine = StartCoroutine(AnnouncementLoop());
+            }
+            catch (SocketException exception)
+            {
+                LastReceiveError = exception.Message;
+                Debug.LogError(
+                    "[QuestDeviceGateway] Could not bind UDP control port " +
+                    $"{controlPort}: {exception.Message}"
+                );
+                enabled = false;
+            }
         }
 
         private void Update()
@@ -257,7 +289,19 @@ namespace SignVR.Recording
 
             if (ReferenceEquals(activeListener, listener))
             {
-                activeListener.BeginReceive(ReceiveDatagram, activeListener);
+                try
+                {
+                    activeListener.BeginReceive(ReceiveDatagram, activeListener);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Shutdown can race the async callback. The socket is
+                    // already closed, so there is nothing left to receive.
+                }
+                catch (SocketException exception)
+                {
+                    receiveErrors.Enqueue(exception.Message);
+                }
             }
         }
 
@@ -278,27 +322,59 @@ namespace SignVR.Recording
 
         private void HandleDatagram(ReceivedDatagram datagram)
         {
-            PacketEnvelope envelope = JsonUtility.FromJson<PacketEnvelope>(datagram.Json);
-            ReceivedPacketCount++;
-            LastPacketType = envelope.type ?? string.Empty;
-
-            switch (envelope.type)
+            PacketEnvelope envelope;
+            try
             {
-                case "discover":
-                    HandleDiscover(datagram.Json, datagram.RemoteEndPoint);
-                    break;
-                case "pair":
-                    HandlePair(datagram.Json, datagram.RemoteEndPoint);
-                    break;
-                case "command":
-                    HandleCommand(datagram.Json, datagram.RemoteEndPoint);
-                    break;
+                envelope = JsonUtility.FromJson<PacketEnvelope>(datagram.Json);
+            }
+            catch (ArgumentException exception)
+            {
+                LastReceiveError = "Invalid UDP JSON: " + exception.Message;
+                return;
+            }
+
+            if (envelope == null || string.IsNullOrWhiteSpace(envelope.type))
+            {
+                LastReceiveError = "UDP packet has no type.";
+                return;
+            }
+
+            ReceivedPacketCount++;
+            LastPacketType = envelope.type;
+
+            try
+            {
+                switch (envelope.type)
+                {
+                    case "discover":
+                        HandleDiscover(datagram.Json, datagram.RemoteEndPoint);
+                        break;
+                    case "pair":
+                        HandlePair(datagram.Json, datagram.RemoteEndPoint);
+                        break;
+                    case "command":
+                        HandleCommand(datagram.Json, datagram.RemoteEndPoint);
+                        break;
+                }
+            }
+            catch (Exception exception)
+            {
+                LastReceiveError = "UDP packet handling failed: " + exception.Message;
+                Debug.LogWarning(
+                    "[QuestDeviceGateway] Ignoring malformed UDP packet: " +
+                    exception.Message
+                );
             }
         }
 
         private void HandleDiscover(string json, IPEndPoint remoteEndPoint)
         {
             DiscoverPacket packet = JsonUtility.FromJson<DiscoverPacket>(json);
+            if (packet == null || remoteEndPoint == null)
+            {
+                return;
+            }
+
             int replyPort = packet.reply_port > 0
                 ? packet.reply_port
                 : remoteEndPoint.Port;
@@ -309,6 +385,11 @@ namespace SignVR.Recording
         private void HandlePair(string json, IPEndPoint remoteEndPoint)
         {
             PairPacket packet = JsonUtility.FromJson<PairPacket>(json);
+            if (packet == null || remoteEndPoint == null)
+            {
+                return;
+            }
+
             bool hostAddressValid = IPAddress.TryParse(
                 packet.host_ip,
                 out IPAddress hostAddress
@@ -355,7 +436,7 @@ namespace SignVR.Recording
 
                 motionStreamer.ConfigureDestination(packet.host_ip, packet.pose_port);
                 takeUploader.ConfigureHost(baseUrl, deviceId);
-                previewStreamer.ConfigureHost(baseUrl, deviceId);
+                previewStreamer?.ConfigureHost(baseUrl, deviceId);
             }
 
             SendAck(
@@ -369,6 +450,11 @@ namespace SignVR.Recording
         private void HandleCommand(string json, IPEndPoint remoteEndPoint)
         {
             CommandPacket packet = JsonUtility.FromJson<CommandPacket>(json);
+            if (packet == null || remoteEndPoint == null)
+            {
+                return;
+            }
+
             if (packet.version != ProtocolVersion)
             {
                 SendAck(
@@ -398,6 +484,11 @@ namespace SignVR.Recording
                     accepted = HandlePedal(packet);
                     break;
                 case "set_guidance":
+                    if (boundaryMonitor == null)
+                    {
+                        accepted = false;
+                        break;
+                    }
                     boundaryMonitor.SetGuidanceEnabled(packet.enabled);
                     accepted = true;
                     break;
@@ -439,7 +530,12 @@ namespace SignVR.Recording
 
         private bool StartRemoteTake(CommandPacket packet)
         {
-            if (!recorder.IsPoseReady)
+            if (packet == null || coordinator == null || recorder == null ||
+                string.IsNullOrWhiteSpace(packet.session_id) ||
+                string.IsNullOrWhiteSpace(packet.sentence_id) ||
+                string.IsNullOrWhiteSpace(packet.take_id) ||
+                packet.take_index < 1 ||
+                !recorder.IsPoseReady)
             {
                 return false;
             }
@@ -481,7 +577,9 @@ namespace SignVR.Recording
                 control_port = controlPort,
                 paired_station_id = pairedStationId,
                 paired = pairedHostAddress != null,
-                capabilities = new[] { "pose", "preview", "take_upload" },
+                capabilities = previewStreamer != null && previewStreamer.isActiveAndEnabled
+                    ? new[] { "pose", "preview", "take_upload" }
+                    : new[] { "pose", "take_upload" },
                 state = coordinator.State.ToString().ToLowerInvariant()
             };
 
@@ -508,8 +606,25 @@ namespace SignVR.Recording
 
         private void SendPacket(object packet, IPEndPoint target)
         {
+            if (sender == null || packet == null || target == null)
+            {
+                return;
+            }
+
             byte[] bytes = Encoding.UTF8.GetBytes(JsonUtility.ToJson(packet));
-            sender.Send(bytes, bytes.Length, target);
+            try
+            {
+                sender.Send(bytes, bytes.Length, target);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The app can shut down while an announcement coroutine is
+                // between frames.
+            }
+            catch (SocketException exception)
+            {
+                LastReceiveError = exception.Message;
+            }
         }
 
         private void StartListener()

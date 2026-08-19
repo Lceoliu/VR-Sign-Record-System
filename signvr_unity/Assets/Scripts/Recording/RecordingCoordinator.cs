@@ -43,6 +43,7 @@ namespace SignVR.Recording
         private int nextTakeIndex;
         private double recordingStartedAt;
         private RecordingFlowState reviewReturnState;
+        private bool dependenciesBound;
 
         public event Action PresentationChanged;
 
@@ -61,7 +62,9 @@ namespace SignVR.Recording
 
         public bool IsHelpRequested { get; private set; }
 
-        public RecordingFlowState State => stateMachine.State;
+        public RecordingFlowState State => stateMachine != null
+            ? stateMachine.State
+            : RecordingFlowState.Disconnected;
         public string SessionId { get; private set; } = string.Empty;
         public string SentenceId { get; private set; } = string.Empty;
         public string PromptText { get; private set; } = string.Empty;
@@ -79,26 +82,11 @@ namespace SignVR.Recording
 
         private void Awake()
         {
-            stateMachine = new RecordingFlowStateMachine();
-            stateMachine.StateChanged += HandleStateChanged;
+            InitializeStateMachine();
 
-            if (recorder == null)
-            {
-                LastError = "Meta Body Motion Recorder is not assigned.";
-                Debug.LogError("[RecordingCoordinator] " + LastError);
-                stateMachine.Fail();
-                enabled = false;
-                return;
-            }
+            BindDependencies();
 
-            recorder.RecordingFinalized += HandleRecordingFinalized;
-
-            if (teacherUI != null)
-            {
-                teacherUI.Bind(this);
-            }
-
-            if (loadInitialPromptOnAwake)
+            if (loadInitialPromptOnAwake && recorder != null)
             {
                 LoadPrompt(
                     initialSessionId,
@@ -109,12 +97,68 @@ namespace SignVR.Recording
             }
         }
 
+        /// <summary>
+        /// Runtime bootstrap entry point.  Keeping dependency injection here
+        /// lets a scene create the recording stack without duplicating the XR
+        /// rig or relying on fragile name-based lookups in every scene.
+        /// </summary>
+        public void Configure(
+            MetaBodyMotionRecorder recordingRecorder,
+            RecordingTeacherUI recordingTeacherUI = null)
+        {
+            if (recordingRecorder == null)
+            {
+                throw new ArgumentNullException(nameof(recordingRecorder));
+            }
+
+            recorder = recordingRecorder;
+            teacherUI = recordingTeacherUI;
+            InitializeStateMachine();
+            BindDependencies();
+        }
+
+        private void InitializeStateMachine()
+        {
+            if (stateMachine != null)
+            {
+                return;
+            }
+
+            stateMachine = new RecordingFlowStateMachine();
+            stateMachine.StateChanged += HandleStateChanged;
+        }
+
+        private void BindDependencies()
+        {
+            if (dependenciesBound || recorder == null)
+            {
+                return;
+            }
+
+            recorder.RecordingFinalized += HandleRecordingFinalized;
+            if (teacherUI != null)
+            {
+                teacherUI.Bind(this);
+            }
+
+            dependenciesBound = true;
+        }
+
         public bool LoadPrompt(
             string sessionId,
             string sentenceId,
             string promptText,
             int startingTakeIndex = 1)
         {
+            BindDependencies();
+            if (recorder == null)
+            {
+                LastError = "Meta Body Motion Recorder is not assigned.";
+                stateMachine.Fail();
+                NotifyPresentationChanged();
+                return false;
+            }
+
             if (string.IsNullOrWhiteSpace(sessionId))
             {
                 throw new ArgumentException("Session ID is required.", nameof(sessionId));
@@ -233,6 +277,13 @@ namespace SignVR.Recording
                 return false;
             }
 
+            if (recorder == null)
+            {
+                LastError = "Meta Body Motion Recorder is not assigned.";
+                stateMachine.Fail();
+                return false;
+            }
+
             recorder.StopRecording();
             StopActiveRoutine();
             activeRoutine = StartCoroutine(CompleteFinalizingNextFrame());
@@ -329,7 +380,7 @@ namespace SignVR.Recording
             StopActiveRoutine();
             stateMachine.BeginReset();
 
-            if (recorder.IsRecording)
+            if (recorder != null && recorder.IsRecording)
             {
                 recorder.StopRecordingAsInterrupted();
             }
@@ -354,7 +405,7 @@ namespace SignVR.Recording
 
             RecordingTakeContext take = CurrentTake;
 
-            if (!recorder.TryStartRecording(take))
+            if (recorder == null || !recorder.TryStartRecording(take))
             {
                 LastError = "Body tracking is not ready.";
                 stateMachine.Fail();
@@ -420,7 +471,7 @@ namespace SignVR.Recording
                 stateMachine.StateChanged -= HandleStateChanged;
             }
 
-            if (recorder != null)
+            if (dependenciesBound && recorder != null)
             {
                 recorder.RecordingFinalized -= HandleRecordingFinalized;
             }

@@ -1,0 +1,27 @@
+{
+  "name": "SignVR.SortingGame.Tests",
+  "rootNamespace": "SignVR.SortingGame.Tests",
+  "references": [
+    "SignVR.SortingGame",
+    "Oculus.Interaction",
+    "Unity.TextMeshPro"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "nunit.framework.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "UNITY_INCLUDE_TESTS"
+  ],
+  "optionalUnityReferences": [
+    "TestAssemblies"
+  ],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

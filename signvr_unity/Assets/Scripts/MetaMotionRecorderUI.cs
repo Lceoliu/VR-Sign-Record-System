@@ -42,6 +42,7 @@ public sealed class MetaMotionRecorderUI : MonoBehaviour
 
     private bool previousRecordingState;
     private float nextStatusRefreshTime;
+    private bool listenersBound;
 
     private void Awake()
     {
@@ -71,6 +72,8 @@ public sealed class MetaMotionRecorderUI : MonoBehaviour
         {
             stopButton.onClick.AddListener(StopRecording);
         }
+
+        listenersBound = true;
 
         previousRecordingState = recorder.IsRecording;
         RefreshUI();
@@ -247,6 +250,24 @@ public sealed class MetaMotionRecorderUI : MonoBehaviour
         RefreshUI();
     }
 
+    /// <summary>
+    /// Removes the legacy direct-recorder callbacks when the take-aware
+    /// coordinator takes ownership of this authored canvas.
+    /// </summary>
+    public void DetachControls()
+    {
+        if (startButton != null)
+        {
+            startButton.onClick.RemoveListener(StartRecording);
+        }
+        if (stopButton != null)
+        {
+            stopButton.onClick.RemoveListener(StopRecording);
+        }
+        listenersBound = false;
+        enabled = false;
+    }
+
     private void RefreshUI()
     {
         bool isRecording = recorder.IsRecording;
@@ -300,14 +321,9 @@ public sealed class MetaMotionRecorderUI : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (startButton != null)
+        if (listenersBound)
         {
-            startButton.onClick.RemoveListener(StartRecording);
-        }
-
-        if (stopButton != null)
-        {
-            stopButton.onClick.RemoveListener(StopRecording);
+            DetachControls();
         }
     }
 }

@@ -5,18 +5,24 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
+  - enabled: 1
+    path: Assets/Scenes/VRroom.unity
+    guid: 4612ae52c54620c44aabd6afd13e11d4
+  - enabled: 1
+    path: Assets/Scenes/CoopLiftWorkshop.unity
+    guid: c3a40bfead6adfd4c84f71f94670661b
+  - enabled: 1
+    path: Assets/Scenes/VRSortingGame.unity
+    guid: cf8efb665a2d3494c9e18cd7b3c1024a
   - enabled: 0
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
   - enabled: 0
     path: Assets/Samples/Meta XR Movement SDK/205.0.0/Body Tracking Samples/Scenes/MovementBody.unity
     guid: d707936252ce4564e857133f9d24167d
-  - enabled: 0
+  - enabled: 1
     path: Assets/Scenes/SignTrackingRecorder.unity
     guid: d6be858029e6ef2408eddadf9ccdf256
-  - enabled: 1
-    path: Assets/Scenes/Recording.unity
-    guid: 98519e40f2ce8324d9adc113f7e1ae91
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
     com.unity.xr.management.loader_settings: {fileID: 11400000, guid: acadf09166eb369468a48432a3602357, type: 2}

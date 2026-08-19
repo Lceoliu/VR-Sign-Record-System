@@ -82,6 +82,13 @@ public sealed class MetaBodyMotionStreamer : MonoBehaviour
         remoteEndPoint != null &&
         remoteEndPoint.Address.Equals(IPAddress.Broadcast);
 
+    public MetaSourceDataProvider SourceDataProvider => sourceDataProvider;
+
+    public void ConfigureSource(MetaSourceDataProvider provider)
+    {
+        sourceDataProvider = provider;
+    }
+
     public string ShortDebugStatus
     {
         get

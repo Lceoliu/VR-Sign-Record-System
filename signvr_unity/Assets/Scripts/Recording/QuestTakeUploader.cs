@@ -25,6 +25,7 @@ namespace SignVR.Recording
         private bool uploading;
         private string baseUrl;
         private string deviceId;
+        private bool subscribed;
 
         [Serializable]
         private sealed class StoredMetadata
@@ -60,14 +61,35 @@ namespace SignVR.Recording
 
         private void OnEnable()
         {
-            if (recorder == null)
+            TryBindRecorder();
+        }
+
+        public void Configure(MetaBodyMotionRecorder recordingRecorder)
+        {
+            if (recordingRecorder == null)
             {
-                Debug.LogError("[QuestTakeUploader] Recorder is not assigned.");
-                enabled = false;
+                throw new ArgumentNullException(nameof(recordingRecorder));
+            }
+
+            if (subscribed && recorder != recordingRecorder)
+            {
+                recorder.RecordingFinalized -= HandleRecordingFinalized;
+                subscribed = false;
+            }
+
+            recorder = recordingRecorder;
+            TryBindRecorder();
+        }
+
+        private void TryBindRecorder()
+        {
+            if (subscribed || recorder == null)
+            {
                 return;
             }
 
             recorder.RecordingFinalized += HandleRecordingFinalized;
+            subscribed = true;
         }
 
         public void ConfigureHost(
@@ -244,9 +266,10 @@ namespace SignVR.Recording
 
         private void OnDisable()
         {
-            if (recorder != null)
+            if (subscribed && recorder != null)
             {
                 recorder.RecordingFinalized -= HandleRecordingFinalized;
+                subscribed = false;
             }
         }
     }
