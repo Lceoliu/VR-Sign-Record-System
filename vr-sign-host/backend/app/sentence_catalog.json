@@ -1,0 +1,1802 @@
+[
+  {
+    "sentence_id": "sentence_001",
+    "index": 0,
+    "category": "social",
+    "text": "你叫什么名字？"
+  },
+  {
+    "sentence_id": "sentence_002",
+    "index": 1,
+    "category": "social",
+    "text": "很高兴认识你。"
+  },
+  {
+    "sentence_id": "sentence_003",
+    "index": 2,
+    "category": "social",
+    "text": "你是第一次用 VR 吗？"
+  },
+  {
+    "sentence_id": "sentence_004",
+    "index": 3,
+    "category": "social",
+    "text": "你平时经常来这里吗？"
+  },
+  {
+    "sentence_id": "sentence_005",
+    "index": 4,
+    "category": "social",
+    "text": "你是怎么知道这个游戏的？"
+  },
+  {
+    "sentence_id": "sentence_006",
+    "index": 5,
+    "category": "social",
+    "text": "我们加一个好友吧。"
+  },
+  {
+    "sentence_id": "sentence_007",
+    "index": 6,
+    "category": "social",
+    "text": "我刚刚给你发了好友申请。"
+  },
+  {
+    "sentence_id": "sentence_008",
+    "index": 7,
+    "category": "social",
+    "text": "你可以接受一下我的好友申请吗？"
+  },
+  {
+    "sentence_id": "sentence_009",
+    "index": 8,
+    "category": "social",
+    "text": "你平时喜欢玩什么类型的游戏？"
+  },
+  {
+    "sentence_id": "sentence_010",
+    "index": 9,
+    "category": "social",
+    "text": "我最近经常和朋友一起玩 VR。"
+  },
+  {
+    "sentence_id": "sentence_011",
+    "index": 10,
+    "category": "social",
+    "text": "今天这里的人好像很多。"
+  },
+  {
+    "sentence_id": "sentence_012",
+    "index": 11,
+    "category": "social",
+    "text": "我之前在别的房间见过你。"
+  },
+  {
+    "sentence_id": "sentence_013",
+    "index": 12,
+    "category": "social",
+    "text": "你还记得我吗？"
+  },
+  {
+    "sentence_id": "sentence_014",
+    "index": 13,
+    "category": "social",
+    "text": "我们上次一起玩过这个游戏。"
+  },
+  {
+    "sentence_id": "sentence_015",
+    "index": 14,
+    "category": "social",
+    "text": "你今天准备玩多久？"
+  },
+  {
+    "sentence_id": "sentence_016",
+    "index": 15,
+    "category": "social",
+    "text": "你一般什么时候上线？"
+  },
+  {
+    "sentence_id": "sentence_017",
+    "index": 16,
+    "category": "social",
+    "text": "我周末上线的时间比较多。"
+  },
+  {
+    "sentence_id": "sentence_018",
+    "index": 17,
+    "category": "social",
+    "text": "你一个人来的吗？"
+  },
+  {
+    "sentence_id": "sentence_019",
+    "index": 18,
+    "category": "social",
+    "text": "我的朋友等一下也会过来。"
+  },
+  {
+    "sentence_id": "sentence_020",
+    "index": 19,
+    "category": "social",
+    "text": "我们可以一起聊一会儿。"
+  },
+  {
+    "sentence_id": "sentence_021",
+    "index": 20,
+    "category": "social",
+    "text": "这里有没有你认识的人？"
+  },
+  {
+    "sentence_id": "sentence_022",
+    "index": 21,
+    "category": "social",
+    "text": "我刚刚认识了几个新朋友。"
+  },
+  {
+    "sentence_id": "sentence_023",
+    "index": 22,
+    "category": "social",
+    "text": "我觉得这里的人都很友好。"
+  },
+  {
+    "sentence_id": "sentence_024",
+    "index": 23,
+    "category": "social",
+    "text": "我想认识一些会手语的朋友。"
+  },
+  {
+    "sentence_id": "sentence_025",
+    "index": 24,
+    "category": "social",
+    "text": "你平时会和听人一起玩吗？"
+  },
+  {
+    "sentence_id": "sentence_026",
+    "index": 25,
+    "category": "social",
+    "text": "我平时主要用手语交流。"
+  },
+  {
+    "sentence_id": "sentence_027",
+    "index": 26,
+    "category": "social",
+    "text": "你会手语吗？"
+  },
+  {
+    "sentence_id": "sentence_028",
+    "index": 27,
+    "category": "social",
+    "text": "我只能看懂一点手语。"
+  },
+  {
+    "sentence_id": "sentence_029",
+    "index": 28,
+    "category": "social",
+    "text": "我可以把手语打慢一点。"
+  },
+  {
+    "sentence_id": "sentence_030",
+    "index": 29,
+    "category": "social",
+    "text": "你可以再说一遍吗？"
+  },
+  {
+    "sentence_id": "sentence_031",
+    "index": 30,
+    "category": "social",
+    "text": "我刚才没有看清楚。"
+  },
+  {
+    "sentence_id": "sentence_032",
+    "index": 31,
+    "category": "social",
+    "text": "刚才那句话是什么意思？"
+  },
+  {
+    "sentence_id": "sentence_033",
+    "index": 32,
+    "category": "social",
+    "text": "我没有理解你的意思。"
+  },
+  {
+    "sentence_id": "sentence_034",
+    "index": 33,
+    "category": "social",
+    "text": "你能换一种方式表达吗？"
+  },
+  {
+    "sentence_id": "sentence_035",
+    "index": 34,
+    "category": "social",
+    "text": "等一下，我还没看完。"
+  },
+  {
+    "sentence_id": "sentence_036",
+    "index": 35,
+    "category": "social",
+    "text": "你说得太快了。"
+  },
+  {
+    "sentence_id": "sentence_037",
+    "index": 36,
+    "category": "social",
+    "text": "我刚才走神了，没有看到。"
+  },
+  {
+    "sentence_id": "sentence_038",
+    "index": 37,
+    "category": "social",
+    "text": "没关系，我们再试一次。"
+  },
+  {
+    "sentence_id": "sentence_039",
+    "index": 38,
+    "category": "social",
+    "text": "现在我明白你的意思了。"
+  },
+  {
+    "sentence_id": "sentence_040",
+    "index": 39,
+    "category": "social",
+    "text": "我觉得我们沟通得还不错。"
+  },
+  {
+    "sentence_id": "sentence_041",
+    "index": 40,
+    "category": "social",
+    "text": "这个世界是你推荐的吗？"
+  },
+  {
+    "sentence_id": "sentence_042",
+    "index": 41,
+    "category": "social",
+    "text": "我很喜欢这个世界的风格。"
+  },
+  {
+    "sentence_id": "sentence_043",
+    "index": 42,
+    "category": "social",
+    "text": "这里看起来很漂亮。"
+  },
+  {
+    "sentence_id": "sentence_044",
+    "index": 43,
+    "category": "social",
+    "text": "这个地图比我想象中大很多。"
+  },
+  {
+    "sentence_id": "sentence_045",
+    "index": 44,
+    "category": "social",
+    "text": "我还是第一次来这个地图。"
+  },
+  {
+    "sentence_id": "sentence_046",
+    "index": 45,
+    "category": "social",
+    "text": "我以前来过这里好几次。"
+  },
+  {
+    "sentence_id": "sentence_047",
+    "index": 46,
+    "category": "social",
+    "text": "我想再逛一会儿。"
+  },
+  {
+    "sentence_id": "sentence_048",
+    "index": 47,
+    "category": "social",
+    "text": "这里有很多有意思的地方。"
+  },
+  {
+    "sentence_id": "sentence_049",
+    "index": 48,
+    "category": "social",
+    "text": "我还没有把整个地图看完。"
+  },
+  {
+    "sentence_id": "sentence_050",
+    "index": 49,
+    "category": "social",
+    "text": "下次我们可以再来这里。"
+  },
+  {
+    "sentence_id": "sentence_051",
+    "index": 50,
+    "category": "social",
+    "text": "我觉得这个游戏挺有意思。"
+  },
+  {
+    "sentence_id": "sentence_052",
+    "index": 51,
+    "category": "social",
+    "text": "这个游戏怎么玩？"
+  },
+  {
+    "sentence_id": "sentence_053",
+    "index": 52,
+    "category": "social",
+    "text": "我还没有弄懂游戏规则。"
+  },
+  {
+    "sentence_id": "sentence_054",
+    "index": 53,
+    "category": "social",
+    "text": "你以前玩过这个游戏吗？"
+  },
+  {
+    "sentence_id": "sentence_055",
+    "index": 54,
+    "category": "social",
+    "text": "我们要不要一起玩一局？"
+  },
+  {
+    "sentence_id": "sentence_056",
+    "index": 55,
+    "category": "social",
+    "text": "我准备好了，可以开始。"
+  },
+  {
+    "sentence_id": "sentence_057",
+    "index": 56,
+    "category": "social",
+    "text": "等一下，我还没有准备好。"
+  },
+  {
+    "sentence_id": "sentence_058",
+    "index": 57,
+    "category": "social",
+    "text": "这一局我们在一个队吗？"
+  },
+  {
+    "sentence_id": "sentence_059",
+    "index": 58,
+    "category": "social",
+    "text": "我刚才差一点就赢了。"
+  },
+  {
+    "sentence_id": "sentence_060",
+    "index": 59,
+    "category": "social",
+    "text": "这一局比上一局难多了。"
+  },
+  {
+    "sentence_id": "sentence_061",
+    "index": 60,
+    "category": "social",
+    "text": "我觉得这个模式更有意思。"
+  },
+  {
+    "sentence_id": "sentence_062",
+    "index": 61,
+    "category": "social",
+    "text": "我还想再玩一局。"
+  },
+  {
+    "sentence_id": "sentence_063",
+    "index": 62,
+    "category": "social",
+    "text": "我今天状态不太好。"
+  },
+  {
+    "sentence_id": "sentence_064",
+    "index": 63,
+    "category": "social",
+    "text": "刚才那一局真的很好玩。"
+  },
+  {
+    "sentence_id": "sentence_065",
+    "index": 64,
+    "category": "social",
+    "text": "我还在学习怎么操作。"
+  },
+  {
+    "sentence_id": "sentence_066",
+    "index": 65,
+    "category": "social",
+    "text": "这个操作比我想象中复杂。"
+  },
+  {
+    "sentence_id": "sentence_067",
+    "index": 66,
+    "category": "social",
+    "text": "我刚才按错按键了。"
+  },
+  {
+    "sentence_id": "sentence_068",
+    "index": 67,
+    "category": "social",
+    "text": "我终于知道怎么用了。"
+  },
+  {
+    "sentence_id": "sentence_069",
+    "index": 68,
+    "category": "social",
+    "text": "你玩这个游戏多久了？"
+  },
+  {
+    "sentence_id": "sentence_070",
+    "index": 69,
+    "category": "social",
+    "text": "你比我熟练多了。"
+  },
+  {
+    "sentence_id": "sentence_071",
+    "index": 70,
+    "category": "social",
+    "text": "我的网络刚才有一点卡。"
+  },
+  {
+    "sentence_id": "sentence_072",
+    "index": 71,
+    "category": "social",
+    "text": "我这里的画面有点卡。"
+  },
+  {
+    "sentence_id": "sentence_073",
+    "index": 72,
+    "category": "social",
+    "text": "你刚才的动作卡住了。"
+  },
+  {
+    "sentence_id": "sentence_074",
+    "index": 73,
+    "category": "social",
+    "text": "我刚才好像掉线了。"
+  },
+  {
+    "sentence_id": "sentence_075",
+    "index": 74,
+    "category": "social",
+    "text": "我重新进了一次房间。"
+  },
+  {
+    "sentence_id": "sentence_076",
+    "index": 75,
+    "category": "social",
+    "text": "现在应该恢复正常了。"
+  },
+  {
+    "sentence_id": "sentence_077",
+    "index": 76,
+    "category": "social",
+    "text": "我的网络今天不太稳定。"
+  },
+  {
+    "sentence_id": "sentence_078",
+    "index": 77,
+    "category": "social",
+    "text": "我这里延迟有一点高。"
+  },
+  {
+    "sentence_id": "sentence_079",
+    "index": 78,
+    "category": "social",
+    "text": "刚才画面突然停了一下。"
+  },
+  {
+    "sentence_id": "sentence_080",
+    "index": 79,
+    "category": "social",
+    "text": "我好像看不到你的动作了。"
+  },
+  {
+    "sentence_id": "sentence_081",
+    "index": 80,
+    "category": "social",
+    "text": "我的头显快没电了。"
+  },
+  {
+    "sentence_id": "sentence_082",
+    "index": 81,
+    "category": "social",
+    "text": "我要先给设备充一会儿电。"
+  },
+  {
+    "sentence_id": "sentence_083",
+    "index": 82,
+    "category": "social",
+    "text": "我的手柄刚才出了点问题。"
+  },
+  {
+    "sentence_id": "sentence_084",
+    "index": 83,
+    "category": "social",
+    "text": "手部追踪好像没有识别到我的手。"
+  },
+  {
+    "sentence_id": "sentence_085",
+    "index": 84,
+    "category": "social",
+    "text": "我的虚拟形象刚才显示不正常。"
+  },
+  {
+    "sentence_id": "sentence_086",
+    "index": 85,
+    "category": "social",
+    "text": "我想换一个虚拟形象。"
+  },
+  {
+    "sentence_id": "sentence_087",
+    "index": 86,
+    "category": "social",
+    "text": "这个虚拟形象是我自己选的。"
+  },
+  {
+    "sentence_id": "sentence_088",
+    "index": 87,
+    "category": "social",
+    "text": "你的虚拟形象很可爱。"
+  },
+  {
+    "sentence_id": "sentence_089",
+    "index": 88,
+    "category": "social",
+    "text": "我刚刚改了一下系统设置。"
+  },
+  {
+    "sentence_id": "sentence_090",
+    "index": 89,
+    "category": "social",
+    "text": "现在看起来应该正常了。"
+  },
+  {
+    "sentence_id": "sentence_091",
+    "index": 90,
+    "category": "social",
+    "text": "这里太多人了，我们换一个房间吧。"
+  },
+  {
+    "sentence_id": "sentence_092",
+    "index": 91,
+    "category": "social",
+    "text": "我们去人少一点的地方聊天吧。"
+  },
+  {
+    "sentence_id": "sentence_093",
+    "index": 92,
+    "category": "social",
+    "text": "我的朋友正在另一个房间等我。"
+  },
+  {
+    "sentence_id": "sentence_094",
+    "index": 93,
+    "category": "social",
+    "text": "我等一下要去找他们。"
+  },
+  {
+    "sentence_id": "sentence_095",
+    "index": 94,
+    "category": "social",
+    "text": "你要不要和我们一起去？"
+  },
+  {
+    "sentence_id": "sentence_096",
+    "index": 95,
+    "category": "social",
+    "text": "我可能过一会儿就要下线了。"
+  },
+  {
+    "sentence_id": "sentence_097",
+    "index": 96,
+    "category": "social",
+    "text": "今天和你聊天很开心。"
+  },
+  {
+    "sentence_id": "sentence_098",
+    "index": 97,
+    "category": "social",
+    "text": "下次上线的时候再一起玩吧。"
+  },
+  {
+    "sentence_id": "sentence_099",
+    "index": 98,
+    "category": "social",
+    "text": "我先走了，下次再见。"
+  },
+  {
+    "sentence_id": "sentence_100",
+    "index": 99,
+    "category": "social",
+    "text": "有空的时候我们再一起玩 VR。"
+  },
+  {
+    "sentence_id": "sentence_101",
+    "index": 100,
+    "category": "collaborate",
+    "text": "你先打开门，我去找钥匙。"
+  },
+  {
+    "sentence_id": "sentence_102",
+    "index": 101,
+    "category": "collaborate",
+    "text": "我负责左边，你检查右边。"
+  },
+  {
+    "sentence_id": "sentence_103",
+    "index": 102,
+    "category": "collaborate",
+    "text": "我走前面，你跟着我。"
+  },
+  {
+    "sentence_id": "sentence_104",
+    "index": 103,
+    "category": "collaborate",
+    "text": "你在这里等我，我进去看看。"
+  },
+  {
+    "sentence_id": "sentence_105",
+    "index": 104,
+    "category": "collaborate",
+    "text": "我们分开找，这样会快一点。"
+  },
+  {
+    "sentence_id": "sentence_106",
+    "index": 105,
+    "category": "collaborate",
+    "text": "找到线索以后回来告诉我。"
+  },
+  {
+    "sentence_id": "sentence_107",
+    "index": 106,
+    "category": "collaborate",
+    "text": "你去楼上，我检查这一层。"
+  },
+  {
+    "sentence_id": "sentence_108",
+    "index": 107,
+    "category": "collaborate",
+    "text": "我先过去看看有没有危险。"
+  },
+  {
+    "sentence_id": "sentence_109",
+    "index": 108,
+    "category": "collaborate",
+    "text": "你留在这里保护其他人。"
+  },
+  {
+    "sentence_id": "sentence_110",
+    "index": 109,
+    "category": "collaborate",
+    "text": "我们一起行动，不要分得太远。"
+  },
+  {
+    "sentence_id": "sentence_111",
+    "index": 110,
+    "category": "collaborate",
+    "text": "等我准备好以后再开始。"
+  },
+  {
+    "sentence_id": "sentence_112",
+    "index": 111,
+    "category": "collaborate",
+    "text": "我数到三，我们一起行动。"
+  },
+  {
+    "sentence_id": "sentence_113",
+    "index": 112,
+    "category": "collaborate",
+    "text": "你先过去，我马上跟上。"
+  },
+  {
+    "sentence_id": "sentence_114",
+    "index": 113,
+    "category": "collaborate",
+    "text": "我完成以后就换你来。"
+  },
+  {
+    "sentence_id": "sentence_115",
+    "index": 114,
+    "category": "collaborate",
+    "text": "先把这里处理完，再去下一个地方。"
+  },
+  {
+    "sentence_id": "sentence_116",
+    "index": 115,
+    "category": "collaborate",
+    "text": "我们按刚才的顺序再试一次。"
+  },
+  {
+    "sentence_id": "sentence_117",
+    "index": 116,
+    "category": "collaborate",
+    "text": "这次你先开始，我负责配合你。"
+  },
+  {
+    "sentence_id": "sentence_118",
+    "index": 117,
+    "category": "collaborate",
+    "text": "等所有人都到齐以后再进去。"
+  },
+  {
+    "sentence_id": "sentence_119",
+    "index": 118,
+    "category": "collaborate",
+    "text": "你完成第一步以后告诉我。"
+  },
+  {
+    "sentence_id": "sentence_120",
+    "index": 119,
+    "category": "collaborate",
+    "text": "现在还不能走，再等一下。"
+  },
+  {
+    "sentence_id": "sentence_121",
+    "index": 120,
+    "category": "collaborate",
+    "text": "我已经找到第一个线索了。"
+  },
+  {
+    "sentence_id": "sentence_122",
+    "index": 121,
+    "category": "collaborate",
+    "text": "我这里什么都没有找到。"
+  },
+  {
+    "sentence_id": "sentence_123",
+    "index": 122,
+    "category": "collaborate",
+    "text": "你那边有什么发现吗？"
+  },
+  {
+    "sentence_id": "sentence_124",
+    "index": 123,
+    "category": "collaborate",
+    "text": "我好像找到正确的位置了。"
+  },
+  {
+    "sentence_id": "sentence_125",
+    "index": 124,
+    "category": "collaborate",
+    "text": "这里可能还有一个隐藏的入口。"
+  },
+  {
+    "sentence_id": "sentence_126",
+    "index": 125,
+    "category": "collaborate",
+    "text": "我们是不是漏掉了一个房间？"
+  },
+  {
+    "sentence_id": "sentence_127",
+    "index": 126,
+    "category": "collaborate",
+    "text": "我记得刚才那里还有东西没检查。"
+  },
+  {
+    "sentence_id": "sentence_128",
+    "index": 127,
+    "category": "collaborate",
+    "text": "我已经把这一边全部检查过了。"
+  },
+  {
+    "sentence_id": "sentence_129",
+    "index": 128,
+    "category": "collaborate",
+    "text": "还有最后一个地方没有看。"
+  },
+  {
+    "sentence_id": "sentence_130",
+    "index": 129,
+    "category": "collaborate",
+    "text": "我们回去重新找一遍吧。"
+  },
+  {
+    "sentence_id": "sentence_131",
+    "index": 130,
+    "category": "collaborate",
+    "text": "你帮我把门保持打开。"
+  },
+  {
+    "sentence_id": "sentence_132",
+    "index": 131,
+    "category": "collaborate",
+    "text": "我需要你帮我一起完成这个操作。"
+  },
+  {
+    "sentence_id": "sentence_133",
+    "index": 132,
+    "category": "collaborate",
+    "text": "一个人好像做不了这个任务。"
+  },
+  {
+    "sentence_id": "sentence_134",
+    "index": 133,
+    "category": "collaborate",
+    "text": "我们两个人同时按下按钮试试。"
+  },
+  {
+    "sentence_id": "sentence_135",
+    "index": 134,
+    "category": "collaborate",
+    "text": "把你手上的钥匙给我。"
+  },
+  {
+    "sentence_id": "sentence_136",
+    "index": 135,
+    "category": "collaborate",
+    "text": "我来操作，你告诉我有没有变化。"
+  },
+  {
+    "sentence_id": "sentence_137",
+    "index": 136,
+    "category": "collaborate",
+    "text": "你帮我看一下右边有什么。"
+  },
+  {
+    "sentence_id": "sentence_138",
+    "index": 137,
+    "category": "collaborate",
+    "text": "我需要有人过来帮忙。"
+  },
+  {
+    "sentence_id": "sentence_139",
+    "index": 138,
+    "category": "collaborate",
+    "text": "你先别动，我来处理。"
+  },
+  {
+    "sentence_id": "sentence_140",
+    "index": 139,
+    "category": "collaborate",
+    "text": "我们交换一下任务吧。"
+  },
+  {
+    "sentence_id": "sentence_141",
+    "index": 140,
+    "category": "collaborate",
+    "text": "我这里已经完成了。"
+  },
+  {
+    "sentence_id": "sentence_142",
+    "index": 141,
+    "category": "collaborate",
+    "text": "我还没有完成，再等我一下。"
+  },
+  {
+    "sentence_id": "sentence_143",
+    "index": 142,
+    "category": "collaborate",
+    "text": "你那边准备好了吗？"
+  },
+  {
+    "sentence_id": "sentence_144",
+    "index": 143,
+    "category": "collaborate",
+    "text": "我准备好了，你可以开始。"
+  },
+  {
+    "sentence_id": "sentence_145",
+    "index": 144,
+    "category": "collaborate",
+    "text": "我现在可以继续了。"
+  },
+  {
+    "sentence_id": "sentence_146",
+    "index": 145,
+    "category": "collaborate",
+    "text": "这里暂时没有问题。"
+  },
+  {
+    "sentence_id": "sentence_147",
+    "index": 146,
+    "category": "collaborate",
+    "text": "我好像做错了一步。"
+  },
+  {
+    "sentence_id": "sentence_148",
+    "index": 147,
+    "category": "collaborate",
+    "text": "刚才的操作应该是正确的。"
+  },
+  {
+    "sentence_id": "sentence_149",
+    "index": 148,
+    "category": "collaborate",
+    "text": "任务进度好像没有变化。"
+  },
+  {
+    "sentence_id": "sentence_150",
+    "index": 149,
+    "category": "collaborate",
+    "text": "我们应该快完成了。"
+  },
+  {
+    "sentence_id": "sentence_151",
+    "index": 150,
+    "category": "collaborate",
+    "text": "这条路走不通，我们换一条。"
+  },
+  {
+    "sentence_id": "sentence_152",
+    "index": 151,
+    "category": "collaborate",
+    "text": "前面好像有危险。"
+  },
+  {
+    "sentence_id": "sentence_153",
+    "index": 152,
+    "category": "collaborate",
+    "text": "先不要进去，里面可能有敌人。"
+  },
+  {
+    "sentence_id": "sentence_154",
+    "index": 153,
+    "category": "collaborate",
+    "text": "有人过来了，先躲起来。"
+  },
+  {
+    "sentence_id": "sentence_155",
+    "index": 154,
+    "category": "collaborate",
+    "text": "我们需要小心一点。"
+  },
+  {
+    "sentence_id": "sentence_156",
+    "index": 155,
+    "category": "collaborate",
+    "text": "我来吸引他们的注意，你从另一边过去。"
+  },
+  {
+    "sentence_id": "sentence_157",
+    "index": 156,
+    "category": "collaborate",
+    "text": "如果情况不对，我们马上回来。"
+  },
+  {
+    "sentence_id": "sentence_158",
+    "index": 157,
+    "category": "collaborate",
+    "text": "先退回来，我们重新计划一下。"
+  },
+  {
+    "sentence_id": "sentence_159",
+    "index": 158,
+    "category": "collaborate",
+    "text": "不要一个人冲进去。"
+  },
+  {
+    "sentence_id": "sentence_160",
+    "index": 159,
+    "category": "collaborate",
+    "text": "我们最好一起进去。"
+  },
+  {
+    "sentence_id": "sentence_161",
+    "index": 160,
+    "category": "collaborate",
+    "text": "我没有足够的弹药了。"
+  },
+  {
+    "sentence_id": "sentence_162",
+    "index": 161,
+    "category": "collaborate",
+    "text": "你还有多余的钱吗？"
+  },
+  {
+    "sentence_id": "sentence_163",
+    "index": 162,
+    "category": "collaborate",
+    "text": "我可以分一些战利品给你。"
+  },
+  {
+    "sentence_id": "sentence_164",
+    "index": 163,
+    "category": "collaborate",
+    "text": "我们先把资源集中在一起。"
+  },
+  {
+    "sentence_id": "sentence_165",
+    "index": 164,
+    "category": "collaborate",
+    "text": "这个任务可能需要更多材料。"
+  },
+  {
+    "sentence_id": "sentence_166",
+    "index": 165,
+    "category": "collaborate",
+    "text": "我们还差一个关键物品。"
+  },
+  {
+    "sentence_id": "sentence_167",
+    "index": 166,
+    "category": "collaborate",
+    "text": "找到需要的东西以后先保存起来。"
+  },
+  {
+    "sentence_id": "sentence_168",
+    "index": 167,
+    "category": "collaborate",
+    "text": "这部分资源你先拿着。"
+  },
+  {
+    "sentence_id": "sentence_169",
+    "index": 168,
+    "category": "collaborate",
+    "text": "我暂时用不到这些东西。"
+  },
+  {
+    "sentence_id": "sentence_170",
+    "index": 169,
+    "category": "collaborate",
+    "text": "我们要合理分配剩下的资源。"
+  },
+  {
+    "sentence_id": "sentence_171",
+    "index": 170,
+    "category": "collaborate",
+    "text": "这次失败了，我们再试一次。"
+  },
+  {
+    "sentence_id": "sentence_172",
+    "index": 171,
+    "category": "collaborate",
+    "text": "刚才我们配合得有点乱。"
+  },
+  {
+    "sentence_id": "sentence_173",
+    "index": 172,
+    "category": "collaborate",
+    "text": "下一次我们换一种方法。"
+  },
+  {
+    "sentence_id": "sentence_174",
+    "index": 173,
+    "category": "collaborate",
+    "text": "我觉得刚才的计划有问题。"
+  },
+  {
+    "sentence_id": "sentence_175",
+    "index": 174,
+    "category": "collaborate",
+    "text": "我们先确认一下每个人要做什么。"
+  },
+  {
+    "sentence_id": "sentence_176",
+    "index": 175,
+    "category": "collaborate",
+    "text": "这次不要同时行动，一个一个来。"
+  },
+  {
+    "sentence_id": "sentence_177",
+    "index": 176,
+    "category": "collaborate",
+    "text": "刚才有人行动得太早了。"
+  },
+  {
+    "sentence_id": "sentence_178",
+    "index": 177,
+    "category": "collaborate",
+    "text": "如果再次失败，我们就换一条路线。"
+  },
+  {
+    "sentence_id": "sentence_179",
+    "index": 178,
+    "category": "collaborate",
+    "text": "现在大家都知道自己的任务了吗？"
+  },
+  {
+    "sentence_id": "sentence_180",
+    "index": 179,
+    "category": "collaborate",
+    "text": "好，这次我们一起把任务完成。"
+  },
+  {
+    "sentence_id": "sentence_181",
+    "index": 180,
+    "category": "spatial",
+    "text": "左边还有一个房间。"
+  },
+  {
+    "sentence_id": "sentence_182",
+    "index": 181,
+    "category": "spatial",
+    "text": "东西在桌子下面。"
+  },
+  {
+    "sentence_id": "sentence_183",
+    "index": 182,
+    "category": "spatial",
+    "text": "入口就在你的右边。"
+  },
+  {
+    "sentence_id": "sentence_184",
+    "index": 183,
+    "category": "spatial",
+    "text": "你往前走一点。"
+  },
+  {
+    "sentence_id": "sentence_185",
+    "index": 184,
+    "category": "spatial",
+    "text": "那个人站在我的左边。"
+  },
+  {
+    "sentence_id": "sentence_186",
+    "index": 185,
+    "category": "spatial",
+    "text": "门在我们后面。"
+  },
+  {
+    "sentence_id": "sentence_187",
+    "index": 186,
+    "category": "spatial",
+    "text": "楼梯就在前面。"
+  },
+  {
+    "sentence_id": "sentence_188",
+    "index": 187,
+    "category": "spatial",
+    "text": "你再往右边一点。"
+  },
+  {
+    "sentence_id": "sentence_189",
+    "index": 188,
+    "category": "spatial",
+    "text": "我们从左边过去吧。"
+  },
+  {
+    "sentence_id": "sentence_190",
+    "index": 189,
+    "category": "spatial",
+    "text": "前面那条路走不通。"
+  },
+  {
+    "sentence_id": "sentence_191",
+    "index": 190,
+    "category": "spatial",
+    "text": "这里还有一条小路。"
+  },
+  {
+    "sentence_id": "sentence_192",
+    "index": 191,
+    "category": "spatial",
+    "text": "我们刚才从那边过来的。"
+  },
+  {
+    "sentence_id": "sentence_193",
+    "index": 192,
+    "category": "spatial",
+    "text": "出口应该在楼上。"
+  },
+  {
+    "sentence_id": "sentence_194",
+    "index": 193,
+    "category": "spatial",
+    "text": "楼下还有一层。"
+  },
+  {
+    "sentence_id": "sentence_195",
+    "index": 194,
+    "category": "spatial",
+    "text": "你先上楼看看。"
+  },
+  {
+    "sentence_id": "sentence_196",
+    "index": 195,
+    "category": "spatial",
+    "text": "我在原地等你。"
+  },
+  {
+    "sentence_id": "sentence_197",
+    "index": 196,
+    "category": "spatial",
+    "text": "房间就在走廊尽头。"
+  },
+  {
+    "sentence_id": "sentence_198",
+    "index": 197,
+    "category": "spatial",
+    "text": "你走得有一点太远了。"
+  },
+  {
+    "sentence_id": "sentence_199",
+    "index": 198,
+    "category": "spatial",
+    "text": "再往前走几步就到了。"
+  },
+  {
+    "sentence_id": "sentence_200",
+    "index": 199,
+    "category": "spatial",
+    "text": "你站到我旁边来。"
+  },
+  {
+    "sentence_id": "sentence_201",
+    "index": 200,
+    "category": "spatial",
+    "text": "我们离得太远了。"
+  },
+  {
+    "sentence_id": "sentence_202",
+    "index": 201,
+    "category": "spatial",
+    "text": "你离我近一点。"
+  },
+  {
+    "sentence_id": "sentence_203",
+    "index": 202,
+    "category": "spatial",
+    "text": "两个房间离得很近。"
+  },
+  {
+    "sentence_id": "sentence_204",
+    "index": 203,
+    "category": "spatial",
+    "text": "那个地方离这里有点远。"
+  },
+  {
+    "sentence_id": "sentence_205",
+    "index": 204,
+    "category": "spatial",
+    "text": "东西藏在箱子后面。"
+  },
+  {
+    "sentence_id": "sentence_206",
+    "index": 205,
+    "category": "spatial",
+    "text": "钥匙就在椅子旁边。"
+  },
+  {
+    "sentence_id": "sentence_207",
+    "index": 206,
+    "category": "spatial",
+    "text": "门后面好像还有东西。"
+  },
+  {
+    "sentence_id": "sentence_208",
+    "index": 207,
+    "category": "spatial",
+    "text": "桌子前面放着一个箱子。"
+  },
+  {
+    "sentence_id": "sentence_209",
+    "index": 208,
+    "category": "spatial",
+    "text": "墙上有一个开关。"
+  },
+  {
+    "sentence_id": "sentence_210",
+    "index": 209,
+    "category": "spatial",
+    "text": "地上好像有东西。"
+  },
+  {
+    "sentence_id": "sentence_211",
+    "index": 210,
+    "category": "spatial",
+    "text": "上面有一个按钮。"
+  },
+  {
+    "sentence_id": "sentence_212",
+    "index": 211,
+    "category": "spatial",
+    "text": "你看看角落里有没有东西。"
+  },
+  {
+    "sentence_id": "sentence_213",
+    "index": 212,
+    "category": "spatial",
+    "text": "我们绕到另一边看看。"
+  },
+  {
+    "sentence_id": "sentence_214",
+    "index": 213,
+    "category": "spatial",
+    "text": "这里可以直接过去吗？"
+  },
+  {
+    "sentence_id": "sentence_215",
+    "index": 214,
+    "category": "spatial",
+    "text": "我找不到刚才的入口了。"
+  },
+  {
+    "sentence_id": "sentence_216",
+    "index": 215,
+    "category": "spatial",
+    "text": "你知道怎么回去吗？"
+  },
+  {
+    "sentence_id": "sentence_217",
+    "index": 216,
+    "category": "spatial",
+    "text": "我们好像走错方向了。"
+  },
+  {
+    "sentence_id": "sentence_218",
+    "index": 217,
+    "category": "spatial",
+    "text": "这条路应该可以回到大厅。"
+  },
+  {
+    "sentence_id": "sentence_219",
+    "index": 218,
+    "category": "spatial",
+    "text": "从这里过去会更快。"
+  },
+  {
+    "sentence_id": "sentence_220",
+    "index": 219,
+    "category": "spatial",
+    "text": "我们先记住这个位置。"
+  },
+  {
+    "sentence_id": "sentence_221",
+    "index": 220,
+    "category": "question",
+    "text": "你确定吗？"
+  },
+  {
+    "sentence_id": "sentence_222",
+    "index": 221,
+    "category": "question",
+    "text": "你刚才看见了吗？"
+  },
+  {
+    "sentence_id": "sentence_223",
+    "index": 222,
+    "category": "question",
+    "text": "你知道发生什么了吗？"
+  },
+  {
+    "sentence_id": "sentence_224",
+    "index": 223,
+    "category": "question",
+    "text": "你为什么突然停下来了？"
+  },
+  {
+    "sentence_id": "sentence_225",
+    "index": 224,
+    "category": "question",
+    "text": "你为什么要去那里？"
+  },
+  {
+    "sentence_id": "sentence_226",
+    "index": 225,
+    "category": "question",
+    "text": "你刚才说的是谁？"
+  },
+  {
+    "sentence_id": "sentence_227",
+    "index": 226,
+    "category": "question",
+    "text": "你现在明白了吗？"
+  },
+  {
+    "sentence_id": "sentence_228",
+    "index": 227,
+    "category": "question",
+    "text": "你是不是已经完成了？"
+  },
+  {
+    "sentence_id": "sentence_229",
+    "index": 228,
+    "category": "question",
+    "text": "你确定这里安全吗？"
+  },
+  {
+    "sentence_id": "sentence_230",
+    "index": 229,
+    "category": "question",
+    "text": "这里真的没有其他入口吗？"
+  },
+  {
+    "sentence_id": "sentence_231",
+    "index": 230,
+    "category": "question",
+    "text": "你还需要我帮忙吗？"
+  },
+  {
+    "sentence_id": "sentence_232",
+    "index": 231,
+    "category": "question",
+    "text": "你刚才是不是按错了？"
+  },
+  {
+    "sentence_id": "sentence_233",
+    "index": 232,
+    "category": "question",
+    "text": "你为什么没有跟过来？"
+  },
+  {
+    "sentence_id": "sentence_234",
+    "index": 233,
+    "category": "question",
+    "text": "你觉得这样可以吗？"
+  },
+  {
+    "sentence_id": "sentence_235",
+    "index": 234,
+    "category": "question",
+    "text": "我没有说红色，我说的是绿色。"
+  },
+  {
+    "sentence_id": "sentence_236",
+    "index": 235,
+    "category": "question",
+    "text": "我没有看到你刚才的动作。"
+  },
+  {
+    "sentence_id": "sentence_237",
+    "index": 236,
+    "category": "question",
+    "text": "我还没有准备好。"
+  },
+  {
+    "sentence_id": "sentence_238",
+    "index": 237,
+    "category": "question",
+    "text": "我没有找到需要的东西。"
+  },
+  {
+    "sentence_id": "sentence_239",
+    "index": 238,
+    "category": "question",
+    "text": "这里没有我们要找的东西。"
+  },
+  {
+    "sentence_id": "sentence_240",
+    "index": 239,
+    "category": "question",
+    "text": "我刚才没有听懂你的意思。"
+  },
+  {
+    "sentence_id": "sentence_241",
+    "index": 240,
+    "category": "question",
+    "text": "我不是这个意思。"
+  },
+  {
+    "sentence_id": "sentence_242",
+    "index": 241,
+    "category": "question",
+    "text": "我没有让你打开门。"
+  },
+  {
+    "sentence_id": "sentence_243",
+    "index": 242,
+    "category": "question",
+    "text": "先不要进去。"
+  },
+  {
+    "sentence_id": "sentence_244",
+    "index": 243,
+    "category": "question",
+    "text": "现在还不能开始。"
+  },
+  {
+    "sentence_id": "sentence_245",
+    "index": 244,
+    "category": "question",
+    "text": "我不确定这个方法对不对。"
+  },
+  {
+    "sentence_id": "sentence_246",
+    "index": 245,
+    "category": "question",
+    "text": "这不是我们刚才来的地方吗？"
+  },
+  {
+    "sentence_id": "sentence_247",
+    "index": 246,
+    "category": "question",
+    "text": "你不是说已经完成了吗？"
+  },
+  {
+    "sentence_id": "sentence_248",
+    "index": 247,
+    "category": "question",
+    "text": "为什么这个门打不开？"
+  },
+  {
+    "sentence_id": "sentence_249",
+    "index": 248,
+    "category": "question",
+    "text": "到底哪个才是正确的？"
+  },
+  {
+    "sentence_id": "sentence_250",
+    "index": 249,
+    "category": "question",
+    "text": "如果这里走不通，我们应该怎么办？"
+  },
+  {
+    "sentence_id": "sentence_251",
+    "index": 250,
+    "category": "stress",
+    "text": "我姓陈，你呢？"
+  },
+  {
+    "sentence_id": "sentence_252",
+    "index": 251,
+    "category": "stress",
+    "text": "那个女生是我的朋友。"
+  },
+  {
+    "sentence_id": "sentence_253",
+    "index": 252,
+    "category": "stress",
+    "text": "你的耳朵怎么了？"
+  },
+  {
+    "sentence_id": "sentence_254",
+    "index": 253,
+    "category": "stress",
+    "text": "这个孩子今天很不听话。"
+  },
+  {
+    "sentence_id": "sentence_255",
+    "index": 254,
+    "category": "stress",
+    "text": "他的耳机刚才掉下来了。"
+  },
+  {
+    "sentence_id": "sentence_256",
+    "index": 255,
+    "category": "stress",
+    "text": "我今天中午吃了馄饨。"
+  },
+  {
+    "sentence_id": "sentence_257",
+    "index": 256,
+    "category": "stress",
+    "text": "你有没有听到什么声音？"
+  },
+  {
+    "sentence_id": "sentence_258",
+    "index": 257,
+    "category": "stress",
+    "text": "我刚才没有听清楚。"
+  },
+  {
+    "sentence_id": "sentence_259",
+    "index": 258,
+    "category": "stress",
+    "text": "你看了今天的新闻吗？"
+  },
+  {
+    "sentence_id": "sentence_260",
+    "index": 259,
+    "category": "stress",
+    "text": "这个话题最近特别火热。"
+  },
+  {
+    "sentence_id": "sentence_261",
+    "index": 260,
+    "category": "stress",
+    "text": "这个游戏最近真是名声大噪。"
+  },
+  {
+    "sentence_id": "sentence_262",
+    "index": 261,
+    "category": "stress",
+    "text": "你的声音太小了，我听不见。"
+  },
+  {
+    "sentence_id": "sentence_263",
+    "index": 262,
+    "category": "stress",
+    "text": "她戴上助听器以后好多了。"
+  },
+  {
+    "sentence_id": "sentence_264",
+    "index": 263,
+    "category": "stress",
+    "text": "开始游戏前我们要先打好基础。"
+  },
+  {
+    "sentence_id": "sentence_265",
+    "index": 264,
+    "category": "stress",
+    "text": "没有基础，后面会很难。"
+  },
+  {
+    "sentence_id": "sentence_266",
+    "index": 265,
+    "category": "stress",
+    "text": "这棵树的根已经坏了。"
+  },
+  {
+    "sentence_id": "sentence_267",
+    "index": 266,
+    "category": "stress",
+    "text": "这个设备太依赖网络了。"
+  },
+  {
+    "sentence_id": "sentence_268",
+    "index": 267,
+    "category": "stress",
+    "text": "你也是上海人吗？"
+  },
+  {
+    "sentence_id": "sentence_269",
+    "index": 268,
+    "category": "stress",
+    "text": "我现在住在上海。"
+  },
+  {
+    "sentence_id": "sentence_270",
+    "index": 269,
+    "category": "stress",
+    "text": "她会打上海手语。"
+  },
+  {
+    "sentence_id": "sentence_271",
+    "index": 270,
+    "category": "stress",
+    "text": "那个人是阿根廷的。"
+  },
+  {
+    "sentence_id": "sentence_272",
+    "index": 271,
+    "category": "stress",
+    "text": "这个问题要从根本上解决。"
+  },
+  {
+    "sentence_id": "sentence_273",
+    "index": 272,
+    "category": "stress",
+    "text": "阿根廷那里玩这个游戏的人多吗？"
+  },
+  {
+    "sentence_id": "sentence_274",
+    "index": 273,
+    "category": "stress",
+    "text": "我今天没上班，请假了一天。"
+  },
+  {
+    "sentence_id": "sentence_275",
+    "index": 274,
+    "category": "stress",
+    "text": "你今天为什么要请假？"
+  },
+  {
+    "sentence_id": "sentence_276",
+    "index": 275,
+    "category": "stress",
+    "text": "我早晨六点就起床了。"
+  },
+  {
+    "sentence_id": "sentence_277",
+    "index": 276,
+    "category": "stress",
+    "text": "他看起来很年轻。"
+  },
+  {
+    "sentence_id": "sentence_278",
+    "index": 277,
+    "category": "stress",
+    "text": "这就是青春的感觉。"
+  },
+  {
+    "sentence_id": "sentence_279",
+    "index": 278,
+    "category": "stress",
+    "text": "我今天买了一把青菜。"
+  },
+  {
+    "sentence_id": "sentence_280",
+    "index": 279,
+    "category": "stress",
+    "text": "我们可以用青铜来做游戏装备。"
+  },
+  {
+    "sentence_id": "sentence_281",
+    "index": 280,
+    "category": "stress",
+    "text": "她觉得能参加比赛很光荣。"
+  },
+  {
+    "sentence_id": "sentence_282",
+    "index": 281,
+    "category": "stress",
+    "text": "我们下午再见吧。"
+  },
+  {
+    "sentence_id": "sentence_283",
+    "index": 282,
+    "category": "stress",
+    "text": "你下午还来吗？"
+  },
+  {
+    "sentence_id": "sentence_284",
+    "index": 283,
+    "category": "stress",
+    "text": "这支笔是你的吗？"
+  },
+  {
+    "sentence_id": "sentence_285",
+    "index": 284,
+    "category": "stress",
+    "text": "那个人看起来有点狡猾。"
+  },
+  {
+    "sentence_id": "sentence_286",
+    "index": 285,
+    "category": "stress",
+    "text": "我的长辈都和我住在一起。"
+  },
+  {
+    "sentence_id": "sentence_287",
+    "index": 286,
+    "category": "stress",
+    "text": "我们认识很久了。"
+  },
+  {
+    "sentence_id": "sentence_288",
+    "index": 287,
+    "category": "stress",
+    "text": "他等会儿要去刮胡子。"
+  },
+  {
+    "sentence_id": "sentence_289",
+    "index": 288,
+    "category": "stress",
+    "text": "我已经三天没刮胡子了。"
+  },
+  {
+    "sentence_id": "sentence_290",
+    "index": 289,
+    "category": "stress",
+    "text": "你应该先把这件事告诉我。"
+  },
+  {
+    "sentence_id": "sentence_291",
+    "index": 290,
+    "category": "stress",
+    "text": "他活该被踢出去。"
+  },
+  {
+    "sentence_id": "sentence_292",
+    "index": 291,
+    "category": "stress",
+    "text": "我今天有点发烧。"
+  },
+  {
+    "sentence_id": "sentence_293",
+    "index": 292,
+    "category": "stress",
+    "text": "你真幸运。"
+  },
+  {
+    "sentence_id": "sentence_294",
+    "index": 293,
+    "category": "stress",
+    "text": "我今天一直头痛。"
+  },
+  {
+    "sentence_id": "sentence_295",
+    "index": 294,
+    "category": "stress",
+    "text": "她是我们的领导。"
+  },
+  {
+    "sentence_id": "sentence_296",
+    "index": 295,
+    "category": "stress",
+    "text": "我对这个游戏没兴趣。"
+  },
+  {
+    "sentence_id": "sentence_297",
+    "index": 296,
+    "category": "stress",
+    "text": "我们现在要保持警觉。"
+  },
+  {
+    "sentence_id": "sentence_298",
+    "index": 297,
+    "category": "stress",
+    "text": "夏天的时候我很容易出汗。"
+  },
+  {
+    "sentence_id": "sentence_299",
+    "index": 298,
+    "category": "stress",
+    "text": "他刚才的那个决定像是脑子坏了。"
+  },
+  {
+    "sentence_id": "sentence_300",
+    "index": 299,
+    "category": "stress",
+    "text": "他在游戏里像个皇帝一样。"
+  }
+]
