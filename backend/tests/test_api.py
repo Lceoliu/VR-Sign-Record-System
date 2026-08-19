@@ -11,6 +11,7 @@ from app.main import create_app
 def build_app(tmp_path):
     settings = Settings(
         data_root=tmp_path,
+        station_id="station-test",
         http_port=8000,
         udp_port=5005,
         quest_control_port=5006,
@@ -58,6 +59,7 @@ def test_health_and_fixed_sentence_catalog(tmp_path):
     with TestClient(app) as client:
         assert client.get("/api/health").json()["status"] == "ok"
         state = client.get("/api/state").json()
+        assert state["station_id"] == "station-test"
 
     assert state["recording_status"] == "ready"
     assert state["countdown_seconds"] == 2.0
@@ -87,6 +89,7 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
     with TestClient(app) as client:
         device_id, token = register_and_select(client, app)
         created = create_round(client)
+        assert created["station_id"] == "station-test"
         session_id = created["session_id"]
         assert session_id.startswith("session_")
         assert session_id != "测试批次"
@@ -240,3 +243,23 @@ def test_round_switching_preserves_independent_cursor(tmp_path):
             "round_001",
             "round_002",
         ]
+
+
+def test_device_reported_by_another_station_cannot_be_selected(tmp_path):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        import anyio
+
+        anyio.run(
+            app.state.registry.upsert_announcement,
+            {
+                "device_id": "quest-other",
+                "control_port": 5006,
+                "paired_station_id": "station-other",
+            },
+            "127.0.0.1",
+        )
+
+        response = client.post("/api/devices/quest-other/select")
+        assert response.status_code == 409
+        assert "station-other" in response.json()["detail"]

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import asyncio
-import secrets
 from dataclasses import dataclass
 
 from .models import DeviceInfo
-from .protocol import unix_ms
+from .protocol import LEGACY_COMPATIBILITY_TOKEN, unix_ms
 
 
 @dataclass(slots=True)
@@ -15,15 +14,31 @@ class DeviceRecord:
 
 
 class DeviceRegistry:
-    def __init__(self) -> None:
+    def __init__(self, local_station_id: str | None = None) -> None:
         self._devices: dict[str, DeviceRecord] = {}
         self._selected_id: str | None = None
+        self._local_station_id = local_station_id
         self._lock = asyncio.Lock()
 
     async def upsert_announcement(self, packet: dict, ip: str) -> DeviceInfo:
         device_id = str(packet["device_id"])
         async with self._lock:
             current = self._devices.get(device_id)
+            reported_paired = packet.get("paired")
+            paired_station_id = str(packet.get("paired_station_id") or "").strip() or None
+            if (
+                self._selected_id == device_id
+                and paired_station_id
+                and self._local_station_id
+                and paired_station_id != self._local_station_id
+            ):
+                self._selected_id = None
+            if (
+                self._selected_id is None
+                and self._local_station_id
+                and paired_station_id == self._local_station_id
+            ):
+                self._selected_id = device_id
             info = DeviceInfo(
                 device_id=device_id,
                 name=str(packet.get("name") or "Quest 3"),
@@ -34,12 +49,20 @@ class DeviceRegistry:
                 capabilities=[str(value) for value in packet.get("capabilities", [])],
                 state=str(packet.get("state") or "available"),
                 selected=device_id == self._selected_id,
-                paired=current.info.paired if current else False,
+                paired=(
+                    bool(reported_paired)
+                    if reported_paired is not None
+                    else current.info.paired if current else False
+                ),
+                paired_station_id=paired_station_id,
                 last_seen_unix_ms=unix_ms(),
                 preview_frames=current.info.preview_frames if current else 0,
                 pose_packets=current.info.pose_packets if current else 0,
             )
-            self._devices[device_id] = DeviceRecord(info=info, session_token=current.session_token if current else None)
+            self._devices[device_id] = DeviceRecord(
+                info=info,
+                session_token=LEGACY_COMPATIBILITY_TOKEN,
+            )
             return info.model_copy()
 
     async def list(self) -> list[DeviceInfo]:
@@ -55,12 +78,11 @@ class DeviceRegistry:
         async with self._lock:
             record = self._devices[device_id]
             self._selected_id = device_id
-            token = secrets.token_urlsafe(32)
             for candidate_id, candidate in self._devices.items():
                 candidate.info.selected = candidate_id == device_id
             record.info.paired = False
-            record.session_token = token
-            return record.info.model_copy(), token
+            record.session_token = LEGACY_COMPATIBILITY_TOKEN
+            return record.info.model_copy(), LEGACY_COMPATIBILITY_TOKEN
 
     async def mark_pairing_result(self, device_id: str, paired: bool) -> DeviceInfo:
         async with self._lock:
@@ -74,10 +96,10 @@ class DeviceRegistry:
                 return None
             return self._devices[self._selected_id].info.model_copy()
 
-    async def validate_token(self, device_id: str, token: str) -> bool:
+    async def session_token(self, device_id: str) -> str | None:
         async with self._lock:
             record = self._devices.get(device_id)
-            return bool(record and record.session_token and secrets.compare_digest(record.session_token, token))
+            return LEGACY_COMPATIBILITY_TOKEN if record else None
 
     async def mark_pose_packet(self, device_id: str | None, ip: str) -> str | None:
         async with self._lock:

@@ -40,7 +40,10 @@ export const api = {
     }),
   scan: () => request<{ status: string }>('/api/devices/scan', { method: 'POST' }),
   selectDevice: (deviceId: string) =>
-    request(`/api/devices/${encodeURIComponent(deviceId)}/select`, { method: 'POST' }),
+    request(
+      `/api/devices/${encodeURIComponent(deviceId)}/select`,
+      { method: 'POST' },
+    ),
   // Fire-and-forget: a dropped pedal receipt must never block the pedal itself.
   pedal: (phase: 'down' | 'hold' | 'up', progress = 0) => {
     void fetch(`/api/pedal/${phase}?progress=${progress.toFixed(3)}`, { method: 'POST' }).catch(

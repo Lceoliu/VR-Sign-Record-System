@@ -11,6 +11,7 @@ export interface DeviceInfo {
   state: string
   selected: boolean
   paired: boolean
+  paired_station_id: string | null
   last_seen_unix_ms: number
   preview_frames: number
   pose_packets: number
@@ -48,6 +49,7 @@ export interface TakeItem {
 
 export interface HostState {
   service_online: boolean
+  station_id: string
   session_id: string
   batch_id: string | null
   round_id: string | null
@@ -76,6 +78,7 @@ export interface RecordingBatchesResponse {
 }
 
 export interface RoundInfo {
+  station_id: string
   batch_id: string
   round_id: string
   session_id: string

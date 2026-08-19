@@ -8,6 +8,7 @@ from pathlib import Path
 @dataclass(frozen=True, slots=True)
 class Settings:
     data_root: Path
+    station_id: str = "development"
     http_host: str = "0.0.0.0"
     http_port: int = 8000
     udp_host: str = "0.0.0.0"
@@ -21,6 +22,7 @@ class Settings:
         default_root = Path(__file__).resolve().parents[2] / "data"
         return cls(
             data_root=Path(os.environ.get("SIGNVR_DATA_ROOT", default_root)),
+            station_id=os.environ.get("SIGNVR_STATION_ID", "development").strip(),
             http_host=os.environ.get("SIGNVR_HTTP_HOST", "0.0.0.0"),
             http_port=int(os.environ.get("SIGNVR_HTTP_PORT", "8000")),
             udp_host=os.environ.get("SIGNVR_UDP_HOST", "0.0.0.0"),
@@ -29,4 +31,3 @@ class Settings:
             frontend_origin=os.environ.get("SIGNVR_FRONTEND_ORIGIN", "http://localhost:5174"),
             discovery_broadcast=os.environ.get("SIGNVR_DISCOVERY_BROADCAST", "255.255.255.255"),
         )
-

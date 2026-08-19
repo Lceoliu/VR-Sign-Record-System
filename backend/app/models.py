@@ -24,6 +24,7 @@ class DeviceInfo(BaseModel):
     state: str = "available"
     selected: bool = False
     paired: bool = False
+    paired_station_id: str | None = None
     last_seen_unix_ms: int
     preview_frames: int = 0
     pose_packets: int = 0
@@ -63,6 +64,7 @@ class TakeItem(BaseModel):
 
 class HostState(BaseModel):
     service_online: bool = True
+    station_id: str
     session_id: str = ""
     batch_id: str | None = None
     round_id: str | None = None
@@ -81,6 +83,7 @@ class HostState(BaseModel):
 
 
 class RoundInfo(BaseModel):
+    station_id: str
     batch_id: str
     round_id: str
     session_id: str

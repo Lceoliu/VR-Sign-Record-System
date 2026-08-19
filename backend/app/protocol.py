@@ -6,7 +6,8 @@ import uuid
 from typing import Any
 
 
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
+LEGACY_COMPATIBILITY_TOKEN = "trusted-lan"
 
 
 def unix_ms() -> int:
@@ -71,6 +72,7 @@ def pair_packet(
     host_ip: str,
     http_port: int,
     pose_port: int,
+    station_id: str,
     session_token: str,
 ) -> dict[str, Any]:
     return {
@@ -80,6 +82,6 @@ def pair_packet(
         "host_ip": host_ip,
         "http_port": http_port,
         "pose_port": pose_port,
+        "station_id": station_id,
         "session_token": session_token,
     }
-

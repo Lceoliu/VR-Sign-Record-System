@@ -160,7 +160,10 @@ export default function App() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(`${protocol}//${window.location.host}/ws/events`)
     socket.onmessage = (event) => {
-      const message = JSON.parse(event.data) as { type: string; payload: HostState }
+      const message = JSON.parse(event.data) as {
+        type: string
+        payload: HostState & { accepted?: boolean }
+      }
       if (['state_changed', 'take_uploaded', 'camera_uploaded'].includes(message.type)) {
         commitState(message.payload)
         if (message.payload.batch_id) {
@@ -171,6 +174,12 @@ export default function App() {
       }
       if (['device_updated', 'device_selected', 'command_ack'].includes(message.type)) {
         api.devices().then(setDevices).catch(() => undefined)
+      }
+      if (
+        message.type === 'device_selected' ||
+        (message.type === 'command_ack' && message.payload.accepted)
+      ) {
+        setError(null)
       }
     }
     return () => socket.close()
@@ -424,6 +433,7 @@ export default function App() {
     try {
       await api.selectDevice(deviceId)
       await refresh()
+      setError(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Quest 连接失败')
     }
@@ -445,6 +455,7 @@ export default function App() {
         <div className="brand"><Headset size={25} /><h1>VR 手语录制台</h1></div>
         <div className="topbar-meta">
           <span className="online"><i />本地服务在线</span>
+          <span>工作站 {state.station_id}</span>
           <span>{state.batch_id && state.round_id ? `${state.batch_id} / ${state.round_id}` : '尚未选择录制轮次'}</span>
           <strong>{completedCount} 已完成 · 第 {state.current_sentence_index + 1} / {state.sentences.length} 句</strong>
         </div>
@@ -498,13 +509,32 @@ export default function App() {
             <div className="section-heading"><h3>Quest 设备</h3><button className="text-button" onClick={() => api.scan().catch((reason: Error) => setError(reason.message))}><RefreshCw size={14} />重新扫描</button></div>
             <div className="device-list">
               {devices.length === 0 && <div className="empty-row"><Headset size={20} /><span>等待 Quest 广播</span></div>}
-              {devices.map((device) => (
-                <button key={device.device_id} className={`device-row ${device.device_id === selectedDevice?.device_id ? 'selected' : ''}`} onClick={() => void selectQuest(device.device_id)}>
-                  <Headset size={21} />
-                  <span><strong>{device.name}</strong><small>{device.ip} · {device.state === 'recording' ? '录制中' : device.paired ? '已连接' : '可用'}</small></span>
-                  {device.device_id === selectedDevice?.device_id ? <Check size={18} /> : <ChevronRight size={17} />}
-                </button>
-              ))}
+              {devices.map((device) => {
+                const ownedByOther = Boolean(
+                  device.paired_station_id && device.paired_station_id !== state.station_id,
+                )
+                return (
+                  <button
+                    key={device.device_id}
+                    className={`device-row ${device.device_id === selectedDevice?.device_id ? 'selected' : ''}`}
+                    disabled={ownedByOther}
+                    onClick={() => void selectQuest(device.device_id)}
+                  >
+                    <Headset size={21} />
+                    <span>
+                      <strong>{device.name} · {device.device_id.slice(-6).toUpperCase()}</strong>
+                      <small>
+                        {device.ip} · {ownedByOther
+                          ? `已绑定 ${device.paired_station_id}`
+                          : device.state === 'recording'
+                          ? '录制中'
+                          : device.paired ? '已连接' : '可用'}
+                      </small>
+                    </span>
+                    {device.device_id === selectedDevice?.device_id ? <Check size={18} /> : <ChevronRight size={17} />}
+                  </button>
+                )
+              })}
             </div>
           </section>
 

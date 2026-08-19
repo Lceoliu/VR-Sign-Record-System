@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { SkeletonPanel } from './SkeletonPanel'
 import { VideoPanel } from './VideoPanel'
 
 interface QuestPreviewPanelProps {
@@ -29,6 +30,10 @@ export function QuestPreviewPanel({ deviceId, active }: QuestPreviewPanelProps) 
       currentUrlRef.current = null
     }
   }, [deviceId])
+
+  if (!imageUrl) {
+    return <SkeletonPanel title="Quest 实时动作" deviceId={deviceId} active={active} />
+  }
 
   return (
     <VideoPanel

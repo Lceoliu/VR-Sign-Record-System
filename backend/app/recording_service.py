@@ -28,6 +28,7 @@ class RecordingService:
         sentences = [sentence.model_copy(deep=True) for sentence in self._catalog]
         sentences[0].status = "current"
         self._state = HostState(
+            station_id=repository.station_id,
             recording_status=RecordingStatus.READY,
             current_sentence_index=0,
             sentences=sentences,
@@ -282,7 +283,7 @@ class RecordingService:
         take = self._state.current_take
         return {
             "type": "command",
-            "version": 2,
+            "version": 3,
             "command_id": cmd_id,
             "action": action,
             "session_id": self._state.session_id,
@@ -294,4 +295,7 @@ class RecordingService:
             "take_id": take.take_id if take else None,
             "take_index": take.take_index if take else None,
             "start_at_unix_ms": start_at,
+            "countdown_seconds": (
+                self._state.countdown_seconds if action == "start_take" else 0.0
+            ),
         }

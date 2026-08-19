@@ -44,8 +44,9 @@ def safe_segment(value: str) -> str:
 
 
 class RecordingRepository:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, station_id: str = "development") -> None:
         self.root = root.resolve()
+        self.station_id = safe_segment(station_id)
         self.root.mkdir(parents=True, exist_ok=True)
         self.recordings_root = self.root / "recordings"
         self.recordings_root.mkdir(parents=True, exist_ok=True)
@@ -86,7 +87,8 @@ class RecordingRepository:
         round_directory.mkdir()
         now = int(time.time() * 1000)
         manifest = {
-            "version": 1,
+            "version": 2,
+            "station_id": self.station_id,
             "batch_id": safe_batch,
             "round_id": safe_round,
             "session_id": f"session_{uuid.uuid4().hex}",
@@ -103,6 +105,7 @@ class RecordingRepository:
         manifest = self._read_round_manifest(self._round_directory(batch_id, round_id))
         progress = self.round_progress(batch_id, round_id)
         return RoundInfo(
+            station_id=manifest["station_id"],
             batch_id=manifest["batch_id"],
             round_id=manifest["round_id"],
             session_id=manifest["session_id"],
@@ -244,6 +247,12 @@ class RecordingRepository:
         if payload["batch_id"] != round_directory.parent.name or payload["round_id"] != round_directory.name:
             raise ValueError(f"轮次清单与目录不匹配：{round_directory}")
         safe_segment(str(payload["session_id"]))
+        manifest_station_id = safe_segment(str(payload.get("station_id") or self.station_id))
+        if manifest_station_id.casefold() != self.station_id.casefold():
+            raise ValueError(
+                f"轮次属于工作站 {manifest_station_id}，当前工作站为 {self.station_id}"
+            )
+        payload["station_id"] = manifest_station_id
         return payload
 
     def _write_round_manifest(self, round_directory: Path, manifest: dict) -> None:

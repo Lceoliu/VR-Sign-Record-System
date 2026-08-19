@@ -1,6 +1,6 @@
 param(
     [switch]$EnableUnityEditorSimulation,
-    [string]$UnityEditorPath = 'D:\Softwares\Unityhub\Editor\6000.5.6f1\Editor\Unity.exe'
+    [string]$UnityEditorPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,7 +13,18 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 $hostRoot = Split-Path -Parent $PSScriptRoot
-$python = Join-Path $hostRoot 'backend\.venv\Scripts\python.exe'
+$configPath = Join-Path $hostRoot 'config\station.json'
+$portablePython = Join-Path $hostRoot 'runtime\python\python.exe'
+$venvPython = Join-Path $hostRoot 'backend\.venv\Scripts\python.exe'
+$python = if (Test-Path -LiteralPath $portablePython) { $portablePython } else { $venvPython }
+$httpPort = 8000
+$udpPort = 5005
+
+if (Test-Path -LiteralPath $configPath) {
+    $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $httpPort = [int]$config.http_port
+    $udpPort = [int]$config.udp_port
+}
 if (-not (Test-Path -LiteralPath $python)) {
     throw "SignVR host Python was not found: $python"
 }
@@ -43,20 +54,25 @@ function Add-SignVrFirewallRule {
 }
 
 Add-SignVrFirewallRule `
-    -DisplayName 'SignVR Host HTTP 8000' `
+    -DisplayName "SignVR Host HTTP $httpPort" `
     -Program $python `
     -Protocol TCP `
-    -LocalPort 8000
+    -LocalPort $httpPort
 
 Add-SignVrFirewallRule `
-    -DisplayName 'SignVR Host UDP 5005' `
+    -DisplayName "SignVR Host UDP $udpPort" `
     -Program $python `
     -Protocol UDP `
-    -LocalPort 5005
+    -LocalPort $udpPort
 
 if ($EnableUnityEditorSimulation) {
-    if (-not (Test-Path -LiteralPath $UnityEditorPath)) {
-        throw "Unity Editor was not found: $UnityEditorPath"
+    if (-not $UnityEditorPath) {
+        $UnityEditorPath = Get-Process Unity -ErrorAction SilentlyContinue |
+            Where-Object { $_.MainWindowHandle -ne 0 } |
+            Select-Object -First 1 -ExpandProperty Path
+    }
+    if (-not $UnityEditorPath -or -not (Test-Path -LiteralPath $UnityEditorPath)) {
+        throw 'Unity Editor was not found. Pass -UnityEditorPath explicitly.'
     }
 
     $blockingRules = Get-NetFirewallRule -PolicyStore ActiveStore |

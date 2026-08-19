@@ -7,7 +7,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.config import Settings
 from app.device_registry import DeviceRegistry
-from app.protocol import encode_packet, pair_packet
+from app.protocol import LEGACY_COMPATIBILITY_TOKEN, decode_packet, encode_packet, pair_packet
 from app.realtime import RealtimeHub
 from app.udp_service import UdpService
 
@@ -83,6 +83,38 @@ async def _record(sink: list, device_id: str, packet: dict) -> None:
     sink.append((device_id, packet))
 
 
+def test_only_devices_owned_by_this_station_are_auto_selected():
+    async def scenario() -> None:
+        registry = DeviceRegistry("station-a")
+        unclaimed = await registry.upsert_announcement(
+            {"device_id": "quest-new", "control_port": 5006},
+            "192.168.1.40",
+        )
+        foreign = await registry.upsert_announcement(
+            {
+                "device_id": "quest-b",
+                "control_port": 5006,
+                "paired_station_id": "station-b",
+            },
+            "192.168.1.41",
+        )
+        owned = await registry.upsert_announcement(
+            {
+                "device_id": "quest-a",
+                "control_port": 5006,
+                "paired_station_id": "station-a",
+            },
+            "192.168.1.42",
+        )
+
+        assert unclaimed.selected is False
+        assert foreign.selected is False
+        assert owned.selected is True
+        assert (await registry.selected()).device_id == "quest-a"
+
+    anyio.run(scenario)
+
+
 def test_command_wait_resolves_matching_ack(tmp_path):
     async def scenario() -> None:
         registry = DeviceRegistry()
@@ -102,6 +134,7 @@ def test_command_wait_resolves_matching_ack(tmp_path):
             host_ip="192.168.1.10",
             http_port=8000,
             pose_port=5005,
+            station_id="station-test",
             session_token="token",
         )
 
@@ -126,6 +159,34 @@ def test_command_wait_resolves_matching_ack(tmp_path):
 
         ack = await pending
         assert ack["accepted"] is True
+
+    anyio.run(scenario)
+
+
+def test_commands_use_stable_legacy_fields_for_old_quest_builds(tmp_path):
+    async def scenario() -> None:
+        registry = DeviceRegistry()
+        await registry.upsert_announcement(
+            {"device_id": "quest-test", "control_port": 5006},
+            "192.168.1.42",
+        )
+        await registry.select("quest-test")
+        service = UdpService(
+            Settings(data_root=tmp_path, station_id="station-test"),
+            registry,
+            RealtimeHub(),
+        )
+        transport = FakeDatagramTransport()
+        service.transport = transport  # type: ignore[assignment]
+
+        await service.send_to_device(
+            "quest-test",
+            {"type": "command", "command_id": "start", "action": "start_take"},
+        )
+
+        packet = decode_packet(transport.sent[0][0])
+        assert packet["station_id"] == "station-test"
+        assert packet["session_token"] == LEGACY_COMPATIBILITY_TOKEN
 
     anyio.run(scenario)
 

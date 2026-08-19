@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import socket
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any
 
+import psutil
+
 from .config import Settings
 from .device_registry import DeviceRegistry
-from .protocol import decode_packet, discovery_packet, encode_packet
+from .protocol import command_id, decode_packet, discovery_packet, encode_packet, pair_packet
 from .realtime import RealtimeHub
 
 
@@ -35,6 +38,7 @@ class UdpService:
         self._pending_acks: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._realtime_packets: asyncio.Queue[tuple[dict[str, Any], tuple[str, int]]] = asyncio.Queue(maxsize=256)
         self._realtime_worker: asyncio.Task[None] | None = None
+        self._discovery_worker: asyncio.Task[None] | None = None
         self._control_tasks: set[asyncio.Task[None]] = set()
         self.on_signal: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
@@ -47,6 +51,7 @@ class UdpService:
         )
         self.transport = transport  # type: ignore[assignment]
         self._realtime_worker = asyncio.create_task(self._process_realtime_packets())
+        self._discovery_worker = asyncio.create_task(self._scan_periodically())
 
     async def stop(self) -> None:
         if self.transport:
@@ -57,6 +62,11 @@ class UdpService:
             with suppress(asyncio.CancelledError):
                 await self._realtime_worker
             self._realtime_worker = None
+        if self._discovery_worker is not None:
+            self._discovery_worker.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._discovery_worker
+            self._discovery_worker = None
         tasks = tuple(self._control_tasks)
         for task in tasks:
             task.cancel()
@@ -64,17 +74,54 @@ class UdpService:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def scan(self) -> None:
-        self._send(
-            discovery_packet(self.settings.udp_port),
-            (self.settings.discovery_broadcast, self.settings.quest_control_port),
-        )
+        self._send_discovery()
         await self.hub.publish_event({"type": "device_scan_started", "payload": {}})
+
+    async def _scan_periodically(self) -> None:
+        while True:
+            self._send_discovery()
+            await asyncio.sleep(3)
+
+    def _send_discovery(self) -> None:
+        packet = discovery_packet(self.settings.udp_port)
+        for target in self._discovery_targets():
+            self._send(packet, (target, self.settings.quest_control_port))
+
+    def _discovery_targets(self) -> list[str]:
+        targets = {self.settings.discovery_broadcast, "255.255.255.255"}
+        stats = psutil.net_if_stats()
+        for interface, addresses in psutil.net_if_addrs().items():
+            if interface in stats and not stats[interface].isup:
+                continue
+            for address in addresses:
+                if address.family != socket.AF_INET or not address.netmask:
+                    continue
+                ip = ipaddress.IPv4Address(address.address)
+                if ip.is_loopback or ip.is_link_local:
+                    continue
+                network = ipaddress.IPv4Network(
+                    f"{address.address}/{address.netmask}",
+                    strict=False,
+                )
+                if network.prefixlen < 31:
+                    targets.add(str(network.broadcast_address))
+        return sorted(targets)
 
     async def send_to_device(self, device_id: str, packet: dict[str, Any]) -> None:
         device = await self.registry.get(device_id)
         if device is None:
             raise KeyError(device_id)
-        self._send(packet, (device.ip, device.control_port))
+        outbound = packet
+        if packet.get("type") == "command":
+            token = await self.registry.session_token(device_id)
+            if token is None:
+                raise RuntimeError("Quest command session is not paired")
+            outbound = {
+                **packet,
+                "station_id": device.paired_station_id or self.settings.station_id,
+                "session_token": token,
+            }
+        self._send(outbound, (device.ip, device.control_port))
 
     async def send_to_device_and_wait(
         self,
@@ -126,6 +173,20 @@ class UdpService:
         if packet_type == "announce":
             device = await self.registry.upsert_announcement(packet, addr[0])
             await self.hub.publish_event({"type": "device_updated", "payload": device.model_dump()})
+            if device.selected:
+                token = await self.registry.session_token(device.device_id)
+                if token:
+                    self._send(
+                        pair_packet(
+                            cmd_id=command_id(),
+                            host_ip=self.host_ip_for(device.ip),
+                            http_port=self.settings.http_port,
+                            pose_port=self.settings.udp_port,
+                            station_id=device.paired_station_id or self.settings.station_id,
+                            session_token=token,
+                        ),
+                        (device.ip, device.control_port),
+                    )
             return
         if packet_type == "ack":
             device_id = str(packet.get("device_id") or "")

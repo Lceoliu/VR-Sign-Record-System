@@ -1,20 +1,40 @@
 # VR 手语录制主机
 
-本项目是 SignVR 的本地主机端：FastAPI 负责 Quest 发现、录制控制、文件接收和实时转发，React 负责外置相机、句子队列、脚踏空格交互与操作台显示。
+本项目是 SignVR 的本地录制工作站：FastAPI 负责 Quest 发现、录制控制、文件接收和实时转发，React 负责外置相机、句子队列、脚踏空格交互与操作台显示。每台工作站使用唯一 `station_id`，固定绑定一台 Quest，并将数据保存在各自的本地目录。
 
 ## 启动
+
+使用预构建部署 ZIP 时，`frontend\dist` 已经包含网页成品，只需安装后端依赖：
+
+```powershell
+cd .\backend
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+cd ..
+```
+
+随后按下文配置工作站身份并运行 `scripts\start-local.ps1`，无需安装 Node.js 或重新构建网页。
 
 首次安装：
 
 ```powershell
 cd D:\SignVR\vr-sign-host\backend
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
 
 cd D:\SignVR\vr-sign-host\frontend
 pnpm install
 pnpm build
 ```
+
+首次作为录制工作站使用时，先设置工作站身份和独立数据目录：
+
+```powershell
+cd D:\SignVR\vr-sign-host
+.\scripts\configure-station.ps1 -StationId Station-01 -DataRoot D:\SignVRData\Station-01
+```
+
+第二台主机使用不同的身份和目录，例如 `Station-02` 与 `D:\SignVRData\Station-02`。不要复制 `config\station.json` 到另一台主机。
 
 之后运行：
 
@@ -52,7 +72,7 @@ Quest 和主机必须位于同一可信局域网。Windows 主机需要允许 Py
 
 ## 数据目录
 
-文件保存在：
+文件保存在 `config\station.json` 指定的数据根目录中：
 
 ```text
 data/recordings/{batch_id}/{round_id}/
@@ -62,6 +82,8 @@ data/recordings/{batch_id}/{round_id}/
   {take_id}.meta.json
   {take_id}.camera.webm
 ```
+
+`round.json` 会记录所属 `station_id`。另一工作站直接打开该轮次时会快速失败，避免双机数据被误写到一起。离线汇总时应保留两个工作站的顶层目录。
 
 Quest 在上传成功前始终保留 `Application.persistentDataPath/Recordings` 中的本地 Pose/Meta；成功后写入 `.uploaded` 标记。重新配对时会继续上传未标记文件。
 

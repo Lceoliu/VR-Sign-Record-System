@@ -4,7 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
@@ -27,9 +27,9 @@ from .udp_service import UdpService
 
 def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> FastAPI:
     config = settings or Settings.from_environment()
-    registry = DeviceRegistry()
+    registry = DeviceRegistry(config.station_id)
     hub = RealtimeHub()
-    repository = RecordingRepository(config.data_root)
+    repository = RecordingRepository(config.data_root, config.station_id)
     recordings = RecordingService(repository)
     udp = UdpService(config, registry, hub)
 
@@ -55,7 +55,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
                 await udp.stop()
             await hub.close()
 
-    app = FastAPI(title="VR Sign Host", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="SignVR Recorder Host", version="1.0.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[config.frontend_origin, "http://127.0.0.1:5174", "http://localhost:5173"],
@@ -72,7 +72,12 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
 
     @app.get("/api/health")
     async def health() -> dict:
-        return {"status": "ok", "udp_port": config.udp_port, "control_port": config.quest_control_port}
+        return {
+            "status": "ok",
+            "station_id": config.station_id,
+            "udp_port": config.udp_port,
+            "control_port": config.quest_control_port,
+        }
 
     @app.get("/api/state")
     async def get_state():
@@ -80,7 +85,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
 
     @app.get("/api/recording/batches")
     async def list_recording_batches() -> dict:
-        return {"root": "data/recordings", "batches": repository.list_batches()}
+        return {"root": str(repository.recordings_root), "batches": repository.list_batches()}
 
     @app.get("/api/recording/batches/{batch_id}/rounds")
     async def list_recording_rounds(batch_id: str) -> dict:
@@ -148,6 +153,12 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         device = await registry.get(device_id)
         if device is None:
             raise HTTPException(status_code=404, detail="未找到这台 Quest 设备")
+        if device.paired_station_id and device.paired_station_id != config.station_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"这台 Quest 已绑定 {device.paired_station_id}",
+            )
+        quest_station_id = config.station_id
         selected, token = await registry.select(device_id)
         cmd_id = command_id()
         packet = pair_packet(
@@ -155,6 +166,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
             host_ip=udp.host_ip_for(selected.ip),
             http_port=config.http_port,
             pose_port=config.udp_port,
+            station_id=quest_station_id,
             session_token=token,
         )
         if start_udp:
@@ -172,6 +184,9 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         device = await registry.selected()
         if device is None:
             raise HTTPException(status_code=409, detail="请先选择一台 Quest 设备")
+        state = await recordings.snapshot()
+        if state.selected_device_id != device.device_id:
+            await recordings.set_selected_device(device.device_id)
         return device.device_id
 
     @app.post("/api/recording/start", response_model=RecordingCommandResponse)
@@ -297,10 +312,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     async def upload_preview(
         device_id: str,
         request: Request,
-        x_signvr_token: str = Header(default=""),
     ) -> dict:
-        if not await registry.validate_token(device_id, x_signvr_token):
-            raise HTTPException(status_code=401, detail="Invalid device token")
         if request.headers.get("content-type", "").split(";", 1)[0] != "image/jpeg":
             raise HTTPException(status_code=415, detail="Expected image/jpeg")
         jpeg = await request.body()
@@ -323,10 +335,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         take_id: str = Form(...),
         pose_file: UploadFile = File(...),
         meta_file: UploadFile = File(...),
-        x_signvr_token: str = Header(default=""),
     ) -> dict:
-        if not await registry.validate_token(device_id, x_signvr_token):
-            raise HTTPException(status_code=401, detail="Invalid device token")
         try:
             directory = repository.take_directory(session_id, sentence_id, take_id)
             safe_take_id = safe_segment(take_id)
