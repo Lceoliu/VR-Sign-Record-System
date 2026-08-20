@@ -5,10 +5,14 @@ integrated into the main project under `Assets/Scripts/Recording`.
 
 ## Runtime behavior
 
-- `VRroom` and `SignTrackingRecorder` both contain a
-  `MetaBodyMotionRecorder` and `MetaSourceDataProvider`.
-- `RecordingRuntimeBootstrap` creates one `_Recording` manager when the scene
-  loads. It does not create or replace an XR camera rig.
+- `VRroom` is the sole enabled build scene. The legacy
+  `SignTrackingRecorder` scene is not loaded or included in the player build.
+- `VRroom/VRPlayer/MetaBodyTrackingSource` supplies full-body tracking data.
+  The scene-root `RecordingSource` owns `MetaBodyMotionRecorder` and
+  `MetaBodyMotionStreamer`, both wired to that provider.
+- `RecordingRuntimeBootstrap` only activates for that explicit `VRroom`
+  `RecordingSource` and creates one `_Recording` manager when the scene loads.
+  It does not create, load, or replace a scene or XR camera rig.
 - The coordinator owns start/stop timing. Legacy automatic recording is
   disabled and coordinated takes have no fixed duration.
 - Pose samples are written at 30 Hz to:
@@ -19,10 +23,11 @@ integrated into the main project under `Assets/Scripts/Recording`.
   upload adds `{stem}.uploaded`.
 - The existing `motion_viewer.py` remains compatible with the UDP v1
   skeleton/frame/status stream.
-- `SignTrackingRecorder` keeps its authored Start/Stop canvas, now routed
-  through the coordinator. `VRroom` has no operator canvas; its production
-  start/stop/reset path is the paired host gateway (the coordinator methods
-  remain public for a future in-headset control surface).
+- `VRroom` has no operator canvas; its production start/stop/reset path is the
+  paired host gateway (the coordinator methods remain public for a future
+  in-headset control surface).
+- Local-network HTTP is enabled in Player Settings because the workstation
+  service uses `http://<host>:8000` on the trusted recording LAN.
 
 ## Host service
 

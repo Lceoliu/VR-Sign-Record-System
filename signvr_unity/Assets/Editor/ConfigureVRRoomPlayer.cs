@@ -121,12 +121,19 @@ internal static class ConfigureVRRoomPlayer
             );
         }
 
-        MetaBodyMotionRecorder recorder =
-            FindInScene<MetaBodyMotionRecorder>(scene);
-        MetaBodyMotionStreamer streamer =
-            FindInScene<MetaBodyMotionStreamer>(scene);
-        MetaSourceDataProvider provider =
-            FindRecordingProvider(scene, player.gameObject);
+        GameObject recordingObject = FindRootByName(scene, "RecordingSource");
+        Transform sourceTransform = player.transform.Find(
+            "MetaBodyTrackingSource"
+        );
+        MetaSourceDataProvider provider = sourceTransform != null
+            ? sourceTransform.GetComponent<MetaSourceDataProvider>()
+            : null;
+        MetaBodyMotionRecorder recorder = recordingObject != null
+            ? recordingObject.GetComponent<MetaBodyMotionRecorder>()
+            : null;
+        MetaBodyMotionStreamer streamer = recordingObject != null
+            ? recordingObject.GetComponent<MetaBodyMotionStreamer>()
+            : null;
         if (recorder == null || streamer == null || provider == null ||
             recorder.SourceDataProvider != provider ||
             streamer.SourceDataProvider != provider)
@@ -783,16 +790,20 @@ internal static class ConfigureVRRoomPlayer
     private static void ConfigureBuildSettings()
     {
         EditorBuildSettingsScene[] current = EditorBuildSettings.scenes;
-        if (current.Any(scene => scene.path == ScenePath))
+        if (current.Length == 1 && current[0].enabled &&
+            current[0].path == ScenePath)
         {
             return;
         }
 
-        List<EditorBuildSettingsScene> scenes = current.ToList();
         string guid = AssetDatabase.AssetPathToGUID(ScenePath);
-        scenes.Insert(0, new EditorBuildSettingsScene(ScenePath, true));
-        EditorBuildSettings.scenes = scenes.ToArray();
-        Debug.Log($"[SignVR] Added {ScenePath} to Build Settings ({guid}).");
+        EditorBuildSettings.scenes = new[]
+        {
+            new EditorBuildSettingsScene(ScenePath, true)
+        };
+        Debug.Log(
+            $"[SignVR] Build Settings now contain only {ScenePath} ({guid})."
+        );
     }
 
     private static GameObject FindRootByName(Scene scene, string name)
@@ -819,16 +830,7 @@ internal static class ConfigureVRRoomPlayer
             }
         }
 
-        // SignTrackingRecorder stores its provider on the recorder itself;
-        // keep the fallback for that scene and for older authored scenes.
-        MetaBodyMotionRecorder recorder =
-            FindInScene<MetaBodyMotionRecorder>(scene);
-        if (recorder != null && recorder.SourceDataProvider != null)
-        {
-            return recorder.SourceDataProvider;
-        }
-
-        return FindInScene<MetaSourceDataProvider>(scene);
+        return null;
     }
 
     private static T FindInScene<T>(Scene scene) where T : Component

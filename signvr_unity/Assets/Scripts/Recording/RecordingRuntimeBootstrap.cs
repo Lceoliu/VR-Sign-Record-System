@@ -16,6 +16,8 @@ namespace SignVR.Recording
     /// </summary>
     internal static class RecordingRuntimeBootstrap
     {
+        private const string VrRoomScenePath = "Assets/Scenes/VRroom.unity";
+        private const string RecordingSourceName = "RecordingSource";
         private static bool registered;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -37,7 +39,16 @@ namespace SignVR.Recording
 
         private static void TryInstall(Scene scene)
         {
-            MetaBodyMotionRecorder recorder = FindInScene<MetaBodyMotionRecorder>(scene);
+            if (scene.path != VrRoomScenePath)
+            {
+                return;
+            }
+
+            GameObject recordingSource = scene.GetRootGameObjects()
+                .FirstOrDefault(root => root.name == RecordingSourceName);
+            MetaBodyMotionRecorder recorder = recordingSource != null
+                ? recordingSource.GetComponent<MetaBodyMotionRecorder>()
+                : null;
             if (recorder == null ||
                 FindInScene<RecordingCoordinator>(scene) != null)
             {
@@ -60,11 +71,10 @@ namespace SignVR.Recording
             recorder.ConfigureManagedRecording();
 
             MetaBodyMotionStreamer streamer =
-                recorder.GetComponent<MetaBodyMotionStreamer>() ??
-                FindInScene<MetaBodyMotionStreamer>(scene);
+                recordingSource.GetComponent<MetaBodyMotionStreamer>();
             if (streamer == null)
             {
-                streamer = recorder.gameObject.AddComponent<MetaBodyMotionStreamer>();
+                streamer = recordingSource.AddComponent<MetaBodyMotionStreamer>();
             }
             streamer.ConfigureSource(provider);
 
@@ -326,8 +336,7 @@ namespace SignVR.Recording
         private static T[] FindAllInScene<T>(Scene scene) where T : Component
         {
             return UnityEngine.Object.FindObjectsByType<T>(
-                    FindObjectsInactive.Include,
-                    FindObjectsSortMode.None
+                    FindObjectsInactive.Include
                 )
                 .Where(component => component.gameObject.scene == scene)
                 .ToArray();
