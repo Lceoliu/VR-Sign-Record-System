@@ -26,6 +26,34 @@ internal static class ConfigureVRRoomPlayer
         "126d619cf4daa52469682f85c1378b4a";
     private const string InteractionRigGuid =
         "0a7d2469f24041c4284c66706f84c45e";
+    private const float AuthoredWorldScale = 0.1f;
+
+    private static readonly HashSet<string> AuthoredWorldRootNames =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "room",
+            "safe",
+            "safe (1)",
+            "dragon_coin",
+            "golden_coin",
+            "golden_coin (1)",
+            "plate",
+            "dragon_plate",
+            "plate (1)",
+            "picture_frame",
+            "white_photo_frame",
+            "elevator_button_-_lift",
+            "box",
+            "door",
+            "industrial_button",
+            "gold_lock_improved",
+            "master_lock",
+            "red_button",
+            "alarm_button",
+            "key",
+            "key (1)",
+            "motorbike_key"
+        };
 
     private static readonly HashSet<string> MovableNames =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -151,6 +179,44 @@ internal static class ConfigureVRRoomPlayer
             );
         }
 
+        GameObject room = FindRootByName(scene, "room");
+        if (room == null || room.GetComponentsInChildren<MeshCollider>(true).Length == 0)
+        {
+            throw new InvalidOperationException("Room colliders are missing.");
+        }
+
+        Bounds roomBounds = CombineRendererBounds(room);
+        if (roomBounds.size.x > 20f || roomBounds.size.y > 10f ||
+            roomBounds.size.z > 20f)
+        {
+            throw new InvalidOperationException(
+                $"VRroom is not in meter scale. Bounds are {roomBounds.size}."
+            );
+        }
+
+        if (!TryFindRoomFloor(room, spawn.position, out RaycastHit floorHit) ||
+            Mathf.Abs(spawn.position.y - (floorHit.point.y + 0.05f)) > 0.2f)
+        {
+            throw new InvalidOperationException(
+                $"PlayerSpawnPoint is not grounded inside VRroom: {spawn.position}."
+            );
+        }
+
+        if (!HasRoomSurfaceInView(room, spawn))
+        {
+            throw new InvalidOperationException(
+                "PlayerSpawnPoint does not face visible room geometry."
+            );
+        }
+
+        if (player.transform.localScale != Vector3.one ||
+            player.XROrigin.localScale != Vector3.one)
+        {
+            throw new InvalidOperationException(
+                "VRPlayer and its XR origin must remain at meter scale."
+            );
+        }
+
         OVRCameraRig cameraRig = FindInScene<OVRCameraRig>(scene);
         if (cameraRig == null || cameraRig.centerEyeAnchor == null)
         {
@@ -186,12 +252,6 @@ internal static class ConfigureVRRoomPlayer
             throw new InvalidOperationException(
                 $"Expected at least two configured physical hands, found {configuredHands}."
             );
-        }
-
-        GameObject room = FindRootByName(scene, "room");
-        if (room == null || room.GetComponentsInChildren<MeshCollider>(true).Length == 0)
-        {
-            throw new InvalidOperationException("Room colliders are missing.");
         }
 
         Debug.Log("[SignVR] VRroom player and physics validation passed.");
@@ -252,6 +312,7 @@ internal static class ConfigureVRRoomPlayer
             );
         }
 
+        NormalizeAuthoredWorld(scene);
         EnsureRoomColliders(room);
         ConfigureProps(scene, room);
 
@@ -556,37 +617,174 @@ internal static class ConfigureVRRoomPlayer
         GameObject room
     )
     {
-        Transform existing = FindRootByName(scene, "PlayerSpawnPoint")?.transform;
-        if (existing != null)
+        Transform marker = FindRootByName(scene, "PlayerSpawnPoint")?.transform;
+        bool created = marker == null;
+        if (created)
         {
-            return existing;
+            GameObject markerObject = new GameObject("PlayerSpawnPoint");
+            SceneManager.MoveGameObjectToScene(markerObject, scene);
+            markerObject.hideFlags = HideFlags.None;
+            Undo.RegisterCreatedObjectUndo(
+                markerObject,
+                "Create fixed VR spawn point"
+            );
+            marker = markerObject.transform;
         }
 
-        GameObject marker = new GameObject("PlayerSpawnPoint");
-        SceneManager.MoveGameObjectToScene(marker, scene);
-        marker.transform.SetPositionAndRotation(
-            ComputeSpawnPosition(room),
-            Quaternion.identity
-        );
-        marker.hideFlags = HideFlags.None;
-        Undo.RegisterCreatedObjectUndo(marker, "Create fixed VR spawn point");
-        return marker.transform;
+        if (created || !IsValidSpawn(room, marker))
+        {
+            Transform reference = FindRootByName(scene, "MainCamera")?.transform;
+            Vector3 referencePosition = reference != null
+                ? reference.position
+                : CombineRendererBounds(room).center;
+            if (!TryFindRoomFloor(room, referencePosition, out RaycastHit floorHit))
+            {
+                throw new InvalidOperationException(
+                    "Could not find a walkable VRroom floor below the reference camera."
+                );
+            }
+
+            float yaw = reference != null ? reference.eulerAngles.y : 0f;
+            marker.SetPositionAndRotation(
+                floorHit.point + Vector3.up * 0.05f,
+                Quaternion.Euler(0f, yaw, 0f)
+            );
+            EditorUtility.SetDirty(marker);
+        }
+
+        return marker;
     }
 
-    private static Vector3 ComputeSpawnPosition(GameObject room)
+    private static bool IsValidSpawn(GameObject room, Transform spawn)
     {
-        Renderer floor = room.GetComponentsInChildren<Renderer>(true)
-            .FirstOrDefault(renderer =>
-                renderer.name.IndexOf("floor", StringComparison.OrdinalIgnoreCase) >= 0
-            );
-        if (floor != null)
+        return TryFindRoomFloor(room, spawn.position, out RaycastHit hit) &&
+               Mathf.Abs(spawn.position.y - (hit.point.y + 0.05f)) <= 0.2f &&
+               HasRoomSurfaceInView(room, spawn);
+    }
+
+    private static bool TryFindRoomFloor(
+        GameObject room,
+        Vector3 samplePosition,
+        out RaycastHit floorHit)
+    {
+        Physics.SyncTransforms();
+        Bounds bounds = CombineRendererBounds(room);
+        Vector3 origin = new Vector3(
+            samplePosition.x,
+            Mathf.Max(bounds.max.y + 1f, samplePosition.y + 1f),
+            samplePosition.z
+        );
+        RaycastHit[] hits = Physics.RaycastAll(
+                origin,
+                Vector3.down,
+                Mathf.Max(20f, bounds.size.y + 4f),
+                ~0,
+                QueryTriggerInteraction.Ignore
+            )
+            .Where(hit => hit.collider.transform.IsChildOf(room.transform) &&
+                          hit.normal.y >= 0.65f)
+            .OrderByDescending(hit => hit.point.y)
+            .ToArray();
+
+        foreach (RaycastHit hit in hits)
         {
-            Vector3 center = floor.bounds.center;
-            return new Vector3(center.x, floor.bounds.max.y + 0.05f, center.z);
+            if (GetHierarchyPath(hit.collider.transform)
+                .IndexOf("floor", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                floorHit = hit;
+                return true;
+            }
         }
 
-        Bounds bounds = CombineRendererBounds(room);
-        return new Vector3(bounds.center.x, bounds.min.y + 0.05f, bounds.center.z);
+        floorHit = hits.FirstOrDefault();
+        return floorHit.collider != null;
+    }
+
+    private static bool HasRoomSurfaceInView(GameObject room, Transform spawn)
+    {
+        Vector3 eye = spawn.position + Vector3.up * 1.6f;
+        foreach (float yawOffset in new[] { 0f, -30f, 30f, -60f, 60f })
+        {
+            Vector3 direction =
+                Quaternion.Euler(0f, yawOffset, 0f) * spawn.forward;
+            RaycastHit[] hits = Physics.RaycastAll(
+                eye,
+                direction,
+                20f,
+                ~0,
+                QueryTriggerInteraction.Ignore
+            );
+            if (hits.Any(hit =>
+                    hit.collider.transform.IsChildOf(room.transform)))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void NormalizeAuthoredWorld(Scene scene)
+    {
+        foreach (GameObject root in scene.GetRootGameObjects())
+        {
+            if (AuthoredWorldRootNames.Contains(root.name))
+            {
+                ApplyWorldScale(root, scaleGeometry: true);
+            }
+        }
+
+        ApplyWorldScale(
+            FindRootByName(scene, "MainCamera"),
+            scaleGeometry: false
+        );
+
+        foreach (GameObject root in scene.GetRootGameObjects())
+        {
+            Light light = root.GetComponent<Light>();
+            if (light == null)
+            {
+                continue;
+            }
+
+            float ratio = ApplyWorldScale(root, scaleGeometry: false);
+            if (light.type != LightType.Directional &&
+                !Mathf.Approximately(ratio, 1f))
+            {
+                light.range *= ratio;
+                EditorUtility.SetDirty(light);
+            }
+        }
+    }
+
+    private static float ApplyWorldScale(
+        GameObject root,
+        bool scaleGeometry)
+    {
+        if (root == null)
+        {
+            return 1f;
+        }
+
+        VRWorldScaleMarker marker = root.GetComponent<VRWorldScaleMarker>();
+        float previousScale = marker != null && marker.AppliedScale > 0f
+            ? marker.AppliedScale
+            : 1f;
+        float ratio = AuthoredWorldScale / previousScale;
+        if (!Mathf.Approximately(ratio, 1f))
+        {
+            Undo.RecordObject(root.transform, "Normalize VRroom world scale");
+            root.transform.position *= ratio;
+            if (scaleGeometry)
+            {
+                root.transform.localScale *= ratio;
+            }
+            EditorUtility.SetDirty(root.transform);
+        }
+
+        marker ??= Undo.AddComponent<VRWorldScaleMarker>(root);
+        marker.SetAppliedScale(AuthoredWorldScale);
+        EditorUtility.SetDirty(marker);
+        return ratio;
     }
 
     private static void EnsureRoomColliders(GameObject room)

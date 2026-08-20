@@ -62,6 +62,34 @@ public sealed class VRPlayerRig : MonoBehaviour
     private void Start()
     {
         ApplySpawnPose();
+        Invoke(nameof(LogRuntimeView), 1f);
+    }
+
+    private void LogRuntimeView()
+    {
+        Camera camera = head != null ? head.GetComponent<Camera>() : null;
+        Vector3 eyePosition = head != null ? head.position : transform.position;
+        Vector3 eyeForward = head != null ? head.forward : transform.forward;
+        int visibleRenderers = 0;
+        if (camera != null)
+        {
+            Plane[] planes = GeometryUtility.CalculateFrustumPlanes(camera);
+            foreach (Renderer renderer in FindObjectsByType<Renderer>(
+                         FindObjectsInactive.Exclude))
+            {
+                if (renderer.enabled &&
+                    GeometryUtility.TestPlanesAABB(planes, renderer.bounds))
+                {
+                    visibleRenderers++;
+                }
+            }
+        }
+
+        Debug.Log(
+            $"[SignVR] Runtime view ready: scene={gameObject.scene.name}, " +
+            $"player={transform.position:F3}, eye={eyePosition:F3}, " +
+            $"forward={eyeForward:F3}, visibleRenderers={visibleRenderers}."
+        );
     }
 
     private void Update()
