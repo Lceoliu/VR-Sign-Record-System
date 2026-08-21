@@ -43,8 +43,11 @@ namespace SignVR.Recording
         private int nextTakeIndex;
         private double recordingStartedAt;
         private RecordingFlowState reviewReturnState;
+        private long countdownTargetUnixMs;
+        private bool reportRemoteStartResult;
 
         public event Action PresentationChanged;
+        public event Action<RecordingTakeContext, bool, long, string> TakeStartResolved;
 
         /// <summary>
         /// Time of the last pedal press. The teacher cannot hear the pedal click,
@@ -171,28 +174,30 @@ namespace SignVR.Recording
                 nextTakeIndex
             );
 
-            return BeginTake(take, countdownSeconds);
+            return BeginTake(take, countdownSeconds, 0L, false);
         }
 
         public bool BeginRemoteTake(
             RecordingTakeContext take,
-            float remoteCountdownSeconds)
+            long startAtUnixMs)
         {
             if (!take.IsValid)
             {
                 throw new ArgumentException("Remote take is invalid.", nameof(take));
             }
 
-            float delaySeconds = remoteCountdownSeconds > 0f
-                ? remoteCountdownSeconds
-                : countdownSeconds;
-
-            return BeginTake(take, delaySeconds);
+            float delaySeconds = Mathf.Max(
+                0f,
+                (startAtUnixMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) / 1000f
+            );
+            return BeginTake(take, delaySeconds, startAtUnixMs, true);
         }
 
         private bool BeginTake(
             RecordingTakeContext take,
-            float delaySeconds)
+            float delaySeconds,
+            long targetUnixMs,
+            bool notifyRemoteResult)
         {
             if (IsPaused)
             {
@@ -209,6 +214,8 @@ namespace SignVR.Recording
             StopActiveRoutine();
             CurrentTake = take;
             CountdownRemaining = Mathf.Max(0f, delaySeconds);
+            countdownTargetUnixMs = targetUnixMs;
+            reportRemoteStartResult = notifyRemoteResult;
             activeRoutine = StartCoroutine(CountdownRoutine());
             return true;
         }
@@ -224,6 +231,7 @@ namespace SignVR.Recording
             {
                 StopActiveRoutine();
                 CountdownRemaining = 0f;
+                ReportTakeStartResult(false, "countdown_cancelled");
                 CurrentTake = default;
                 return stateMachine.CancelCountdown();
             }
@@ -234,6 +242,30 @@ namespace SignVR.Recording
             }
 
             recorder.StopRecording();
+            StopActiveRoutine();
+            activeRoutine = StartCoroutine(CompleteFinalizingNextFrame());
+            return true;
+        }
+
+        public bool StopCurrentTakeAsInterrupted(string reason)
+        {
+            if (State == RecordingFlowState.Countdown)
+            {
+                StopActiveRoutine();
+                CountdownRemaining = 0f;
+                LastError = reason ?? string.Empty;
+                ReportTakeStartResult(false, LastError);
+                CurrentTake = default;
+                return stateMachine.CancelCountdown();
+            }
+
+            if (State != RecordingFlowState.Recording || !stateMachine.BeginFinalizing())
+            {
+                return false;
+            }
+
+            LastError = reason ?? string.Empty;
+            recorder.StopRecordingAsInterrupted();
             StopActiveRoutine();
             activeRoutine = StartCoroutine(CompleteFinalizingNextFrame());
             return true;
@@ -336,20 +368,29 @@ namespace SignVR.Recording
 
             CurrentTake = default;
             CountdownRemaining = 0f;
+            reportRemoteStartResult = false;
+            countdownTargetUnixMs = 0L;
             LastError = string.Empty;
             activeRoutine = StartCoroutine(CompleteResetNextFrame());
         }
 
         private IEnumerator CountdownRoutine()
         {
+            // Let the gateway return the scheduling ACK before a zero-delay take can
+            // resolve on this same Unity frame.
+            yield return null;
+
             while (CountdownRemaining > 0f)
             {
                 NotifyPresentationChanged();
                 yield return null;
-                CountdownRemaining = Mathf.Max(
-                    0f,
-                    CountdownRemaining - Time.unscaledDeltaTime
-                );
+                CountdownRemaining = countdownTargetUnixMs > 0L
+                    ? Mathf.Max(
+                        0f,
+                        (countdownTargetUnixMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) /
+                        1000f
+                    )
+                    : Mathf.Max(0f, CountdownRemaining - Time.unscaledDeltaTime);
             }
 
             RecordingTakeContext take = CurrentTake;
@@ -357,7 +398,9 @@ namespace SignVR.Recording
             if (!recorder.TryStartRecording(take))
             {
                 LastError = "Body tracking is not ready.";
-                stateMachine.Fail();
+                ReportTakeStartResult(false, "body_tracking_not_ready");
+                CurrentTake = default;
+                stateMachine.CancelCountdown();
                 activeRoutine = null;
                 yield break;
             }
@@ -366,7 +409,26 @@ namespace SignVR.Recording
             nextTakeIndex = Mathf.Max(nextTakeIndex, take.TakeIndex + 1);
             recordingStartedAt = Time.realtimeSinceStartupAsDouble;
             stateMachine.BeginRecording();
+            ReportTakeStartResult(true, "recording_started");
             activeRoutine = null;
+        }
+
+        private void ReportTakeStartResult(bool started, string message)
+        {
+            if (!reportRemoteStartResult)
+            {
+                return;
+            }
+
+            RecordingTakeContext take = CurrentTake;
+            reportRemoteStartResult = false;
+            countdownTargetUnixMs = 0L;
+            TakeStartResolved?.Invoke(
+                take,
+                started,
+                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                message
+            );
         }
 
         private IEnumerator CompleteFinalizingNextFrame()

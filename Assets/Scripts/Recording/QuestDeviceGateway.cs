@@ -47,12 +47,32 @@ namespace SignVR.Recording
         [Min(1f)]
         private float announcementIntervalSeconds = 3f;
 
+        [Header("Recording Safety")]
+        [SerializeField]
+        [Min(3f)]
+        private float hostContactTimeoutSeconds = 12f;
+
+        [SerializeField]
+        [Min(30f)]
+        private float maximumRecordingSeconds = 600f;
+
         private UdpClient listener;
         private UdpClient sender;
         private string deviceId;
         private string pairedStationId;
         private IPAddress pairedHostAddress;
         private Coroutine announcementRoutine;
+        private float lastHostContactRealtime;
+        private bool safetyStopTriggered;
+        private string pendingStartCommandId;
+        private string pendingStartTakeId;
+        private IPEndPoint pendingStartAckTarget;
+        private string lastStartCommandId;
+        private string lastStartTakeId;
+        private string lastStartMessage;
+        private string lastStartPhase;
+        private bool lastStartAccepted;
+        private long lastStartActualAtUnixMs;
         private readonly ConcurrentQueue<ReceivedDatagram> receivedDatagrams = new();
         private readonly ConcurrentQueue<string> receiveErrors = new();
 
@@ -120,6 +140,9 @@ namespace SignVR.Recording
             public string station_id;
             public string signal;
             public bool active;
+            public string message;
+            public string take_id;
+            public long actual_at_unix_ms;
         }
 
         [Serializable]
@@ -148,6 +171,10 @@ namespace SignVR.Recording
             public bool accepted;
             public string state;
             public string message;
+            public string action;
+            public string phase;
+            public string take_id;
+            public long actual_at_unix_ms;
         }
 
         private readonly struct ReceivedDatagram
@@ -184,6 +211,8 @@ namespace SignVR.Recording
                 Debug.LogError("[QuestDeviceGateway] Scene dependencies are not assigned.");
                 enabled = false;
             }
+
+            lastHostContactRealtime = Time.realtimeSinceStartup;
         }
 
         /// <summary>
@@ -214,6 +243,10 @@ namespace SignVR.Recording
 
         private void OnEnable()
         {
+            if (coordinator != null)
+            {
+                coordinator.TakeStartResolved += HandleTakeStartResolved;
+            }
             StartListener();
             announcementRoutine = StartCoroutine(AnnouncementLoop());
         }
@@ -230,6 +263,8 @@ namespace SignVR.Recording
                 LastReceiveError = error;
                 Debug.LogError("[QuestDeviceGateway] UDP receive failed: " + error);
             }
+
+            MonitorRecordingSafety();
         }
 
         private void ReceiveDatagram(IAsyncResult result)
@@ -344,6 +379,7 @@ namespace SignVR.Recording
 
             if (accepted)
             {
+                lastHostContactRealtime = Time.realtimeSinceStartup;
                 pairedStationId = packet.station_id.Trim();
                 pairedHostAddress = hostAddress;
                 PlayerPrefs.SetString(
@@ -380,15 +416,63 @@ namespace SignVR.Recording
                 return;
             }
 
+            lastHostContactRealtime = Time.realtimeSinceStartup;
+
             bool accepted;
 
             switch (packet.action)
             {
                 case "start_take":
+                    if (string.Equals(
+                        packet.command_id,
+                        lastStartCommandId,
+                        StringComparison.Ordinal))
+                    {
+                        SendAck(
+                            remoteEndPoint,
+                            packet.command_id,
+                            lastStartAccepted,
+                            lastStartMessage,
+                            packet.action,
+                            lastStartPhase,
+                            lastStartTakeId,
+                            lastStartActualAtUnixMs
+                        );
+                        return;
+                    }
+                    pendingStartCommandId = packet.command_id;
+                    pendingStartTakeId = packet.take_id;
+                    pendingStartAckTarget = remoteEndPoint;
                     accepted = StartRemoteTake(packet);
-                    break;
+                    if (!accepted)
+                    {
+                        ClearPendingStart();
+                    }
+                    RememberStartAck(
+                        packet.command_id,
+                        packet.take_id,
+                        accepted,
+                        accepted ? "start_scheduled" : "command_rejected",
+                        accepted ? "scheduled" : "failed",
+                        0L
+                    );
+                    SendAck(
+                        remoteEndPoint,
+                        packet.command_id,
+                        accepted,
+                        accepted ? "start_scheduled" : "command_rejected",
+                        packet.action,
+                        accepted ? "scheduled" : "failed",
+                        packet.take_id
+                    );
+                    return;
                 case "stop_take":
                     accepted = coordinator.StopCurrentTake();
+                    if (!accepted && coordinator.State != RecordingFlowState.Countdown &&
+                        coordinator.State != RecordingFlowState.Recording)
+                    {
+                        accepted = true;
+                    }
                     break;
                 case "reset_take":
                     coordinator.ResetCurrentPrompt();
@@ -396,6 +480,9 @@ namespace SignVR.Recording
                     break;
                 case "pedal":
                     accepted = HandlePedal(packet);
+                    break;
+                case "heartbeat":
+                    accepted = true;
                     break;
                 case "set_guidance":
                     boundaryMonitor.SetGuidanceEnabled(packet.enabled);
@@ -410,7 +497,9 @@ namespace SignVR.Recording
                 remoteEndPoint,
                 packet.command_id,
                 accepted,
-                accepted ? packet.action : "command_rejected"
+                accepted ? packet.action : "command_rejected",
+                packet.action,
+                accepted ? "completed" : "failed"
             );
         }
 
@@ -439,7 +528,7 @@ namespace SignVR.Recording
 
         private bool StartRemoteTake(CommandPacket packet)
         {
-            if (!recorder.IsPoseReady)
+            if (!recorder.IsPoseReady || packet.start_at_unix_ms <= 0L)
             {
                 return false;
             }
@@ -462,10 +551,122 @@ namespace SignVR.Recording
                 packet.prompt,
                 packet.take_index,
                 packet.take_id,
-                DateTime.UtcNow
+                DateTimeOffset.FromUnixTimeMilliseconds(packet.start_at_unix_ms).UtcDateTime
             );
 
-            return coordinator.BeginRemoteTake(take, packet.countdown_seconds);
+            return coordinator.BeginRemoteTake(take, packet.start_at_unix_ms);
+        }
+
+        private void HandleTakeStartResolved(
+            RecordingTakeContext take,
+            bool started,
+            long actualAtUnixMs,
+            string message)
+        {
+            if (pendingStartAckTarget == null ||
+                !string.Equals(take.TakeId, pendingStartTakeId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            SendAck(
+                pendingStartAckTarget,
+                pendingStartCommandId,
+                started,
+                message,
+                "start_take",
+                started ? "started" : "failed",
+                take.TakeId,
+                actualAtUnixMs
+            );
+            RememberStartAck(
+                pendingStartCommandId,
+                take.TakeId,
+                started,
+                message,
+                started ? "started" : "failed",
+                actualAtUnixMs
+            );
+            ClearPendingStart();
+        }
+
+        private void RememberStartAck(
+            string commandId,
+            string takeId,
+            bool accepted,
+            string message,
+            string phase,
+            long actualAtUnixMs)
+        {
+            lastStartCommandId = commandId;
+            lastStartTakeId = takeId;
+            lastStartAccepted = accepted;
+            lastStartMessage = message;
+            lastStartPhase = phase;
+            lastStartActualAtUnixMs = actualAtUnixMs;
+        }
+
+        private void MonitorRecordingSafety()
+        {
+            if (coordinator.State != RecordingFlowState.Recording)
+            {
+                safetyStopTriggered = false;
+                return;
+            }
+
+            if (safetyStopTriggered)
+            {
+                return;
+            }
+
+            string reason = string.Empty;
+            if (Time.realtimeSinceStartup - lastHostContactRealtime >= hostContactTimeoutSeconds)
+            {
+                reason = "host_contact_timeout";
+            }
+            else if (coordinator.RecordingElapsedSeconds >= maximumRecordingSeconds)
+            {
+                reason = "maximum_recording_duration";
+            }
+
+            if (string.IsNullOrEmpty(reason) ||
+                !coordinator.StopCurrentTakeAsInterrupted(reason))
+            {
+                return;
+            }
+
+            safetyStopTriggered = true;
+            SendRecordingInterrupted(reason);
+        }
+
+        private void SendRecordingInterrupted(string reason)
+        {
+            if (pairedHostAddress == null)
+            {
+                return;
+            }
+
+            var packet = new SignalPacket
+            {
+                device_id = deviceId,
+                station_id = pairedStationId,
+                signal = "recording_interrupted",
+                active = true,
+                message = reason,
+                take_id = coordinator.CurrentTake.TakeId,
+                actual_at_unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+            SendPacket(
+                packet,
+                new IPEndPoint(pairedHostAddress, hostAnnouncementPort)
+            );
+        }
+
+        private void ClearPendingStart()
+        {
+            pendingStartCommandId = string.Empty;
+            pendingStartTakeId = string.Empty;
+            pendingStartAckTarget = null;
         }
 
         private void SendAnnouncement(IPEndPoint target)
@@ -492,7 +693,11 @@ namespace SignVR.Recording
             IPEndPoint target,
             string commandId,
             bool accepted,
-            string message)
+            string message,
+            string action = "",
+            string phase = "completed",
+            string takeId = "",
+            long actualAtUnixMs = 0L)
         {
             var packet = new AckPacket
             {
@@ -500,7 +705,11 @@ namespace SignVR.Recording
                 device_id = deviceId,
                 accepted = accepted,
                 state = coordinator.State.ToString().ToLowerInvariant(),
-                message = message
+                message = message,
+                action = action,
+                phase = phase,
+                take_id = takeId,
+                actual_at_unix_ms = actualAtUnixMs
             };
 
             SendPacket(packet, target);
@@ -524,6 +733,10 @@ namespace SignVR.Recording
 
         private void OnDisable()
         {
+            if (coordinator != null)
+            {
+                coordinator.TakeStartResolved -= HandleTakeStartResolved;
+            }
             if (announcementRoutine != null)
             {
                 StopCoroutine(announcementRoutine);
