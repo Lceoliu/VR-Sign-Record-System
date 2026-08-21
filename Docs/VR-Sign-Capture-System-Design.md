@@ -1,9 +1,9 @@
 # VR 手语录制系统与场景设计
 
-- 文档状态：实现基线 v1.1
-- 更新日期：2026-08-18
+- 文档状态：实现基线 v1.2
+- 更新日期：2026-08-21
 - 适用项目：SignVR / Quest 3
-- 当前阶段：主机纵向链路已运行；Unity 裸手录制界面、VR 镜像 Take 回看与网页骨架动作视图均已实现，等待 Quest 3 真机交互验收
+- 当前阶段：双工作站录制链路与首日数据采集已完成；当前代码基线同时包含录制系统、本地数据审核台和实时翻译 Demo 的前期场景资产
 - 目标读者：Unity、Python、React、数据处理与现场采集团队
 
 ## 1. 目标与范围
@@ -24,7 +24,7 @@
 
 1. 镜像角色采用真正照镜子式的左右翻转。
 2. 镜像只影响视觉显示，保存的原始 Meta Pose 不进行左右翻转。
-3. 录制完成后仍保留当前句子；下一次短按才切换到下一句并开始录制流程。
+3. 正常停止后，主机将已录 Take 保留为候选并把操作台推进到下一句；下一次短按开始下一句。若随后长按，则返回刚刚录完的句子等待重录。
 4. 默认开始倒计时为 2 秒，并允许通过主机配置调整。
 5. 长按脚踏键时显示环形进度条；进度满后，将当前句的录制流程重置到开始前状态，不自动重新开始。
 6. 长按重录不会覆盖或删除旧 Take。
@@ -34,7 +34,7 @@
 10. 面部信息由外置摄像机视频负责。
 11. 外置摄像机、脚踏键和录制协调由主机上的 React 网页前端与 Python 后端管理。
 12. Quest 发现、控制确认和实时 Pose 使用 UDP；完整 Pose/Meta 与压缩预览使用 HTTP。
-13. 网页监控端不传输 Quest 渲染画面，改为转发 30 FPS 的原始 Meta 骨架数据，由 React 在 Canvas 上绘制关节与骨骼连线。
+13. 网页监控端同时提供 30 FPS 原始 Meta 骨架和低负担 Quest 场景画面：React 用 Canvas 绘制骨架，Quest 另以 480 × 270、3 FPS、JPEG 35 上传侧后方画面。
 14. 外置相机第一版由浏览器 `getUserMedia` 与 `MediaRecorder` 管理，不录制声音。
 15. 脚踏长按阈值第一版固定为 1.2 秒，短按在开始与结束之间切换。
 16. 正式录制不使用 Quest 控制器，只使用裸手追踪；脚踏键仍是高频录制操作的唯一入口。
@@ -42,8 +42,10 @@
 18. 动作回看在 Quest 的 VR 场景内完成，由真镜像机器人播放最近一次本地 Meta Pose Take。
 19. 翻译文本固定显示在桌面上方的全息句子板；录制状态、REC、倒计时和长按重录反馈保留在 HMD 视野边缘，不再允许拖动。
 20. 网页动作视图使用正面正交投影绘制骨架，取景框平滑跟随身体；监控目标是动作捕捉质量本身，环境与角色外观由外置相机画面承担。
-21. `TouchScreenDevice_03` 只保留两个裸手 Poke 按钮：同一按钮切换“重播动作/退出重播”，其下方按钮切换“查看教程/关闭教程”。
+21. `TouchScreenDevice_03` 的 `SignVRControls` 当前包含四个裸手 Poke 按钮：重播/退出重播、教程/关闭教程、退出/恢复场景（透视）和呼叫帮助。
 22. 手部越界提示使用 Quest 实际的左右手追踪状态与置信度，再叠加相对 HMD 的保守安全工作区；不把 RGB 透视相机视锥误当成 Meta 手部追踪的精确硬边界。
+23. 设备配对不再使用上传密钥鉴权；系统只部署在可信录制网络，并以持久化 `station_id` 防止两台工作站抢占同一 Quest。
+24. Python 后端是批次、轮次、句子和 Take 状态的权威来源；外置相机采集仍由 React 页面中的 `MediaRecorder` 执行。
 
 ## 3. 当前 Unity 工程基线
 
@@ -70,7 +72,7 @@ Unity 第一阶段实现已经完成：
 - 新增 Quest UDP 5006 控制网关，支持发现、配对、开始、停止、重置与命令 ACK。
 - 现有实时 Pose UDP 在配对后切换为主机单播；完整 Meta Pose 文件仍是权威数据。
 - Quest 本地 Pose/Meta 通过 HTTP multipart 上传；上传成功前保留本地文件，重新配对后继续上传。
-- Quest 第一视角以异步 GPU 回读压缩成 JPEG，通过 HTTP 与 WebSocket 进入 React。
+- Quest 独立侧后方摄像机以 GPU 回读压缩成低帧率 JPEG，通过 HTTP 与 WebSocket 进入 React。
 - 新增 FastAPI 主机服务和 React 操作台，外置相机 WebM 与 Quest Take 使用同一 take_id。
 - 正式脚踏语义已经由网页空格键状态机实现：短按开始/结束，长按 1.2 秒重录。
 - 主机必须等待 Quest 的命令 ACK 才推进状态；超时或拒绝时回滚到上一状态，避免虚假录制成功。
@@ -82,30 +84,30 @@ Unity 第一阶段实现已经完成：
 - `TeacherUI` 已改为中文录制状态、操作提示、全视野录制边框和长按重录百分比反馈。
 - 引入动态多图集 `Noto Sans SC` TMP 字体资产，覆盖中文提示词和运行时主机下发文本。
 - `TeacherUI` 已挂到 `CenterEyeAnchor`，只承载 REC、录制状态、倒计时、长按反馈和追踪告警；翻译文本已迁移到桌面全息句子板，旧拖动把手和归位功能已移除。
-- 复用用户摆放的 `TouchScreenDevice_03`，使用 Meta Poke 按钮提供“重播动作/退出重播”和“查看教程/关闭教程”；旧 `VRDeskToolPanel` 已在第四阶段删除。
+- 复用用户摆放的 `TouchScreenDevice_03`，`SignVRControls` 当前连接重播、教程、透视和求助四个 Meta Poke 按钮；旧 `VRDeskToolPanel` 已在第四阶段删除。
 - 最近一次 Take 在 Quest 本地读取 `.pose.jsonl`，临时接管现有 `CharacterRetargeter`；既有 `MirrorTransforms` 继续输出真正镜像角色。
 - 新增可重复执行的录制场景光照准备流程，生成混合主光、两盏烘焙顶灯、Light Probe 网格、Reflection Probe、URP Volume、Lighting Settings 与一组低饱和环境材质模板。
 - 新增 HMD 内手部追踪边界提示：接近边界和瞬时低置信度保持静默，真实越界使用低强度琥珀色方向提示，持续丢失追踪则使用四边红色脉冲和明确中文提示。
 - 新增 `Reviewing` 状态；回看按钮、网页停止命令和脚踏短按均可退出回看并恢复实时身体驱动，Quest 裸手显示和 Poke 交互对象始终保持启用。
-- Quest 预览改为独立固定摄像机，默认 640 × 360、FOV 50，从正面自动对准镜像角色上半身并为高位手势预留顶部空间，同时排除 HMD Overlay UI。
+- Quest 预览使用运行时创建的独立侧后方摄像机，固定 480 × 270、3 FPS、JPEG 35、FOV 60，同时包含角色和桌面触屏。
 - 编辑器脚本编译错误为 0，短时 Play Mode 验证未发现 SignVR 运行时异常。
 - 2026-08-18 已重新构建并安装 Android Development APK；Quest 3 上 OpenXR、HMD 和双手骨架初始化成功，应用进程稳定运行。
-- Quest 处于佩戴前台时已完成 UDP 配对 ACK；主机持续收到 640 × 360 预览帧和 Pose 包，浏览器 Blob 图像持续更新且控制台无错误。
+- 2026-08-18 的阶段验收曾持续收到 640 × 360 预览帧和 Pose 包；2026-08-19 发布基线随后把预览降为当前的 480 × 270、3 FPS、JPEG 35。
 
 第四阶段场景整理与网页动作视图已完成：
 
 - `LeftEyeAnchor` 的 `MainCamera` 标签已清除，场景中只剩 `CenterEyeAnchor` 一个主相机，`Camera.main` 不再有歧义。
-- 已停用的 `VRDeskToolPanel` 及其子树从场景中删除，低频操作入口只剩 `TouchScreenDevice_03` 上的两个 Poke 按钮。
+- 已停用的 `VRDeskToolPanel` 及其子树从场景中删除，低频操作入口统一放在 `TouchScreenDevice_03/ScreenArea/SignVRControls` 的四个 Poke 按钮中。
 - 网页监控端的 Quest 画面改为骨架实时渲染：主机转发 30 FPS 的 Meta 骨架包，React 在 Canvas 上做正面正交投影。Unity 端无需改动，`MetaBodyMotionStreamer` 原有的 UDP 数据直接复用。
 - 主机新增 `/ws/pose/{device_id}`，`UdpService` 按源 IP 解析 `device_id` 后转发 `skeleton`、`frame`、`status` 三类包，并缓存最近一份拓扑供中途连入的客户端使用。
 - 后端 6 项 pytest、前端 lint 与 build 均通过；已用真实 UDP 包与 WebSocket 客户端完成端到端验证。
 
-当前仍需真机验收的项目：
+首日采集已经证明双工作站可以完成批次、轮次、视频与 Pose 落盘。当前仍需持续验收的项目：
 
 - 骨架视图在真机长时间录制下的帧率与延迟表现，以及主机 CPU 占用。
-- Meta 身体追踪有效时的完整开始、停止、Pose/Meta 自动上传闭环。
+- 长时间连续录制后的 Quest 温度、电量、画面稳定性和自动补传表现。
 - 外置相机的最终型号、720p 帧率、驱动稳定性和现场 USB 带宽。
-- Quest 3 真机上的两个桌面 Poke 按钮触达范围、按钮尺寸和 HMD 文本物理尺寸。
+- Quest 3 真机上的四个桌面 Poke 按钮触达范围、按钮尺寸和 HMD 文本物理尺寸。
 - 较长 Take 在 Quest 上的载入时延、内存占用与回看帧稳定性。
 
 ## 4. 总体架构
@@ -115,7 +117,7 @@ flowchart LR
     K["脚踏空格键"] --> P["Python 录制中枢<br/>唯一录制状态源"]
     R["React 网页操作台"] <-->|"WebSocket"| P
     L["句子清单"] --> P
-    P --> C["外置摄像机"]
+    R --> C["浏览器外置摄像机"]
     P <-->|"可靠控制命令与确认"| Q["Quest Unity 客户端"]
     Q --> M["Meta Pose 采集"]
     M -->|"UDP 实时动作帧"| P
@@ -126,30 +128,30 @@ flowchart LR
 
 ### 4.1 Python 录制中枢
 
-Python 是唯一录制状态源，负责：
+Python 是录制上下文和流程状态的唯一权威来源，负责：
 
 - 读取脚踏键输入并区分短按与长按。
 - 管理 Session、句子和 Take。
-- 控制外置摄像机开始、停止和文件关闭。
+- 生成统一 Take 与计划开始时刻，接收浏览器相机文件。
 - 向 Quest 发送准备、开始、停止和重置命令。
 - 接收 Quest 状态确认和 Meta Pose 数据。
 - 保存视频、动作和元数据。
 - 把实时状态推送给 React。
 - 维护候选 Take 列表和最终选择结果。
 
-浏览器窗口焦点、React 组件生命周期或网页定时器不得成为录制时序的权威来源。
+浏览器不是状态权威，但当前外置相机由 React 的 `MediaRecorder` 和 `setTimeout` 执行，因此浏览器冻结、切后台或定时器漂移仍会影响视频实际起点；这是后续升级需要消除的限制。
 
 ### 4.2 React 网页操作台
 
 React 负责：
 
-- 创建和选择录制 Session。
+- 创建和选择批次、轮次，并恢复每轮独立的当前句位置。
 - 导入、显示和定位句子清单。
 - 显示相机、Quest、网络和录制状态。
 - 显示每句话的候选 Take。
-- 回看视频并选择最终 Take。
+- 通过 `/review` 回看视频与 Pose，并标记视频问题或句子问题。
 - 提供人工开始、停止、重置和故障处理入口。
-- 修改可配置参数，例如 2 秒倒计时和网络地址。
+- 使用浏览器 `getUserMedia` 与 `MediaRecorder` 采集无声 WebM，并上传到后端预留的 Take。
 
 ### 4.3 Quest Unity 客户端
 
@@ -162,7 +164,7 @@ Quest 负责：
 - 按现有 Meta Pose 格式采集动作。
 - 在录制期间向主机发送带 Take 标识的动作帧。
 - 保留本地动作文件作为网络异常时的备份。
-- 向主机确认已准备、实际开始、实际停止和保存结果。
+- 对收到的配对、开始、停止、重置和提示命令返回 ACK；完整文件是否到达由主机上传接口和磁盘状态判断。
 
 ## 5. 录制状态机
 
@@ -171,13 +173,16 @@ Quest 负责：
 ~~~mermaid
 stateDiagram-v2
     [*] --> Disconnected
-    Disconnected --> Calibrating: 设备已连接
-    Calibrating --> Ready: 校准完成
-    Ready --> Countdown: 短按
-    Countdown --> Recording: 2 秒结束
-    Recording --> Finalizing: 短按
-    Finalizing --> Completed: 相机和 Quest 均完成
-    Completed --> Countdown: 短按并切换下一句
+    Disconnected --> Ready: 载入句子
+    Ready --> Countdown: 开始 Take
+    Countdown --> Recording: 本地倒计时结束
+    Countdown --> Ready: 取消
+    Recording --> Finalizing: 停止
+    Finalizing --> Completed: Pose/Meta 已关闭
+    Ready --> Reviewing: 回看最近 Take
+    Completed --> Reviewing: 回看最近 Take
+    Reviewing --> Ready: 退出回看
+    Reviewing --> Completed: 退出回看
     Ready --> Resetting: 长按完成
     Countdown --> Resetting: 长按完成
     Recording --> Resetting: 长按完成
@@ -189,12 +194,12 @@ stateDiagram-v2
 状态含义：
 
 - Disconnected：Quest、相机或主机服务尚未建立有效连接。
-- Calibrating：确认老师站位、Quest 朝向和镜像比例。
 - Ready：当前句已经显示，等待短按。
 - Countdown：显示默认 2 秒倒计时。
 - Recording：视频和 Meta Pose 正在录制。
-- Finalizing：相机文件和动作文件正在安全关闭。
-- Completed：当前句已有至少一个可追溯 Take，句子继续保留。
+- Finalizing：Quest 正在关闭 Pose/Meta；主机相机上传独立完成。
+- Completed：Quest 当前句已有至少一个本地可追溯 Take；主机正常停止后会把操作台推进到下一句。
+- Reviewing：VR 内播放最近一次本地 Pose Take。
 - Resetting：处理长按重置，安全终止当前工作后返回 Ready。
 - Error：显示明确原因，禁止把未真实录制的状态显示为成功。
 
@@ -218,7 +223,7 @@ stateDiagram-v2
 - Countdown：默认不响应额外短按，避免重复触发。
 - Recording：停止当前 Take 并进入 Finalizing。
 - Finalizing：不接受新的开始命令。
-- Completed：切换到下一句，进入 2 秒倒计时。
+- Completed：下一次主机开始命令会载入操作台当前句并进入倒计时。
 - Error 或 Disconnected：不开始录制。
 
 ### 6.3 长按行为
@@ -329,23 +334,17 @@ Sessions/
 
 ## 9. 跨设备同步
 
-主机是时序协调者。
+主机是时序协调者，当前协议版本为 3。实际流程如下：
 
-推荐流程：
+1. Python 在当前批次、轮次和句子目录中原子预留新的 `take_NNN`。
+2. Python 生成 `command_id` 和绝对计划时间 `start_at_unix_ms`，把同一 Take 上下文返回 React，并经 UDP 向 Quest 发送开始命令。
+3. Quest 验证 Pose 是否可用，载入句子并返回命令 ACK。
+4. React 按绝对计划时间启动浏览器 `MediaRecorder`。
+5. Quest 当前不使用绝对时间，而是在收到命令后执行 `countdown_seconds` 的本地倒计时，再开始 Pose。
+6. 停止时，React 先关闭相机，Python 再发送 Quest 停止命令；两端分别上传 WebM 与 Pose/Meta。
+7. 主机目录同时具有 `.camera.webm`、`.pose.jsonl` 和 `.meta.json` 后，该 Take 才被判定完整，该句才计入完成进度。
 
-1. Python 创建 take_id。
-2. Python 让相机和 Quest 进入 Prepared。
-3. Quest 回报追踪有效、句子正确和录制器已准备。
-4. Python 选择稍后的统一开始时间 T0。
-5. Quest 显示 2 秒倒计时，并在约定时刻开始 Pose 录制。
-6. 相机开始录制，并记录真实第一帧时间。
-7. 短按停止后，Python 等待视频关闭和 Quest 最后一帧确认。
-8. 两端结果写入同一个 meta.json。
-9. 文件全部关闭后，状态进入 Completed。
-
-若相机接口不能按计划时间启动，仍必须记录实际第一帧时间，以便后处理对齐。
-
-控制命令必须带 command_sequence，并支持确认和重复命令去重。高频 Pose 数据继续走 UDP；录制控制优先使用可靠连接，推荐由 Python 与 Quest 建立 WebSocket 或等价的带确认通道。
+控制命令具备 `command_id`、ACK、超时和主机状态回滚，但尚未实现命令去重。浏览器与 Quest 的启动依据不同，因此视频和 Pose 之间仍存在至少一个网络往返与定时器调度量级的起点误差；Meta 也尚未记录相机真实第一帧时间。后续同步升级应统一使用可校准的时钟或在两端记录可对齐的真实时间戳。
 
 ## 10. VR 场景设计
 
@@ -419,15 +418,16 @@ Sessions/
 
 ### 10.7 网页动作视图
 
-网页监控端显示的是骨架，不是 Quest 渲染画面。
+网页监控端同时显示实时骨架和低帧率 Quest 场景画面，两条链路用途不同。
 
 - `MetaBodyMotionStreamer` 以 30 FPS 向主机单播原始 Meta 骨架：拓扑包含 `joint_names` 与 `parent_indices`，每帧包含 `positions`、`valid` 与 `confidence`。
 - 主机 `UdpService` 按源 IP 解析 `device_id` 后转发到 `RealtimeHub`，再经 `/ws/pose/{device_id}` 推送给 React；拓扑包只在数秒一次，因此主机缓存最近一份，供中途连入的客户端立即取用。
 - React 用 Canvas 做正面正交投影：屏幕横轴取骨架 X、纵轴取骨架 Y，取景框由有效关节包围盒指数平滑得出，避免画面抖动。
 - 无效或低置信度关节以灰色降透明度绘制，操作员可以直接看出丢手或遮挡。
-- 该链路不占用 Quest 的 GPU 回读与 JPEG 编码，也不随帧率升高而加剧发热。
+- 骨架链路不占用 Quest 的 GPU 回读与 JPEG 编码，适合判断动作捕捉状态。
 
-早期的 JPEG 画面预览（`QuestPreviewStreamer`、`/api/devices/{id}/preview-frame`、`/ws/preview/{id}`）在 Quest 端与主机端均保留，但网页已不再订阅。该路径在 URP + XR 下依赖 `WaitForEndOfFrame` 触发离屏渲染，时序不可靠；若将来需要真实画面，必须改用 Unity 6 的 `Camera.SubmitRenderRequest` 重写，并把每帧一次的 HTTP POST 换成长连接。
+- `QuestPreviewStreamer` 运行时创建不参与 XR 的 URP 摄像机，从角色侧后方同时取到主角和桌面触屏，以 480 × 270、3 FPS、JPEG 35 上传到 `/api/devices/{id}/preview-frame`，React 通过 `/ws/preview/{id}` 显示。
+- 当前每帧仍是独立 HTTP POST，并依赖 `WaitForEndOfFrame` 与 GPU Readback；它是操作员的低频环境确认画面，不作为动作质量或同步的权威来源。
 
 ### 10.8 光照、材质与烘焙工作流
 
@@ -436,7 +436,8 @@ Sessions/
 - 旧的三盏 Directional Light 已禁用，旧 `Environment/LightProbe` 已停用；原场景 Spot Light 与 DownLight 改为 Baked，运行时只保留主方向光阴影。
 - 环境材质模板位于 `Assets/Materials/SignVR Environment`，提供 Wall、Ceiling、Floor、Plastic、Metal 和 ScreenOff 六类 URP Lit 基线材质；导入素材不强制替换原材质。
 - `SignVR/Rendering/Repair Recording Scene for URP` 会扫描当前场景实际使用的 Japan Office 材质；对 HDRP Lit、Layered Lit 和旧 HDRP Shader Graph 材质读取仍保存在材质文件中的 `_BaseColorMap`、`_MaskMap`、`_NormalMap`、颜色、金属度、粗糙度、透明与裁切参数，再映射到 URP Lit。当前场景共检查 32 个 Japan Office 材质，其中 19 个完成修复。
-- Quest 渲染配置使用 URP Forward、4× MSAA、15 米主光阴影、2 级 Cascade；关闭 HDR、Camera Depth/Opaque Texture、Additional Light Shadow 和 SSAO。画面层次主要来自正确的 PBR 贴图、Lightmap、Light Probe 和 Reflection Probe，不依赖移动 VR 上昂贵的屏幕空间效果。
+- 录制发布版曾使用 URP Forward、4× MSAA、15 米主光阴影、2 级 Cascade，并关闭 HDR、Depth/Opaque Texture、额外灯阴影和 SSAO。
+- 2026-08-21 工作区为实时翻译 Demo 改成全局 HDR、Depth/Opaque Texture、SSAO、4096 阴影、80 米阴影距离、4 级 Cascade，并关闭 MSAA。这些设置也会影响唯一构建场景 `Recording`，尚未完成 Quest 性能与稳定性回归，不能视为新的录制发布参数。
 - `SignVR/Rendering/Bake Repaired Recording Scene` 会再次执行确定性修复，将 `ImportedEnvironment` 标记为 GI、遮挡剔除、批处理和 Reflection Probe 静态对象，清除旧烘焙并启动 Progressive CPU Lightmapper。
 - 最终 Lighting Settings 为 24 texels/m、1024 最大图集、3 次反弹、64 Direct Samples、256 Indirect Samples、128 Environment Samples，并启用 1.1 米烘焙 AO。
 - 2026-08-18 完成当前房间的正式烘焙：生成 18 组 1024 Directional Lightmap、LightingData 和 2 枚 Reflection Probe 资源；源 Lightmap 文件合计约 148.5 MB，Android 构建使用平台纹理压缩后的体积需在真机包中继续监测。
@@ -520,10 +521,11 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 
 - `RecordingService`：Session、句子、Take 与命令状态。
 - `UdpService`：5005 设备公告、命令 ACK 与现有 Pose 包入口。
-- `DeviceRegistry`：设备在线状态、选择、配对令牌与接收计数。
+- `DeviceRegistry`：设备在线状态、选择、工作站绑定与接收计数；固定兼容 token 不承担安全鉴权。
 - `RecordingRepository`：Pose、Meta 与相机视频分层落盘。
 - `RealtimeHub`：状态事件、Quest 骨架包与 JPEG 预览的 WebSocket 转发，并缓存最近一份骨架拓扑。
 - `main`：HTTP API、上传入口与 React 静态文件服务。
+- `ReviewRepository`：扫描既有老师/轮次/句子/Take 数据，并原子保存仅含问题项的 `review_labels.json`。
 
 不在第一版引入大型消息总线、复杂依赖注入框架或分布式服务。
 
@@ -539,8 +541,8 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 - 长按不会覆盖或删除旧 Take。
 - 每个 Take 的视频、Pose 和元数据可通过 take_id 关联。
 - 同一句话的多个候选 Take 文件名均不同。
-- 网页可以区分 completed、interrupted、partial 和 failed。
-- 网页可以把一个候选 Take 标记为 selected。
+- Quest Meta 保留 completed 与中断原因，主机操作台正确区分三文件齐全的 complete 与待补文件的 candidate。
+- 本地审核台只记录视频问题和句子问题，不修改原始 Take；候选 Take 的 selected/rejected 工作流尚未实现。
 - 镜像角色左右翻转，但原始 Meta Pose 不翻转。
 - 中文句子无缺字、镜像或裁切。
 - 不拿控制器时，左右手食指可点击所有低频工具按钮。
@@ -549,7 +551,7 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 - 手部重新稳定回到安全区后，提示不会闪烁并能在 0.35 秒内自动消失。
 - 完成录制后，VR 回看可在镜像机器人上播放最近一次 Take；同一按钮切换为“退出重播”，退出后实时身体驱动恢复。
 - 回看期间老师本人的 Quest 手部追踪、手部显示和 Poke 交互保持可用。
-- 网页动作视图以 30 FPS 绘制骨架，取景框跟随身体但不抖动，丢手或低置信度关节以灰色区分。
+- 网页动作视图以 30 FPS 绘制骨架；侧后方场景画面以 480 × 270、3 FPS 显示角色与桌面触屏。
 - 回看期间不得开始新录制；任意时刻长按脚踏键仍可重置当前句。
 - 网络断开时不得继续显示虚假的录制成功状态。
 - Quest UDP 丢包或断线时，本地备份仍可用于恢复。
@@ -559,12 +561,21 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 以下内容不阻塞当前纵向链路，但正式采集前仍需确认：
 
 - 外置相机型号、驱动方式及 Python 控制接口。
-- 句子清单是否继续使用逐行 TXT，或扩展为 CSV/数据库。
 - Session 中需要记录的老师身份字段。
-- Meta Pose 权威样本文件及最终 Schema。
+- 视频与 Pose 的统一时钟、真实第一帧时间及后处理对齐字段。
 - 候选 Take 的最终选择是否允许撤销。
+- Quest 的显式解绑/更换工作站流程。
+- 实时翻译 Demo 与录制系统是否继续共用同一 URP/XR 全局配置。
 
 ## 15. 变更记录
+
+### v1.2 - 2026-08-21
+
+- 同步协议 v3、持久化 `station_id`、可信网络无上传密钥、双工作站批次/轮次和 300 句进度实现。
+- 同步正常停止自动推进下一句、长按返回刚录句子、主机预留 `take_NNN` 和三文件齐全才判定完成的实际语义。
+- 同步 30 FPS 骨架加 480 × 270、3 FPS 侧后方 JPEG 的双监控链路，以及桌面四个裸手 Poke 按钮。
+- 记录浏览器 `MediaRecorder`、Quest 相对倒计时、缺少真实第一帧时间和命令去重的现有限制。
+- 记录本地 `/review` 审核台与实时翻译 Demo/全局高画质设置进入当前代码基线。
 
 ### v1.1 - 2026-08-18
 
