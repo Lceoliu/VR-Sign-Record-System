@@ -8,6 +8,7 @@ from pathlib import Path
 @dataclass(frozen=True, slots=True)
 class Settings:
     data_root: Path
+    review_root: Path | None = None
     station_id: str = "development"
     http_host: str = "0.0.0.0"
     http_port: int = 8000
@@ -20,8 +21,10 @@ class Settings:
     @classmethod
     def from_environment(cls) -> "Settings":
         default_root = Path(__file__).resolve().parents[2] / "data"
+        data_root = Path(os.environ.get("SIGNVR_DATA_ROOT", default_root))
         return cls(
-            data_root=Path(os.environ.get("SIGNVR_DATA_ROOT", default_root)),
+            data_root=data_root,
+            review_root=Path(os.environ.get("SIGNVR_REVIEW_ROOT", data_root)),
             station_id=os.environ.get("SIGNVR_STATION_ID", "development").strip(),
             http_host=os.environ.get("SIGNVR_HTTP_HOST", "0.0.0.0"),
             http_port=int(os.environ.get("SIGNVR_HTTP_PORT", "8000")),

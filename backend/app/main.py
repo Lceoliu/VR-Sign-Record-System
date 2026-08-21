@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
@@ -14,6 +14,7 @@ from .device_registry import DeviceRegistry
 from .models import (
     DeviceSelectResponse,
     RecordingCommandResponse,
+    ReviewLabelRequest,
     RoundCreateRequest,
     SentenceSelectRequest,
     StartRecordingRequest,
@@ -21,6 +22,7 @@ from .models import (
 from .protocol import command_id, pair_packet, pedal_packet
 from .realtime import RealtimeHub
 from .recording_service import RecordingService
+from .review_repository import ReviewRepository
 from .repository import RecordingRepository, safe_segment
 from .udp_service import UdpService
 
@@ -30,6 +32,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     registry = DeviceRegistry(config.station_id)
     hub = RealtimeHub()
     repository = RecordingRepository(config.data_root, config.station_id)
+    reviews = ReviewRepository(config.review_root or config.data_root)
     recordings = RecordingService(repository)
     udp = UdpService(config, registry, hub)
 
@@ -68,6 +71,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     app.state.hub = hub
     app.state.recordings = recordings
     app.state.repository = repository
+    app.state.reviews = reviews
     app.state.udp = udp
 
     @app.get("/api/health")
@@ -82,6 +86,45 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     @app.get("/api/state")
     async def get_state():
         return await recordings.snapshot()
+
+    @app.get("/api/review/datasets")
+    def list_review_datasets() -> dict:
+        return {"root": str(reviews.root), "datasets": reviews.list_datasets()}
+
+    @app.get("/api/review/items")
+    def list_review_items(dataset: str) -> dict:
+        try:
+            items = reviews.list_items(dataset)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="未找到审核数据集") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"dataset": dataset, "items": items}
+
+    @app.put("/api/review/labels")
+    def update_review_label(body: ReviewLabelRequest) -> dict:
+        try:
+            return reviews.update_label(
+                body.dataset,
+                body.item_id,
+                video_issue=body.video_issue,
+                sentence_issue=body.sentence_issue,
+            )
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="未找到审核项目") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/review/files/{relative_path:path}")
+    def get_review_file(relative_path: str) -> FileResponse:
+        try:
+            path = reviews.media_file(relative_path)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="未找到审核文件") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        media_type = "video/webm" if path.suffix.lower() == ".webm" else "application/x-ndjson"
+        return FileResponse(path, media_type=media_type)
 
     @app.get("/api/recording/batches")
     async def list_recording_batches() -> dict:
@@ -406,6 +449,11 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
 
     frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
     if frontend_dist.exists():
+        @app.get("/review", include_in_schema=False)
+        @app.get("/review/", include_in_schema=False)
+        async def review_page() -> FileResponse:
+            return FileResponse(frontend_dist / "index.html")
+
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
 
     return app

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 
 from fastapi.testclient import TestClient
 
@@ -71,6 +72,74 @@ def test_health_and_fixed_sentence_catalog(tmp_path):
     assert state["sentences"][100]["text"] == "你先打开门，我去找钥匙。"
     assert state["sentences"][299]["category"] == "stress"
     assert not any(sentence["text"].startswith("大纲") for sentence in state["sentences"])
+
+
+def test_review_page_lists_media_and_persists_only_issue_labels(tmp_path):
+    take_directory = (
+        tmp_path
+        / "0819"
+        / "lin"
+        / "round_001"
+        / "sentence_001"
+        / "take_001"
+    )
+    take_directory.mkdir(parents=True)
+    meta = {
+        "sentence_id": "sentence_001",
+        "sentence_text": "你叫什么名字？",
+        "take_id": "take_001",
+        "capture_status": "completed",
+        "utc_started": "2026-08-19T05:25:15Z",
+        "utc_stopped": "2026-08-19T05:25:21Z",
+        "pose_frame_count": 1,
+        "hand_capture_quality": {"clean_ratio": 1.0},
+    }
+    (take_directory / "take_001.meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (take_directory / "take_001.pose.jsonl").write_text(
+        '{"recording_time":0,"pose_valid":true,"joint_count":1,"positions":[{"x":0,"y":0,"z":0}]}\n',
+        encoding="utf-8",
+    )
+    (take_directory / "take_001.camera.webm").write_bytes(b"webm-review")
+
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        assert client.get("/api/review/datasets").json()["datasets"] == ["0819"]
+        response = client.get("/api/review/items", params={"dataset": "0819"})
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["sentence_text"] == "你叫什么名字？"
+        assert item["video_issue"] is False
+        assert client.get(f"/api/review/files/{item['video_file']}").content == b"webm-review"
+
+        marked = client.put(
+            "/api/review/labels",
+            json={
+                "dataset": "0819",
+                "item_id": item["id"],
+                "video_issue": True,
+                "sentence_issue": False,
+            },
+        )
+        assert marked.status_code == 200
+        label_path = tmp_path / "0819" / "review_labels.json"
+        assert json.loads(label_path.read_text(encoding="utf-8"))["items"][item["id"]][
+            "video_issue"
+        ] is True
+
+        cleared = client.put(
+            "/api/review/labels",
+            json={
+                "dataset": "0819",
+                "item_id": item["id"],
+                "video_issue": False,
+                "sentence_issue": False,
+            },
+        )
+        assert cleared.status_code == 200
+        assert json.loads(label_path.read_text(encoding="utf-8"))["items"] == {}
 
 
 def test_recording_commands_require_selected_device(tmp_path):

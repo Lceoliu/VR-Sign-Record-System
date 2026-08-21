@@ -13,6 +13,9 @@ if (Test-Path -LiteralPath $configPath) {
     $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $env:SIGNVR_STATION_ID = [string]$config.station_id
     $env:SIGNVR_DATA_ROOT = [string]$config.data_root
+    if ($config.PSObject.Properties.Name -contains 'review_root') {
+        $env:SIGNVR_REVIEW_ROOT = [string]$config.review_root
+    }
     $env:SIGNVR_HTTP_HOST = [string]$config.http_host
     $env:SIGNVR_HTTP_PORT = [string]$config.http_port
     $env:SIGNVR_UDP_HOST = [string]$config.udp_host

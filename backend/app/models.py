@@ -107,6 +107,13 @@ class StartRecordingRequest(BaseModel):
     round_id: str = Field(min_length=1, max_length=80)
 
 
+class ReviewLabelRequest(BaseModel):
+    dataset: str = Field(min_length=1, max_length=80)
+    item_id: str = Field(min_length=1, max_length=320)
+    video_issue: bool = False
+    sentence_issue: bool = False
+
+
 class DeviceSelectResponse(BaseModel):
     selected: DeviceInfo
     command_id: str

@@ -4,6 +4,9 @@ import type {
   HostState,
   RecordingBatchesResponse,
   RecordingRoundsResponse,
+  ReviewDatasetsResponse,
+  ReviewItem,
+  ReviewItemsResponse,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -19,6 +22,23 @@ export const api = {
   state: () => request<HostState>('/api/state'),
   devices: () => request<DeviceInfo[]>('/api/devices'),
   recordingBatches: () => request<RecordingBatchesResponse>('/api/recording/batches'),
+  reviewDatasets: () => request<ReviewDatasetsResponse>('/api/review/datasets'),
+  reviewItems: (dataset: string) =>
+    request<ReviewItemsResponse>(`/api/review/items?dataset=${encodeURIComponent(dataset)}`),
+  updateReviewLabel: (item: ReviewItem) =>
+    request<{ item_id: string; video_issue: boolean; sentence_issue: boolean }>(
+      '/api/review/labels',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dataset: item.dataset,
+          item_id: item.id,
+          video_issue: item.video_issue,
+          sentence_issue: item.sentence_issue,
+        }),
+      },
+    ),
   recordingRounds: (batchId: string) =>
     request<RecordingRoundsResponse>(`/api/recording/batches/${encodeURIComponent(batchId)}/rounds`),
   createRound: (batchId: string, roundId: string) =>

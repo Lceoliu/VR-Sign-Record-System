@@ -121,3 +121,54 @@ export interface PoseStatusMessage {
 }
 
 export type PoseMessage = SkeletonMessage | FrameMessage | PoseStatusMessage
+
+export interface ReviewHandCaptureQuality {
+  frames?: number
+  clean_ratio?: number
+  left_tracked_ratio?: number
+  right_tracked_ratio?: number
+  left_inside_ratio?: number
+  right_inside_ratio?: number
+  guidance_enabled?: boolean
+}
+
+export interface ReviewMeta {
+  session_id?: string
+  sentence_id?: string
+  sentence_text?: string
+  take_id?: string
+  take_index?: number
+  capture_status?: string
+  review_status?: string
+  utc_started?: string
+  utc_stopped?: string
+  pose_frame_count?: number
+  device_model?: string
+  hand_capture_quality?: ReviewHandCaptureQuality
+  [key: string]: unknown
+}
+
+export interface ReviewItem {
+  id: string
+  dataset: string
+  teacher: string
+  round_id: string
+  sentence_id: string
+  take_id: string
+  sentence_text: string
+  meta: ReviewMeta
+  pose_file: string | null
+  video_file: string | null
+  video_issue: boolean
+  sentence_issue: boolean
+}
+
+export interface ReviewDatasetsResponse {
+  root: string
+  datasets: string[]
+}
+
+export interface ReviewItemsResponse {
+  dataset: string
+  items: ReviewItem[]
+}
