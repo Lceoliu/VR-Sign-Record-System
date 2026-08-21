@@ -1,0 +1,117 @@
+ワタリノ制作３Dモデル 利用規約テキスト版
+
+利用規約が変更された場合オンライン規約の最新版が適用されるものとします。
+★オンライン規約
+https://watarino.fanbox.cc/posts/1110136
+
+
+◆著作権について
+・本モデル、またデータの一部や本モデルを改造したものを含みこのデータの著作権は権利者の、ワタリノに属するものとします。
+
+◆ご購入前の注意
+必ずこの利用規約に目を通し、同意のうえご購入をお願いいたします。
+またユーザーが未成年者等の制限行為能力者である場合、本利用規約への同意にあたり、
+事前に親権者等の法定代理人の同意を得てください。
+
+◆規約について
+ユーザーは、 方法を問わず本データの購入、ダウンロード、インストール等の利用の開始時点で、本利用規約に同意した ものとみなします。
+
+◆お問い合わせについて
+サポートは基本的に日本語の対応となります。
+海外の方からのお問い合わせについては、
+私は英語が上手くないので、お返事まで少し時間をいただきます。
+I will take some time to reply because I am not good at English. Thank you."
+
+※本キャラクターモデルの利用により生ずる損失、損害に対して当方は一切の責任を負いません。
+I will not take responsiblility for any damaged casued by this model.
+
+・‥…━━━※利用規約※━━━☆・‥…━━━☆
+
+やっていいよ（OK）
+
+〇オンラインゲームサービスへのアップロード
+購入者が個人利用の目的であるの場合のみ可能。VRChat、 Virtual Cast、cluster等
+
+〇本モデルを使用した映像作品、配信、放送への利用
+It can be used on YouTube, Twitch, etc.
+個人活動内でのYouTube等動画サイトでの収益化を許可します。
+※法人による利用については権利者に個別にお問い合わせください。
+
+〇製品開発等のためにソフトウェア（アプリやゲーム）へ組み込み
+配信や配布する場合はモデルデータが容易に取り出 せない状態にすること。
+
+〇本データまたはパーツを改変する
+どうぞ可愛くしてあげてください
+
+〇調整、外観を損なわない範囲でのポリゴン数削減、およびファイル形式を変換する
+使いやすいように調整してください
+
+〇他のデータを改変する目的で、本データまたはパーツを用いること
+本モデルの髪や衣装などを、他の方が作成したアバターに流用して遊んでOKです、ただしパーツを流用したまま配布や販売はしないでね。
+
+〇本モデル専用に衣装を制作する場合のみメッシュ、ウエイトの転用OKです
+ワタリノモデル専用の衣装に限りメッシュの再利用、ウエイトのコピーをOKとします。
+
+〇センシティブな表現 
+性的表現、暴力的表現は禁止いたしません。ただし
+未成年が容易に閲覧出来るSNSや動画サイトへの投稿はお控えください。
+
+〇調整または改変を第三者に委託して行う
+本モデルの購入者同士であれば問題ありません。  
+
+
+やっちゃダメだよ（NG）
+
+✖第三者が利用できる状態でのアップロード、クローンやペデスタル等
+Do not trade the original model data.
+✖モデルデータが容易に取り出せる状態での自作ゲーム等の配布
+✖本モデルに付属するすべてのデータの再配布、権利譲渡、販売、改変未改変問わず禁止
+Do not re-distribute this Model Data whether or not the model is altered.
+✖本モデルの素体をそのまま利用して全く別のモデルを作る
+Do not remake
+✖本モデルを利用した特定の個人や団体への誹謗中傷、迷惑行為、政治、宗教活動
+Do not use in political, racist, hateful, sexist, biased, homophobic, anti-religion, etc work.
+
+
+その他
+〇予告なしに商品の販売停止や、利用規約の変更がある場合がございます。
+変更があった場合、最新の規約を適応させていただきます。
+Information in this txt file is subject to change without notice.
+Please follow the latest rules in using this Model Data.
+〇改造、改変の際に起きた不具合には対応しかねますので予めご了承ください。
+We cannot respond to troubles caused by modification
+〇利用時のクレジットは不要ですが、あると嬉しいです
+・Vket４出店サークル名
+　　『星ワタリノ空』
+・製作者
+　　ワタリノ（watarino)
+
+◆If you find this Model Data re-distributed by anyone other than me "watarino" on a NON-JAPANESE website, I would greatly appreciate it if you could ask them to delete it.
+
+
+権利者および権利者への問い合わせ先 
+権利者：​ワタリノ  
+メール：​ mameno_himono@yahoo.co.jp
+Twitter：​ @watarino_oeo 
+booth：​ https://watarino.booth.pm/ 
+
+
+・‥…━━━☆・‥…━━━☆・‥…━━━☆
+
+使用ツール
+・blender2.8
+・SAI
+
+製作者の動作環境
+・VRchat
+・valveindexヘッドセット
+・valveindexコントローラー
+・Valveindexベースステーション
+・HTCViveトラッカー2018　3点
+
+お世話になっているunityアセット
+・VRCSDK
+・Dynamic Bone（有料）
+・UTS2_Shader_v2.0.7_
+・VRCAvatarEditor_beta_v0.3.0.1（がとーしょこら様）
+・CopyComponentsByRegex（taremin様）
