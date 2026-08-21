@@ -70,6 +70,8 @@ cd D:\SignVR\vr-sign-host
 
 Quest 和主机必须位于同一可信局域网。Windows 主机需要允许 Python 的 TCP 8000 和 UDP 5005 入站；UDP 5006 位于 Quest 端，仅在 Unity Editor 本机模拟时需要 Windows 入站规则。Unity 项目允许明文 HTTP，仅用于这个受信任的本地录制网络。
 
+当前协议不使用上传密钥鉴权。设备隔离依赖每台工作站唯一的 `station_id`：Quest 会持久保存首次接受的工作站 ID，并拒绝其他工作站配对。因此两台主机不得使用同一个 `station_id`，更换 Quest 所属工作站前需要清除应用数据或补充显式解绑流程。
+
 ## 数据目录
 
 文件保存在 `config\station.json` 指定的数据根目录中：
@@ -100,6 +102,22 @@ Quest 在上传成功前始终保留 `Application.persistentDataPath/Recordings`
 5. 再短按空格结束并前进到下一句，浏览器上传 WebM，Quest 上传 Pose/Meta。
 6. 任意状态下长按空格 1.2 秒会显示进度并重置当前句；已经产生的 Take 保留为候选。
 7. 可按编号跳转、点击任意句、筛选完成状态或直接前往下一条未完成句；切换轮次时各自进度互不影响。
+
+网页同时显示两种 Quest 监控信息：30 FPS 的 Meta 骨架用于判断动作捕捉状态；480 × 270、3 FPS 的侧后方 JPEG 用于确认角色、桌面和场景仍在正常渲染。JPEG 仅是低频辅助画面，不用于精确动作判断或音视频同步。
+
+## 本地数据审核
+
+在 `config\station.json` 中设置独立的审核数据根目录：
+
+```json
+{
+  "review_root": "D:\\SignVRData\\real data"
+}
+```
+
+启动服务后打开 `http://127.0.0.1:8000/review`。审核台扫描 `{dataset}/{teacher}/round_XXX/sentence_XXX/take_XXX` 下的 Meta、Pose 和 WebM，只把存在问题的项目写入数据集根目录的 `review_labels.json`，不会修改原始采集文件。
+
+常用单手快捷键：`A/D` 或左右方向键切换 Take，`W/S` 切换 Round，`Q` 标记视频问题，`E` 标记句子问题，空格播放/暂停，`R` 从头回放。
 
 ## 开发检查
 
