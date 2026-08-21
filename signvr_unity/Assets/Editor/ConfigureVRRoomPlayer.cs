@@ -27,6 +27,9 @@ internal static class ConfigureVRRoomPlayer
     private const string InteractionRigGuid =
         "0a7d2469f24041c4284c66706f84c45e";
     private const float AuthoredWorldScale = 0.1f;
+    private const string FloorCollisionName = "VRFloorCollision";
+    private const float FloorCollisionThickness = 0.25f;
+    private const float SpawnGroundClearance = 0.03f;
 
     private static readonly HashSet<string> AuthoredWorldRootNames =
         new HashSet<string>(StringComparer.Ordinal)
@@ -195,12 +198,34 @@ internal static class ConfigureVRRoomPlayer
         }
 
         if (!TryFindRoomFloor(room, spawn.position, out RaycastHit floorHit) ||
-            Mathf.Abs(spawn.position.y - (floorHit.point.y + 0.05f)) > 0.2f)
+            Mathf.Abs(spawn.position.y -
+                      (floorHit.point.y + SpawnGroundClearance)) > 0.08f)
         {
             throw new InvalidOperationException(
                 $"PlayerSpawnPoint is not grounded inside VRroom: {spawn.position}."
             );
         }
+
+        BoxCollider floorCollider = FindRootByName(scene, FloorCollisionName)
+            ?.GetComponent<BoxCollider>();
+        if (floorCollider == null || !floorCollider.enabled ||
+            floorCollider.isTrigger ||
+            !ContainsHorizontalPoint(floorCollider.bounds, spawn.position))
+        {
+            throw new InvalidOperationException(
+                "VRroom requires an enabled, non-trigger floor BoxCollider " +
+                "covering PlayerSpawnPoint."
+            );
+        }
+
+        if (player.FloorCollider != floorCollider)
+        {
+            throw new InvalidOperationException(
+                "VRPlayerRig is not wired to VRFloorCollision."
+            );
+        }
+
+        ValidateControllerGrounding(spawn.position, floorCollider);
 
         if (!HasRoomSurfaceInView(room, spawn))
         {
@@ -287,7 +312,8 @@ internal static class ConfigureVRRoomPlayer
 
         Scene activeScene = SceneManager.GetActiveScene();
         if (!activeScene.IsValid() || activeScene.path != ScenePath ||
-            FindInScene<VRPlayerRig>(activeScene) != null)
+            (FindInScene<VRPlayerRig>(activeScene) != null &&
+             FindRootByName(activeScene, FloorCollisionName) != null))
         {
             return;
         }
@@ -314,6 +340,7 @@ internal static class ConfigureVRRoomPlayer
 
         NormalizeAuthoredWorld(scene);
         EnsureRoomColliders(room);
+        BoxCollider floorCollider = EnsureFloorCollision(scene, room);
         ConfigureProps(scene, room);
 
         GameObject playerObject = FindRootByName(scene, "VRPlayer");
@@ -334,7 +361,8 @@ internal static class ConfigureVRRoomPlayer
         OVRCameraRig cameraRig = EnsureCameraRig(scene, playerObject.transform);
         player.ConfigureSceneReferences(
             cameraRig.transform,
-            cameraRig.centerEyeAnchor
+            cameraRig.centerEyeAnchor,
+            floorCollider
         );
         EnsureInteractionRig(scene, cameraRig);
         ConfigureTrackingOrigin(cameraRig);
@@ -343,6 +371,12 @@ internal static class ConfigureVRRoomPlayer
 
         player.SetSpawnPoint(spawnPoint, false);
         player.CaptureSpawnPose();
+        Undo.RecordObject(playerObject.transform, "Align VR player to spawn");
+        playerObject.transform.SetPositionAndRotation(
+            spawnPoint.position,
+            spawnPoint.rotation
+        );
+        EditorUtility.SetDirty(playerObject.transform);
         ConfigureBuildSettings();
 
         EditorUtility.SetDirty(eventHub);
@@ -631,7 +665,21 @@ internal static class ConfigureVRRoomPlayer
             marker = markerObject.transform;
         }
 
-        if (created || !IsValidSpawn(room, marker))
+        bool hasWalkableFloor = TryFindRoomFloor(
+            room,
+            marker.position,
+            out RaycastHit markerFloor
+        );
+        if (!created && hasWalkableFloor && HasRoomSurfaceInView(room, marker))
+        {
+            marker.position = new Vector3(
+                marker.position.x,
+                markerFloor.point.y + SpawnGroundClearance,
+                marker.position.z
+            );
+            EditorUtility.SetDirty(marker);
+        }
+        else if (created || !IsValidSpawn(room, marker))
         {
             Transform reference = FindRootByName(scene, "MainCamera")?.transform;
             Vector3 referencePosition = reference != null
@@ -646,7 +694,7 @@ internal static class ConfigureVRRoomPlayer
 
             float yaw = reference != null ? reference.eulerAngles.y : 0f;
             marker.SetPositionAndRotation(
-                floorHit.point + Vector3.up * 0.05f,
+                floorHit.point + Vector3.up * SpawnGroundClearance,
                 Quaternion.Euler(0f, yaw, 0f)
             );
             EditorUtility.SetDirty(marker);
@@ -658,7 +706,8 @@ internal static class ConfigureVRRoomPlayer
     private static bool IsValidSpawn(GameObject room, Transform spawn)
     {
         return TryFindRoomFloor(room, spawn.position, out RaycastHit hit) &&
-               Mathf.Abs(spawn.position.y - (hit.point.y + 0.05f)) <= 0.2f &&
+               Mathf.Abs(spawn.position.y -
+                         (hit.point.y + SpawnGroundClearance)) <= 0.08f &&
                HasRoomSurfaceInView(room, spawn);
     }
 
@@ -674,6 +723,19 @@ internal static class ConfigureVRRoomPlayer
             Mathf.Max(bounds.max.y + 1f, samplePosition.y + 1f),
             samplePosition.z
         );
+        BoxCollider explicitFloor = FindRootByName(
+            room.scene,
+            FloorCollisionName
+        )?.GetComponent<BoxCollider>();
+        if (explicitFloor != null && explicitFloor.enabled &&
+            !explicitFloor.isTrigger && explicitFloor.Raycast(
+                new Ray(origin, Vector3.down),
+                out floorHit,
+                Mathf.Max(20f, bounds.size.y + 4f)))
+        {
+            return true;
+        }
+
         RaycastHit[] hits = Physics.RaycastAll(
                 origin,
                 Vector3.down,
@@ -785,6 +847,119 @@ internal static class ConfigureVRRoomPlayer
         marker.SetAppliedScale(AuthoredWorldScale);
         EditorUtility.SetDirty(marker);
         return ratio;
+    }
+
+    private static BoxCollider EnsureFloorCollision(
+        Scene scene,
+        GameObject room)
+    {
+        Renderer[] floorRenderers = room.GetComponentsInChildren<Renderer>(true)
+            .Where(renderer => GetHierarchyPath(renderer.transform)
+                .IndexOf("floor", StringComparison.OrdinalIgnoreCase) >= 0)
+            .ToArray();
+        if (floorRenderers.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "VRroom has no renderer whose hierarchy identifies it as floor."
+            );
+        }
+
+        Bounds bounds = floorRenderers[0].bounds;
+        for (int i = 1; i < floorRenderers.Length; i++)
+        {
+            bounds.Encapsulate(floorRenderers[i].bounds);
+        }
+
+        GameObject floorObject = FindRootByName(scene, FloorCollisionName);
+        if (floorObject == null)
+        {
+            floorObject = new GameObject(FloorCollisionName);
+            SceneManager.MoveGameObjectToScene(floorObject, scene);
+            Undo.RegisterCreatedObjectUndo(
+                floorObject,
+                "Create reliable VR floor collision"
+            );
+        }
+
+        Undo.RecordObject(floorObject.transform, "Configure VR floor collision");
+        floorObject.transform.SetPositionAndRotation(
+            new Vector3(
+                bounds.center.x,
+                bounds.max.y - FloorCollisionThickness * 0.5f,
+                bounds.center.z
+            ),
+            Quaternion.identity
+        );
+        floorObject.transform.localScale = Vector3.one;
+        floorObject.isStatic = true;
+
+        BoxCollider collider = GetOrAddComponent<BoxCollider>(floorObject);
+        Undo.RecordObject(collider, "Configure VR floor collision");
+        collider.center = Vector3.zero;
+        collider.size = new Vector3(
+            Mathf.Max(0.5f, bounds.size.x),
+            FloorCollisionThickness,
+            Mathf.Max(0.5f, bounds.size.z)
+        );
+        collider.isTrigger = false;
+        collider.enabled = true;
+        EditorUtility.SetDirty(floorObject.transform);
+        EditorUtility.SetDirty(collider);
+        return collider;
+    }
+
+    private static bool ContainsHorizontalPoint(Bounds bounds, Vector3 point)
+    {
+        return point.x >= bounds.min.x && point.x <= bounds.max.x &&
+               point.z >= bounds.min.z && point.z <= bounds.max.z;
+    }
+
+    private static void ValidateControllerGrounding(
+        Vector3 spawnPosition,
+        Collider floorCollider)
+    {
+        GameObject probe = new GameObject("VRFloorValidationProbe")
+        {
+            hideFlags = HideFlags.HideAndDontSave
+        };
+        try
+        {
+            CharacterController controller =
+                probe.AddComponent<CharacterController>();
+            controller.height = 1.75f;
+            controller.radius = 0.23f;
+            controller.center = Vector3.up * 0.875f;
+            controller.skinWidth = 0.03f;
+            controller.minMoveDistance = 0f;
+            probe.transform.position = spawnPosition + Vector3.up * 0.35f;
+            Physics.SyncTransforms();
+
+            CollisionFlags flags = CollisionFlags.None;
+            float velocity = 0f;
+            for (int i = 0; i < 180; i++)
+            {
+                velocity -= 9.81f / 60f;
+                flags = controller.Move(Vector3.up * (velocity / 60f));
+                if ((flags & CollisionFlags.Below) != 0)
+                {
+                    velocity = -2f;
+                }
+            }
+
+            if ((flags & CollisionFlags.Below) == 0 ||
+                !controller.isGrounded ||
+                probe.transform.position.y < floorCollider.bounds.max.y)
+            {
+                throw new InvalidOperationException(
+                    "The VR CharacterController did not settle on the floor " +
+                    "collision volume."
+                );
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(probe);
+        }
     }
 
     private static void EnsureRoomColliders(GameObject room)

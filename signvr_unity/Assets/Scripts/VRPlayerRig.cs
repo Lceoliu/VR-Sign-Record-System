@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using UnityEngine;
 
 /// <summary>
@@ -14,6 +15,7 @@ public sealed class VRPlayerRig : MonoBehaviour
     [SerializeField] private Transform xrOrigin;
     [SerializeField] private Transform head;
     [SerializeField] private Transform spawnPoint;
+    [SerializeField] private Collider floorCollider;
 
     [Header("Locomotion")]
     [SerializeField, Min(0.1f)] private float moveSpeed = 1.8f;
@@ -21,6 +23,8 @@ public sealed class VRPlayerRig : MonoBehaviour
     [SerializeField, Range(0f, 0.49f)] private float deadZone = 0.15f;
     [SerializeField] private bool useLeftThumbstick = true;
     [SerializeField] private bool allowKeyboardFallback = true;
+    [SerializeField, Min(0.1f)] private float maxTrackedStepDistance = 0.5f;
+    [SerializeField, Min(0.5f)] private float fallRecoveryDistance = 1.5f;
 
     [Header("Body")]
     [SerializeField, Min(0.05f)] private float bodyRadius = 0.23f;
@@ -32,11 +36,15 @@ public sealed class VRPlayerRig : MonoBehaviour
     private bool initialized;
     private Vector3 spawnPosition;
     private Quaternion spawnRotation;
+    private int trackingCalibrationFrames;
+
+    private const int InitialTrackingCalibrationFrames = 3;
 
     public static VRPlayerRig Instance { get; private set; }
     public Transform XROrigin => xrOrigin;
     public Transform Head => head;
     public Transform SpawnPoint => spawnPoint;
+    public Collider FloorCollider => floorCollider;
     public Vector3 SpawnPosition => spawnPosition;
     public Quaternion SpawnRotation => spawnRotation;
     public bool IsInitialized => initialized;
@@ -59,10 +67,13 @@ public sealed class VRPlayerRig : MonoBehaviour
         CaptureSpawnPose();
     }
 
-    private void Start()
+    private IEnumerator Start()
     {
         ApplySpawnPose();
-        Invoke(nameof(LogRuntimeView), 1f);
+        yield return new WaitForSeconds(1f);
+        LogRuntimeView();
+        yield return new WaitForSeconds(4f);
+        LogRuntimeView();
     }
 
     private void LogRuntimeView()
@@ -70,6 +81,9 @@ public sealed class VRPlayerRig : MonoBehaviour
         Camera camera = head != null ? head.GetComponent<Camera>() : null;
         Vector3 eyePosition = head != null ? head.position : transform.position;
         Vector3 eyeForward = head != null ? head.forward : transform.forward;
+        float floorTop = floorCollider != null
+            ? floorCollider.bounds.max.y
+            : float.NaN;
         int visibleRenderers = 0;
         if (camera != null)
         {
@@ -88,7 +102,9 @@ public sealed class VRPlayerRig : MonoBehaviour
         Debug.Log(
             $"[SignVR] Runtime view ready: scene={gameObject.scene.name}, " +
             $"player={transform.position:F3}, eye={eyePosition:F3}, " +
-            $"forward={eyeForward:F3}, visibleRenderers={visibleRenderers}."
+            $"forward={eyeForward:F3}, visibleRenderers={visibleRenderers}, " +
+            $"grounded={characterController != null && characterController.isGrounded}, " +
+            $"floorTop={floorTop:F3}, verticalVelocity={verticalVelocity:F3}."
         );
     }
 
@@ -96,6 +112,23 @@ public sealed class VRPlayerRig : MonoBehaviour
     {
         if (!initialized || characterController == null)
         {
+            return;
+        }
+
+        if (transform.position.y < spawnPosition.y - fallRecoveryDistance)
+        {
+            Debug.LogWarning(
+                $"[SignVR] Player left the walkable floor at " +
+                $"{transform.position:F3}; returning to the fixed spawn."
+            );
+            ApplySpawnPose();
+            return;
+        }
+
+        if (trackingCalibrationFrames > 0)
+        {
+            CalibrateTrackingSpaceToPlayer();
+            trackingCalibrationFrames--;
             return;
         }
 
@@ -134,6 +167,8 @@ public sealed class VRPlayerRig : MonoBehaviour
             spawnRotation = transform.rotation;
         }
 
+        GroundSpawnPosition();
+
         initialized = true;
     }
 
@@ -158,6 +193,7 @@ public sealed class VRPlayerRig : MonoBehaviour
             characterController.enabled = controllerWasEnabled;
         }
         verticalVelocity = 0f;
+        trackingCalibrationFrames = InitialTrackingCalibrationFrames;
         Spawned?.Invoke(spawnPosition, spawnRotation);
     }
 
@@ -180,10 +216,14 @@ public sealed class VRPlayerRig : MonoBehaviour
     /// Sets scene-authored references and writes the controller defaults so the
     /// scene is usable before the first runtime frame as well as after Awake.
     /// </summary>
-    public void ConfigureSceneReferences(Transform origin, Transform eyes)
+    public void ConfigureSceneReferences(
+        Transform origin,
+        Transform eyes,
+        Collider walkableFloor = null)
     {
         xrOrigin = origin;
         head = eyes;
+        floorCollider = walkableFloor;
         characterController = GetComponent<CharacterController>();
         if (characterController != null)
         {
@@ -281,6 +321,13 @@ public sealed class VRPlayerRig : MonoBehaviour
             return;
         }
 
+        if (localOffset.sqrMagnitude >
+            maxTrackedStepDistance * maxTrackedStepDistance)
+        {
+            CalibrateTrackingSpaceToPlayer();
+            return;
+        }
+
         Vector3 before = transform.position;
         Vector3 requestedWorldOffset = transform.TransformVector(localOffset);
         characterController.Move(requestedWorldOffset);
@@ -290,6 +337,53 @@ public sealed class VRPlayerRig : MonoBehaviour
         // capsule follows room-scale movement. Any blocked remainder stays in
         // the tracking rig; hand penetration is handled by the hand limiter.
         xrOrigin.position -= appliedWorldOffset;
+    }
+
+    private void CalibrateTrackingSpaceToPlayer()
+    {
+        if (head == null || xrOrigin == null)
+        {
+            return;
+        }
+
+        Vector3 localHead = transform.InverseTransformPoint(head.position);
+        if (!IsFinite(localHead))
+        {
+            return;
+        }
+
+        Vector3 horizontalOffset = new Vector3(localHead.x, 0f, localHead.z);
+        xrOrigin.position -= transform.TransformVector(horizontalOffset);
+    }
+
+    private void GroundSpawnPosition()
+    {
+        if (floorCollider == null || !floorCollider.enabled ||
+            floorCollider.isTrigger)
+        {
+            return;
+        }
+
+        Bounds bounds = floorCollider.bounds;
+        Vector3 rayOrigin = new Vector3(
+            spawnPosition.x,
+            bounds.max.y + 2f,
+            spawnPosition.z
+        );
+        if (floorCollider.Raycast(
+                new Ray(rayOrigin, Vector3.down),
+                out RaycastHit hit,
+                bounds.size.y + 4f))
+        {
+            spawnPosition.y = hit.point.y + skinWidth;
+        }
+    }
+
+    private static bool IsFinite(Vector3 value)
+    {
+        return float.IsFinite(value.x) &&
+               float.IsFinite(value.y) &&
+               float.IsFinite(value.z);
     }
 
     private Vector3 GetPlanarDirection(Vector2 input)
