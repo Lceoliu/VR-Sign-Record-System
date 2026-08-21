@@ -34,7 +34,7 @@
 10. 面部信息由外置摄像机视频负责。
 11. 外置摄像机、脚踏键和录制协调由主机上的 React 网页前端与 Python 后端管理。
 12. Quest 发现、控制确认和实时 Pose 使用 UDP；完整 Pose/Meta 与压缩预览使用 HTTP。
-13. 网页监控端同时提供 30 FPS 原始 Meta 骨架和低负担 Quest 场景画面：React 用 Canvas 绘制骨架，Quest 另以 480 × 270、3 FPS、JPEG 35 上传侧后方画面。
+13. 网页监控链路提供 30 FPS 原始 Meta 骨架和低负担 Quest 场景画面：React 可用 Canvas 绘制骨架，Quest 另以 480 × 270、3 FPS、JPEG 35 上传侧后方画面；当前单个 Quest 面板会在收到首张 JPEG 后由骨架切换为场景画面，尚未同时展示两者。
 14. 外置相机第一版由浏览器 `getUserMedia` 与 `MediaRecorder` 管理，不录制声音。
 15. 脚踏长按阈值第一版固定为 1.2 秒，短按在开始与结束之间切换。
 16. 正式录制不使用 Quest 控制器，只使用裸手追踪；脚踏键仍是高频录制操作的唯一入口。
@@ -418,7 +418,7 @@ Sessions/
 
 ### 10.7 网页动作视图
 
-网页监控端同时显示实时骨架和低帧率 Quest 场景画面，两条链路用途不同。
+网页监控端具备实时骨架和低帧率 Quest 场景画面两条链路，两者用途不同。当前 `QuestPreviewPanel` 在尚未收到 JPEG 时显示骨架；收到首张 JPEG 后改为只显示场景画面，因此“动作与场景同时可见”尚未实现。
 
 - `MetaBodyMotionStreamer` 以 30 FPS 向主机单播原始 Meta 骨架：拓扑包含 `joint_names` 与 `parent_indices`，每帧包含 `positions`、`valid` 与 `confidence`。
 - 主机 `UdpService` 按源 IP 解析 `device_id` 后转发到 `RealtimeHub`，再经 `/ws/pose/{device_id}` 推送给 React；拓扑包只在数秒一次，因此主机缓存最近一份，供中途连入的客户端立即取用。
@@ -428,6 +428,7 @@ Sessions/
 
 - `QuestPreviewStreamer` 运行时创建不参与 XR 的 URP 摄像机，从角色侧后方同时取到主角和桌面触屏，以 480 × 270、3 FPS、JPEG 35 上传到 `/api/devices/{id}/preview-frame`，React 通过 `/ws/preview/{id}` 显示。
 - 当前每帧仍是独立 HTTP POST，并依赖 `WaitForEndOfFrame` 与 GPU Readback；它是操作员的低频环境确认画面，不作为动作质量或同步的权威来源。
+- 当前 React 画面标签仍写着 `640 × 360 · 8 FPS`，与 Quest 实际发送参数不一致，需要随监控布局修复。
 
 ### 10.8 光照、材质与烘焙工作流
 
@@ -573,7 +574,7 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 
 - 同步协议 v3、持久化 `station_id`、可信网络无上传密钥、双工作站批次/轮次和 300 句进度实现。
 - 同步正常停止自动推进下一句、长按返回刚录句子、主机预留 `take_NNN` 和三文件齐全才判定完成的实际语义。
-- 同步 30 FPS 骨架加 480 × 270、3 FPS 侧后方 JPEG 的双监控链路，以及桌面四个裸手 Poke 按钮。
+- 同步 30 FPS 骨架加 480 × 270、3 FPS 侧后方 JPEG 的双传输链路，记录当前单面板切换显示的限制，以及桌面四个裸手 Poke 按钮。
 - 记录浏览器 `MediaRecorder`、Quest 相对倒计时、缺少真实第一帧时间和命令去重的现有限制。
 - 记录本地 `/review` 审核台与实时翻译 Demo/全局高画质设置进入当前代码基线。
 
