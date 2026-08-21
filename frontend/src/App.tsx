@@ -25,9 +25,19 @@ import {
 } from 'lucide-react'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api'
+import {
+  appendCaptureChunk,
+  createCaptureId,
+  listPendingCaptures,
+  loadCaptureBlob,
+  removeCapture,
+  saveCaptureContext,
+  type CaptureContext,
+} from './captureStore'
 import { QuestPreviewPanel } from './components/QuestPreviewPanel'
 import { StatusStrip } from './components/StatusStrip'
 import { VideoPanel } from './components/VideoPanel'
+import { connectReconnectingWebSocket } from './reconnectingWebSocket'
 import type { DeviceInfo, HostState, RecordingStatus, RoundInfo } from './types'
 
 const HOLD_DURATION_MS = 1200
@@ -57,6 +67,16 @@ function preferredMimeType(): string {
   return ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find((type) => MediaRecorder.isTypeSupported(type)) ?? ''
 }
 
+interface ActiveCameraCapture {
+  context: CaptureContext
+  recorder: MediaRecorder
+  chunks: Blob[]
+  chunkSequence: number
+  persistence: Promise<void>
+  finalized: Promise<void>
+  resolveFinalized: () => void
+}
+
 export default function App() {
   const [state, setState] = useState<HostState | null>(null)
   const [devices, setDevices] = useState<DeviceInfo[]>([])
@@ -76,13 +96,16 @@ export default function App() {
   const [holdProgress, setHoldProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [recoveringCapture, setRecoveringCapture] = useState(false)
+  const [captureActive, setCaptureActive] = useState(false)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const recorderRef = useRef<MediaRecorder | null>(null)
-  const chunksRef = useRef<Blob[]>([])
   const cameraStartTimerRef = useRef<number | null>(null)
-  const activeTakeRef = useRef<{ takeId: string; sessionId: string; sentenceId: string } | null>(null)
+  const activeCaptureRef = useRef<ActiveCameraCapture | null>(null)
+  const stopCameraRecordingRef = useRef<() => Promise<void>>(async () => undefined)
+  const recoveryStartedRef = useRef(false)
   const keyDownAtRef = useRef<number | null>(null)
   const holdTimerRef = useRef<number | null>(null)
   const longPressTriggeredRef = useRef(false)
@@ -98,14 +121,21 @@ export default function App() {
   const currentRoundId = state?.round_id ?? null
   const activeRoundId = currentBatchId === openedBatchId ? currentRoundId : null
   const contextReady = Boolean(openedBatchId && activeRoundId)
-  const captureReady = contextReady && Boolean(selectedDeviceId) && cameraReady
+  const captureBusy = uploading || recoveringCapture || captureActive
+  const captureReady = contextReady && Boolean(selectedDeviceId) && cameraReady && !captureBusy
   const startBlockedReason = !contextReady
     ? '请先打开录制批次并选择轮次'
     : !selectedDeviceId
       ? '请先连接 Quest'
       : !cameraReady
         ? '请先连接外置相机'
-        : undefined
+        : recoveringCapture
+          ? '正在恢复上一次未完成的相机视频'
+          : uploading
+            ? '上一条相机视频仍在上传'
+            : captureActive
+              ? '外置相机正在录制'
+              : undefined
   const completedCount = state?.sentences.filter((sentence) => sentence.completed).length ?? 0
   const deferredSentenceQuery = useDeferredValue(sentenceQuery.trim().toLocaleLowerCase())
   const visibleSentences = useMemo(() => {
@@ -158,31 +188,43 @@ export default function App() {
 
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/events`)
-    socket.onmessage = (event) => {
-      const message = JSON.parse(event.data) as {
-        type: string
-        payload: HostState & { accepted?: boolean }
-      }
-      if (['state_changed', 'take_uploaded', 'camera_uploaded'].includes(message.type)) {
-        commitState(message.payload)
-        if (message.payload.batch_id) {
-          setBatchId(message.payload.batch_id)
-          setOpenedBatchId(message.payload.batch_id)
-          void refreshRoundList(message.payload.batch_id).catch(() => undefined)
+    return connectReconnectingWebSocket({
+      url: `${protocol}//${window.location.host}/ws/events`,
+      onMessage: (event) => {
+        const message = JSON.parse(event.data) as {
+          type: string
+          payload: (HostState & { accepted?: boolean }) | {
+            accepted?: boolean
+            message?: string
+            state?: HostState
+          }
         }
-      }
-      if (['device_updated', 'device_selected', 'command_ack'].includes(message.type)) {
-        api.devices().then(setDevices).catch(() => undefined)
-      }
-      if (
-        message.type === 'device_selected' ||
-        (message.type === 'command_ack' && message.payload.accepted)
-      ) {
-        setError(null)
-      }
-    }
-    return () => socket.close()
+        if (['state_changed', 'take_uploaded', 'camera_uploaded'].includes(message.type)) {
+          const nextState = message.payload as HostState
+          commitState(nextState)
+          if (nextState.batch_id) {
+            setBatchId(nextState.batch_id)
+            setOpenedBatchId(nextState.batch_id)
+            void refreshRoundList(nextState.batch_id).catch(() => undefined)
+          }
+        }
+        if (['device_updated', 'device_selected', 'command_ack'].includes(message.type)) {
+          api.devices().then(setDevices).catch(() => undefined)
+        }
+        if (
+          message.type === 'device_selected' ||
+          (message.type === 'command_ack' && message.payload.accepted)
+        ) {
+          setError(null)
+        }
+        if (['recording_start_failed', 'recording_interrupted'].includes(message.type)) {
+          const payload = message.payload as { message?: string; state?: HostState }
+          if (payload.state) commitState(payload.state)
+          setError(payload.message ?? 'Quest 已中止本次录制')
+          void stopCameraRecordingRef.current()
+        }
+      },
+    })
   }, [commitState, refreshRoundList])
 
   useEffect(() => {
@@ -219,18 +261,25 @@ export default function App() {
     return () => mediaStreamRef.current?.getTracks().forEach((track) => track.stop())
   }, [openCamera])
 
-  const uploadCameraTake = useCallback(async (blob: Blob) => {
-    const context = activeTakeRef.current
-    if (!context || blob.size === 0) return
+  const uploadCameraTake = useCallback(async (blob: Blob, context: CaptureContext) => {
+    if (blob.size === 0) return
     setUploading(true)
     try {
-      await api.uploadCamera(context.takeId, context.sessionId, context.sentenceId, blob)
+      await api.uploadCamera(
+        context.takeId,
+        context.sessionId,
+        context.sentenceId,
+        blob,
+        context.startedAtUnixMs,
+        context.stoppedAtUnixMs,
+        context.firstChunkAtUnixMs,
+      )
+      await removeCapture(context.captureId)
       await refresh()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '相机视频上传失败')
     } finally {
       setUploading(false)
-      activeTakeRef.current = null
     }
   }, [refresh])
 
@@ -238,32 +287,179 @@ export default function App() {
     const stream = mediaStreamRef.current
     const take = responseState.current_take
     const sentence = responseState.sentences[responseState.current_sentence_index]
-    if (!stream || !take || !sentence) return
-    activeTakeRef.current = {
+    if (!stream) throw new Error('外置相机视频流已经断开')
+    if (!take || !sentence) throw new Error('后端没有返回当前 Take')
+    if (activeCaptureRef.current !== null) throw new Error('上一条相机录制尚未结束')
+    const mimeType = preferredMimeType()
+    const context: CaptureContext = {
+      captureId: createCaptureId(responseState.session_id, sentence.sentence_id, take.take_id),
       takeId: take.take_id,
       sessionId: responseState.session_id,
       sentenceId: sentence.sentence_id,
+      mimeType: mimeType || 'video/webm',
+      scheduledAtUnixMs: startAt,
+      startedAtUnixMs: 0,
+      firstChunkAtUnixMs: 0,
+      stoppedAtUnixMs: 0,
     }
-    chunksRef.current = []
-    const mimeType = preferredMimeType()
     const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+    let resolveFinalized: () => void = () => {}
+    const finalized = new Promise<void>((resolve) => {
+      resolveFinalized = resolve
+    })
+    const reportCacheError = (reason: unknown) => {
+      setError(reason instanceof Error ? `相机缓存失败：${reason.message}` : '相机缓存失败')
+    }
+    const capture: ActiveCameraCapture = {
+      context,
+      recorder,
+      chunks: [],
+      chunkSequence: 0,
+      persistence: saveCaptureContext(context).catch(reportCacheError),
+      finalized,
+      resolveFinalized,
+    }
+    activeCaptureRef.current = capture
+    recorderRef.current = recorder
+    setCaptureActive(true)
+    recorder.onstart = () => {
+      context.startedAtUnixMs = Date.now()
+      capture.persistence = capture.persistence
+        .then(() => saveCaptureContext(context))
+        .catch(reportCacheError)
+    }
     recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunksRef.current.push(event.data)
+      if (event.data.size === 0) return
+      if (context.firstChunkAtUnixMs === 0) context.firstChunkAtUnixMs = Date.now()
+      capture.chunks.push(event.data)
+      const sequence = capture.chunkSequence
+      capture.chunkSequence += 1
+      capture.persistence = capture.persistence
+        .then(() => saveCaptureContext(context))
+        .then(() => appendCaptureChunk(context.captureId, sequence, event.data))
+        .catch(reportCacheError)
+    }
+    recorder.onerror = (event) => {
+      setError(`相机录制失败：${event.error.message}`)
+      void api.abort().catch((reason: Error) => {
+        setError(`相机录制失败，且 Quest 中止失败：${reason.message}`)
+      })
     }
     recorder.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'video/webm' })
-      void uploadCameraTake(blob)
+      void (async () => {
+        try {
+          context.stoppedAtUnixMs = Date.now()
+          capture.persistence = capture.persistence
+            .then(() => saveCaptureContext(context))
+            .catch(reportCacheError)
+          const blob = new Blob(capture.chunks, { type: recorder.mimeType || context.mimeType })
+          await capture.persistence
+          await uploadCameraTake(blob, context)
+        } catch (reason) {
+          setError(reason instanceof Error ? reason.message : '无法保存相机录制缓存')
+        } finally {
+          if (activeCaptureRef.current === capture) activeCaptureRef.current = null
+          if (recorderRef.current === recorder) recorderRef.current = null
+          setCaptureActive(false)
+          capture.resolveFinalized()
+        }
+      })()
     }
-    recorderRef.current = recorder
-    cameraStartTimerRef.current = window.setTimeout(() => recorder.start(1000), Math.max(0, startAt - Date.now()))
+    cameraStartTimerRef.current = window.setTimeout(() => {
+      cameraStartTimerRef.current = null
+      if (activeCaptureRef.current !== capture || recorder.state !== 'inactive') return
+      try {
+        recorder.start(1000)
+      } catch (reason) {
+        activeCaptureRef.current = null
+        if (recorderRef.current === recorder) recorderRef.current = null
+        setCaptureActive(false)
+        capture.resolveFinalized()
+        void removeCapture(context.captureId).catch(reportCacheError)
+        const message = reason instanceof Error
+          ? `外置相机无法开始录制：${reason.message}`
+          : '外置相机无法开始录制'
+        setError(message)
+        void api.abort().catch((abortReason: Error) => {
+          setError(`${message}；Quest 中止失败：${abortReason.message}`)
+        })
+      }
+    }, Math.max(0, startAt - Date.now()))
   }, [uploadCameraTake])
 
-  const stopCameraRecording = useCallback(() => {
+  const stopCameraRecording = useCallback(async () => {
+    const capture = activeCaptureRef.current
+    if (!capture) return
     if (cameraStartTimerRef.current !== null) {
       window.clearTimeout(cameraStartTimerRef.current)
       cameraStartTimerRef.current = null
     }
-    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+    if (capture.recorder.state !== 'inactive') {
+      capture.recorder.stop()
+      await capture.finalized
+      return
+    }
+    activeCaptureRef.current = null
+    if (recorderRef.current === capture.recorder) recorderRef.current = null
+    setCaptureActive(false)
+    await capture.persistence
+    await removeCapture(capture.context.captureId)
+    capture.resolveFinalized()
+  }, [])
+
+  useEffect(() => {
+    stopCameraRecordingRef.current = stopCameraRecording
+  }, [stopCameraRecording])
+
+  const recoverPendingCameraTakes = useCallback(async () => {
+    if (recoveryStartedRef.current) return
+    recoveryStartedRef.current = true
+    setRecoveringCapture(true)
+    try {
+      const pending = await listPendingCaptures()
+      if (pending.length === 0) return
+      const serverState = await api.state()
+      if (['countdown', 'recording', 'stopping'].includes(serverState.recording_status)) {
+        await api.abort()
+      }
+      for (const context of pending) {
+        const blob = await loadCaptureBlob(context)
+        if (blob.size === 0 || context.startedAtUnixMs === 0) {
+          await removeCapture(context.captureId)
+          continue
+        }
+        if (context.firstChunkAtUnixMs === 0) context.firstChunkAtUnixMs = context.startedAtUnixMs
+        if (context.stoppedAtUnixMs === 0) context.stoppedAtUnixMs = Date.now()
+        await uploadCameraTake(blob, context)
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '无法恢复上一次相机录制')
+    } finally {
+      setRecoveringCapture(false)
+    }
+  }, [uploadCameraTake])
+
+  useEffect(() => {
+    queueMicrotask(() => void recoverPendingCameraTakes())
+  }, [recoverPendingCameraTakes])
+
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      void api.operatorHeartbeat().catch(() => undefined)
+    }
+    sendHeartbeat()
+    const heartbeatTimer = window.setInterval(sendHeartbeat, 2000)
+    const handlePageHide = () => {
+      if (activeCaptureRef.current?.recorder.state === 'recording') {
+        activeCaptureRef.current.recorder.requestData()
+      }
+      if (activeCaptureRef.current) void api.operatorDisconnect().catch(() => undefined)
+    }
+    window.addEventListener('pagehide', handlePageHide)
+    return () => {
+      window.clearInterval(heartbeatTimer)
+      window.removeEventListener('pagehide', handlePageHide)
+    }
   }, [])
 
   const startRecording = useCallback(async () => {
@@ -276,26 +472,46 @@ export default function App() {
       setError('请先连接 Quest')
       return
     }
-    if (!cameraReady) {
-      setError('请先连接外置相机')
+    if (!cameraReady || captureBusy) {
+      setError(startBlockedReason ?? '请先连接外置相机')
       return
     }
     try {
       const response = await api.start(currentBatchId, currentRoundId)
       commitState(response.state)
       setRecordingBatches((current) => current.includes(currentBatchId) ? current : [...current, currentBatchId])
-      if (response.start_at_unix_ms) beginCameraRecording(response.state, response.start_at_unix_ms)
+      if (!['countdown', 'recording'].includes(response.state.recording_status)) {
+        throw new Error('Quest 未能启动 Pose 录制，请确认身体追踪已经就绪')
+      }
+      try {
+        if (!response.start_at_unix_ms || !response.state.current_take) {
+          throw new Error('Quest 未返回有效的录制开始时间')
+        }
+        beginCameraRecording(response.state, response.start_at_unix_ms)
+      } catch (reason) {
+        try {
+          await api.abort()
+        } catch (abortReason) {
+          const cameraDetail = reason instanceof Error ? reason.message : '未知错误'
+          const abortDetail = abortReason instanceof Error ? abortReason.message : '未知错误'
+          throw new Error(
+            `相机启动失败（${cameraDetail}），且 Quest 中止失败：${abortDetail}`,
+            { cause: abortReason },
+          )
+        }
+        throw reason
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '无法开始录制')
     }
-  }, [beginCameraRecording, cameraReady, commitState, contextReady, currentBatchId, currentRoundId, selectedDeviceId])
+  }, [beginCameraRecording, cameraReady, captureBusy, commitState, contextReady, currentBatchId, currentRoundId, selectedDeviceId, startBlockedReason])
 
   const stopRecording = useCallback(async () => {
     setError(null)
-    stopCameraRecording()
     try {
       const response = await api.stop()
       commitState(response.state)
+      await stopCameraRecording()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '无法结束录制')
     }
@@ -303,10 +519,10 @@ export default function App() {
 
   const resetRecording = useCallback(async () => {
     setError(null)
-    stopCameraRecording()
     try {
       const response = await api.reset()
       commitState(response.state)
+      await stopCameraRecording()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '无法重新录制')
     }

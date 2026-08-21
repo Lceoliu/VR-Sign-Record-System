@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -19,7 +21,7 @@ from .models import (
     SentenceSelectRequest,
     StartRecordingRequest,
 )
-from .protocol import command_id, pair_packet, pedal_packet
+from .protocol import command_id, heartbeat_packet, pair_packet, pedal_packet
 from .realtime import RealtimeHub
 from .recording_service import RecordingService
 from .review_repository import ReviewRepository
@@ -37,23 +39,99 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     udp = UdpService(config, registry, hub)
 
     async def handle_signal(packet: dict) -> None:
-        if str(packet.get("signal")) != "help":
+        signal = str(packet.get("signal"))
+        if signal == "recording_interrupted":
+            try:
+                state, _, _ = await recordings.abort()
+            except ValueError:
+                return
+            await hub.publish_event(
+                {"type": "state_changed", "payload": state.model_dump(mode="json")}
+            )
+            await hub.publish_event(
+                {
+                    "type": "recording_interrupted",
+                    "payload": {
+                        "message": str(packet.get("message") or "Quest 已安全中止录制"),
+                        "state": state.model_dump(mode="json"),
+                    },
+                }
+            )
+            return
+        if signal != "help":
             return
         state = await recordings.set_help_requested(bool(packet.get("active")))
         await hub.publish_event(
             {"type": "state_changed", "payload": state.model_dump(mode="json")}
         )
 
+    async def handle_ack(packet: dict) -> None:
+        if str(packet.get("action")) != "start_take":
+            return
+        phase = str(packet.get("phase") or "")
+        cmd_id = str(packet.get("command_id") or "")
+        if phase == "started" and bool(packet.get("accepted")):
+            state = await recordings.mark_recording_started(
+                cmd_id,
+                int(packet.get("actual_at_unix_ms") or 0),
+            )
+            event_type = "recording_started"
+        elif phase == "failed":
+            state = await recordings.fail_recording_start(cmd_id)
+            event_type = "recording_start_failed"
+        else:
+            return
+        if state is None:
+            return
+        await hub.publish_event(
+            {"type": "state_changed", "payload": state.model_dump(mode="json")}
+        )
+        await hub.publish_event(
+            {
+                "type": event_type,
+                "payload": {
+                    "message": str(packet.get("message") or event_type),
+                    "state": state.model_dump(mode="json"),
+                },
+            }
+        )
+
     udp.on_signal = handle_signal
+    udp.on_ack = handle_ack
+
+    async def keep_recording_lease() -> None:
+        state = await recordings.snapshot()
+        if state.recording_status.value != "recording":
+            return
+        device = await registry.selected()
+        if device is None:
+            return
+        await udp.send_to_device(
+            device.device_id,
+            heartbeat_packet(cmd_id=command_id()),
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        watchdog: asyncio.Task[None] | None = None
         if start_udp:
             await udp.start()
             await udp.scan()
+            watchdog = asyncio.create_task(
+                _monitor_operator(
+                    recordings,
+                    config.operator_heartbeat_timeout_seconds,
+                    config.start_confirmation_timeout_seconds,
+                    abort_active_recording,
+                    keep_recording_lease,
+                )
+            )
         try:
             yield
         finally:
+            if watchdog is not None:
+                watchdog.cancel()
+                await asyncio.gather(watchdog, return_exceptions=True)
             if start_udp:
                 await udp.stop()
             await hub.close()
@@ -232,8 +310,58 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
             await recordings.set_selected_device(device.device_id)
         return device.device_id
 
+    async def abort_active_recording(reason: str):
+        try:
+            state, packet, cmd_id = await recordings.abort()
+        except ValueError:
+            return None
+        device = await registry.selected()
+        if start_udp and device is not None:
+            try:
+                await udp.send_to_device_and_wait(device.device_id, packet)
+            except (TimeoutError, KeyError, RuntimeError):
+                await hub.publish_event(
+                    {
+                        "type": "udp_error",
+                        "payload": {"message": "Quest 停止确认超时，设备端失联保护将接管"},
+                    }
+                )
+        await hub.publish_event(
+            {"type": "state_changed", "payload": state.model_dump(mode="json")}
+        )
+        await hub.publish_event(
+            {
+                "type": "recording_interrupted",
+                "payload": {"message": reason, "state": state.model_dump(mode="json")},
+            }
+        )
+        return state, cmd_id
+
+    @app.post("/api/operator/heartbeat", status_code=204)
+    async def operator_heartbeat() -> Response:
+        await recordings.touch_operator()
+        return Response(status_code=204)
+
+    @app.post("/api/operator/disconnect", status_code=202)
+    async def operator_disconnect() -> dict:
+        await abort_active_recording("operator_disconnected")
+        return {"status": "accepted"}
+
+    @app.post("/api/recording/abort", response_model=RecordingCommandResponse)
+    async def abort_recording():
+        result = await abort_active_recording("operator_recovered_pending_camera")
+        if result is None:
+            raise HTTPException(status_code=409, detail="当前没有需要中止的录制")
+        state, cmd_id = result
+        return RecordingCommandResponse(
+            action="abort_take",
+            state=state,
+            command_id=cmd_id,
+        )
+
     @app.post("/api/recording/start", response_model=RecordingCommandResponse)
     async def start_recording(body: StartRecordingRequest):
+        await recordings.touch_operator()
         device_id = await selected_device_id()
         previous = await recordings.snapshot()
         if previous.recording_status.value != "ready":
@@ -269,14 +397,18 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
             except HTTPException:
                 await recordings.restore(previous)
                 raise
+        # A very slow HTTP round trip can outlive the countdown.  In that case the
+        # asynchronous "started" ACK has already advanced the service to RECORDING;
+        # never publish or return the older COUNTDOWN snapshot over that state.
+        state = await recordings.snapshot()
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
-        asyncio.create_task(_mark_started(recordings, hub, cmd_id, start_at))
         return RecordingCommandResponse(
             action="start_take", state=state, command_id=cmd_id, start_at_unix_ms=start_at
         )
 
     @app.post("/api/recording/stop", response_model=RecordingCommandResponse)
     async def stop_recording():
+        await recordings.touch_operator()
         device_id = await selected_device_id()
         previous = await recordings.snapshot()
         try:
@@ -294,6 +426,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
 
     @app.post("/api/recording/reset", response_model=RecordingCommandResponse)
     async def reset_recording():
+        await recordings.touch_operator()
         device_id = await selected_device_id()
         previous = await recordings.snapshot()
         state, packet, cmd_id = await recordings.reset()
@@ -401,21 +534,42 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         take_id: str,
         session_id: str = Form(...),
         sentence_id: str = Form(...),
+        started_at_unix_ms: int = Form(...),
+        stopped_at_unix_ms: int = Form(...),
+        first_chunk_at_unix_ms: int = Form(...),
         video_file: UploadFile = File(...),
     ) -> dict:
         try:
             directory = repository.take_directory(session_id, sentence_id, take_id)
-            video_path = await repository.save_upload(
-                video_file,
-                directory / f"{safe_segment(take_id)}.camera.webm",
+            safe_take_id = safe_segment(take_id)
+            video_path = directory / f"{safe_take_id}.camera.webm"
+            # Browser crash recovery retries the same immutable Take.  If the first
+            # upload reached disk but its response was lost, treat the retry as
+            # success instead of trapping the operator behind a false conflict.
+            if not video_path.exists():
+                video_path = await repository.save_upload(video_file, video_path)
+            camera_meta_path = directory / f"{safe_take_id}.camera.meta.json"
+            camera_meta_path.write_text(
+                json.dumps(
+                    {
+                        "take_id": safe_take_id,
+                        "started_at_unix_ms": started_at_unix_ms,
+                        "first_chunk_at_unix_ms": first_chunk_at_unix_ms,
+                        "stopped_at_unix_ms": stopped_at_unix_ms,
+                        "duration_ms": max(0, stopped_at_unix_ms - started_at_unix_ms),
+                        "mime_type": video_file.content_type or "video/webm",
+                        "byte_length": video_path.stat().st_size,
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except FileExistsError as exc:
-            raise HTTPException(status_code=409, detail="该 Take 的相机视频已经存在，服务器拒绝覆盖") from exc
         state = await recordings.refresh_after_upload(session_id, sentence_id)
         await hub.publish_event({"type": "camera_uploaded", "payload": state.model_dump(mode="json")})
-        return {"video_file": str(video_path)}
+        return {"video_file": str(video_path), "camera_meta_file": str(camera_meta_path)}
 
     @app.websocket("/ws/events")
     async def event_socket(websocket: WebSocket) -> None:
@@ -459,19 +613,21 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     return app
 
 
-async def _mark_started(
+async def _monitor_operator(
     recordings: RecordingService,
-    hub: RealtimeHub,
-    command_id: str,
-    start_at_unix_ms: int,
+    heartbeat_timeout_seconds: float,
+    start_confirmation_timeout_seconds: float,
+    on_timeout: Callable[[str], Awaitable[object]],
+    keep_recording_lease: Callable[[], Awaitable[None]],
 ) -> None:
-    from .protocol import unix_ms
-
-    await asyncio.sleep(max(0, start_at_unix_ms - unix_ms()) / 1000)
-    state = await recordings.mark_recording_started(command_id)
-    if state is None:
-        return
-    await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+    while True:
+        await asyncio.sleep(1.0)
+        if await recordings.start_confirmation_timed_out(start_confirmation_timeout_seconds):
+            await on_timeout("quest_start_confirmation_timeout")
+        elif await recordings.operator_timed_out(heartbeat_timeout_seconds):
+            await on_timeout("operator_heartbeat_timeout")
+        else:
+            await keep_recording_lease()
 
 
 async def _send_and_require_ack(

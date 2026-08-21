@@ -214,6 +214,9 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
             data={
                 "session_id": session_id,
                 "sentence_id": "sentence_001",
+                "started_at_unix_ms": "1000",
+                "first_chunk_at_unix_ms": "1100",
+                "stopped_at_unix_ms": "4500",
             },
             files={
                 "video_file": (
@@ -237,6 +240,25 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
         assert pose_path.read_bytes() == b'{"frame":1}\n'
         assert (take_directory / f"{take_id}.meta.json").is_file()
         assert (take_directory / f"{take_id}.camera.webm").is_file()
+        camera_meta = json.loads(
+            (take_directory / f"{take_id}.camera.meta.json").read_text(encoding="utf-8")
+        )
+        assert camera_meta["duration_ms"] == 3500
+        assert camera_meta["first_chunk_at_unix_ms"] == 1100
+
+        retry = client.post(
+            f"/api/takes/{take_id}/camera-upload",
+            data={
+                "session_id": session_id,
+                "sentence_id": "sentence_001",
+                "started_at_unix_ms": "1000",
+                "first_chunk_at_unix_ms": "1100",
+                "stopped_at_unix_ms": "4500",
+            },
+            files={"video_file": ("camera.webm", io.BytesIO(b"retry"), "video/webm")},
+        )
+        assert retry.status_code == 200
+        assert (take_directory / f"{take_id}.camera.webm").read_bytes() == b"webm"
 
         current = client.get("/api/state").json()
         assert current["current_sentence_index"] == 1

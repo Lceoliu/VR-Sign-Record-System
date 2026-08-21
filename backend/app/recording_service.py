@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
 
 from .models import HostState, RecordingStatus, SentenceItem, TakeItem
@@ -36,6 +37,7 @@ class RecordingService:
         self._lock = asyncio.Lock()
         self._active_start_command_id: str | None = None
         self._retake_sentence_index: int | None = None
+        self._operator_last_seen = time.monotonic()
 
     async def snapshot(self) -> HostState:
         async with self._lock:
@@ -116,7 +118,11 @@ class RecordingService:
             packet = self._command_packet("start_take", cmd_id, start_at)
             return self._state.model_copy(deep=True), packet, cmd_id, start_at
 
-    async def mark_recording_started(self, start_command_id: str) -> HostState | None:
+    async def mark_recording_started(
+        self,
+        start_command_id: str,
+        actual_start_unix_ms: int | None = None,
+    ) -> HostState | None:
         async with self._lock:
             if (
                 self._state.recording_status is not RecordingStatus.COUNTDOWN
@@ -124,7 +130,43 @@ class RecordingService:
             ):
                 return None
             self._state.recording_status = RecordingStatus.RECORDING
+            if actual_start_unix_ms is not None and actual_start_unix_ms > 0:
+                self._state.started_at_unix_ms = actual_start_unix_ms
             return self._state.model_copy(deep=True)
+
+    async def fail_recording_start(self, start_command_id: str) -> HostState | None:
+        async with self._lock:
+            if (
+                self._state.recording_status is not RecordingStatus.COUNTDOWN
+                or self._active_start_command_id != start_command_id
+            ):
+                return None
+            self._mark_current_take_candidate_locked()
+            self._state.recording_status = RecordingStatus.READY
+            self._state.started_at_unix_ms = None
+            self._active_start_command_id = None
+            self._retake_sentence_index = self._state.current_sentence_index
+            return self._state.model_copy(deep=True)
+
+    async def touch_operator(self) -> None:
+        async with self._lock:
+            self._operator_last_seen = time.monotonic()
+
+    async def operator_timed_out(self, timeout_seconds: float) -> bool:
+        async with self._lock:
+            active = self._state.recording_status in (
+                RecordingStatus.COUNTDOWN,
+                RecordingStatus.RECORDING,
+            )
+            return active and time.monotonic() - self._operator_last_seen >= timeout_seconds
+
+    async def start_confirmation_timed_out(self, timeout_seconds: float) -> bool:
+        async with self._lock:
+            return (
+                self._state.recording_status is RecordingStatus.COUNTDOWN
+                and self._state.started_at_unix_ms is not None
+                and unix_ms() - self._state.started_at_unix_ms >= timeout_seconds * 1000
+            )
 
     async def stop(self) -> tuple[HostState, dict, str]:
         async with self._lock:
@@ -148,6 +190,23 @@ class RecordingService:
                 len(self._state.sentences) - 1,
             )
             self._select_sentence_locked(next_index, persist=True)
+            return self._state.model_copy(deep=True), packet, cmd_id
+
+    async def abort(self) -> tuple[HostState, dict, str]:
+        async with self._lock:
+            if self._state.recording_status not in (
+                RecordingStatus.COUNTDOWN,
+                RecordingStatus.RECORDING,
+                RecordingStatus.STOPPING,
+            ):
+                raise ValueError("当前没有需要中止的录制")
+            self._mark_current_take_candidate_locked()
+            cmd_id = command_id()
+            packet = self._command_packet("stop_take", cmd_id, None)
+            self._state.recording_status = RecordingStatus.READY
+            self._state.started_at_unix_ms = None
+            self._active_start_command_id = None
+            self._retake_sentence_index = self._state.current_sentence_index
             return self._state.model_copy(deep=True), packet, cmd_id
 
     async def reset(self) -> tuple[HostState, dict, str]:
@@ -277,6 +336,15 @@ class RecordingService:
             or not self._state.session_id
         ):
             raise ValueError("请先选择录制批次和轮次")
+
+    def _mark_current_take_candidate_locked(self) -> None:
+        if self._state.current_take is None:
+            return
+        self._state.current_take.status = "candidate"
+        for take in reversed(self._state.takes):
+            if take.take_id == self._state.current_take.take_id:
+                take.status = "candidate"
+                break
 
     def _command_packet(self, action: str, cmd_id: str, start_at: int | None) -> dict:
         sentence = self._state.sentences[self._state.current_sentence_index]

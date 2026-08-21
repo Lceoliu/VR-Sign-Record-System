@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 
 import anyio
+import pytest
 from starlette.websockets import WebSocketDisconnect
 
+import app.realtime as realtime_module
 from app.config import Settings
 from app.device_registry import DeviceRegistry
 from app.protocol import LEGACY_COMPATIBILITY_TOKEN, decode_packet, encode_packet, pair_packet
@@ -127,6 +129,12 @@ def test_command_wait_resolves_matching_ack(tmp_path):
             "192.168.1.42",
         )
         service = UdpService(Settings(data_root=tmp_path), registry, RealtimeHub())
+        observed_acks: list[dict] = []
+
+        async def observe_ack(packet: dict) -> None:
+            observed_acks.append(packet)
+
+        service.on_ack = observe_ack
         transport = FakeDatagramTransport()
         service.transport = transport  # type: ignore[assignment]
         packet = pair_packet(
@@ -159,6 +167,7 @@ def test_command_wait_resolves_matching_ack(tmp_path):
 
         ack = await pending
         assert ack["accepted"] is True
+        assert observed_acks == [ack]
 
     anyio.run(scenario)
 
@@ -187,6 +196,37 @@ def test_commands_use_stable_legacy_fields_for_old_quest_builds(tmp_path):
         packet = decode_packet(transport.sent[0][0])
         assert packet["station_id"] == "station-test"
         assert packet["session_token"] == LEGACY_COMPATIBILITY_TOKEN
+
+    anyio.run(scenario)
+
+
+def test_command_wait_retries_until_timeout(tmp_path):
+    async def scenario() -> None:
+        registry = DeviceRegistry()
+        await registry.upsert_announcement(
+            {"device_id": "quest-test", "control_port": 5006},
+            "192.168.1.42",
+        )
+        service = UdpService(Settings(data_root=tmp_path), registry, RealtimeHub())
+        transport = FakeDatagramTransport()
+        service.transport = transport  # type: ignore[assignment]
+        packet = pair_packet(
+            cmd_id="retry-command",
+            host_ip="192.168.1.10",
+            http_port=8000,
+            pose_port=5005,
+            station_id="station-test",
+            session_token="token",
+        )
+
+        with pytest.raises(TimeoutError):
+            await service.send_to_device_and_wait(
+                "quest-test",
+                packet,
+                timeout_seconds=0.08,
+                retry_interval_seconds=0.01,
+            )
+        assert len(transport.sent) >= 2
 
     anyio.run(scenario)
 
@@ -232,5 +272,18 @@ def test_disconnected_websocket_is_removed_without_breaking_publish():
         await asyncio.sleep(0)
 
         assert websocket not in hub._event_clients
+
+    anyio.run(scenario)
+
+
+def test_cached_preview_expires(monkeypatch):
+    async def scenario() -> None:
+        hub = RealtimeHub()
+        await hub.publish_preview("quest-test", b"jpeg")
+        captured_at = realtime_module.time.monotonic()
+        assert await hub.latest_preview("quest-test") == b"jpeg"
+
+        monkeypatch.setattr(realtime_module.time, "monotonic", lambda: captured_at + 6.0)
+        assert await hub.latest_preview("quest-test") is None
 
     anyio.run(scenario)

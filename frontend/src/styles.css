@@ -74,6 +74,7 @@ button { color: inherit; }
 .prompt-block { border-bottom: 1px solid var(--border); padding-bottom: 21px; margin-bottom: 22px; }
 .prompt-block p { margin: 12px 0 0; font-size: clamp(23px, 2vw, 34px); font-weight: 640; line-height: 1.42; letter-spacing: .01em; }
 .video-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.quest-monitor-stack { min-width: 0; display: grid; gap: 14px; }
 .video-panel { min-width: 0; }
 .video-heading span { font-variant-numeric: tabular-nums; }
 .video-frame { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #bec4c0; border-radius: 8px; background: #222826; }

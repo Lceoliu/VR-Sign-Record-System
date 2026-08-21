@@ -1,5 +1,6 @@
 import { Bone } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { connectReconnectingWebSocket } from '../reconnectingWebSocket'
 import type { FrameMessage, PoseMessage, SkeletonMessage } from '../types'
 
 const BONE_COLOR = '#6fc9b0'
@@ -27,6 +28,7 @@ export function SkeletonPanel({ title, deviceId, active }: SkeletonPanelProps) {
   const frameRef = useRef<FrameMessage | null>(null)
   const framingRef = useRef<Framing | null>(null)
   const frameTimesRef = useRef<number[]>([])
+  const lastFrameAtRef = useRef(0)
   const [fps, setFps] = useState(0)
   const [tracked, setTracked] = useState(0)
   const [connected, setConnected] = useState(false)
@@ -34,23 +36,28 @@ export function SkeletonPanel({ title, deviceId, active }: SkeletonPanelProps) {
   useEffect(() => {
     if (!deviceId) return
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/pose/${encodeURIComponent(deviceId)}`)
-    socket.onopen = () => setConnected(true)
-    socket.onclose = () => setConnected(false)
-    socket.onmessage = (event) => {
-      const message = JSON.parse(event.data) as PoseMessage
-      if (message.type === 'skeleton') topologyRef.current = message
-      if (message.type === 'frame') {
-        frameRef.current = message
-        const now = performance.now()
-        frameTimesRef.current = [...frameTimesRef.current, now].filter((time) => now - time < 1000)
-      }
-    }
+    const disconnect = connectReconnectingWebSocket({
+      url: `${protocol}//${window.location.host}/ws/pose/${encodeURIComponent(deviceId)}`,
+      onOpen: () => setConnected(true),
+      onClose: () => setConnected(false),
+      onMessage: (event) => {
+        const message = JSON.parse(event.data) as PoseMessage
+        if (message.type === 'skeleton') topologyRef.current = message
+        if (message.type === 'frame') {
+          frameRef.current = message
+          const now = performance.now()
+          lastFrameAtRef.current = now
+          frameTimesRef.current = [...frameTimesRef.current, now].filter((time) => now - time < 1000)
+        }
+      },
+    })
     return () => {
-      socket.close()
+      disconnect()
       topologyRef.current = null
       frameRef.current = null
       framingRef.current = null
+      frameTimesRef.current = []
+      lastFrameAtRef.current = 0
     }
   }, [deviceId])
 
@@ -124,9 +131,10 @@ export function SkeletonPanel({ title, deviceId, active }: SkeletonPanelProps) {
     const timer = window.setInterval(() => {
       const now = performance.now()
       frameTimesRef.current = frameTimesRef.current.filter((time) => now - time < 1000)
-      setFps(frameTimesRef.current.length)
+      const fresh = lastFrameAtRef.current > 0 && now - lastFrameAtRef.current < 2000
+      setFps(fresh ? frameTimesRef.current.length : 0)
       const frame = frameRef.current
-      setTracked(frame ? frame.valid.filter(Boolean).length : 0)
+      setTracked(fresh && frame ? frame.valid.filter(Boolean).length : 0)
     }, 500)
     return () => window.clearInterval(timer)
   }, [])

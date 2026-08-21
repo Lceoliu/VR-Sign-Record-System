@@ -17,6 +17,8 @@ class Settings:
     quest_control_port: int = 5006
     frontend_origin: str = "http://localhost:5174"
     discovery_broadcast: str = "255.255.255.255"
+    operator_heartbeat_timeout_seconds: float = 8.0
+    start_confirmation_timeout_seconds: float = 5.0
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -33,4 +35,10 @@ class Settings:
             quest_control_port=int(os.environ.get("SIGNVR_QUEST_CONTROL_PORT", "5006")),
             frontend_origin=os.environ.get("SIGNVR_FRONTEND_ORIGIN", "http://localhost:5174"),
             discovery_broadcast=os.environ.get("SIGNVR_DISCOVERY_BROADCAST", "255.255.255.255"),
+            operator_heartbeat_timeout_seconds=float(
+                os.environ.get("SIGNVR_OPERATOR_HEARTBEAT_TIMEOUT_SECONDS", "8")
+            ),
+            start_confirmation_timeout_seconds=float(
+                os.environ.get("SIGNVR_START_CONFIRMATION_TIMEOUT_SECONDS", "5")
+            ),
         )

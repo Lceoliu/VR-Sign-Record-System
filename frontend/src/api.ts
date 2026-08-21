@@ -80,16 +80,25 @@ export const api = {
       body: JSON.stringify({ batch_id: batchId, round_id: roundId }),
     }),
   stop: () => request<CommandResponse>('/api/recording/stop', { method: 'POST' }),
+  abort: () => request<CommandResponse>('/api/recording/abort', { method: 'POST' }),
   reset: () => request<CommandResponse>('/api/recording/reset', { method: 'POST' }),
+  operatorHeartbeat: () => fetch('/api/operator/heartbeat', { method: 'POST' }),
+  operatorDisconnect: () => fetch('/api/operator/disconnect', { method: 'POST', keepalive: true }),
   uploadCamera: async (
     takeId: string,
     sessionId: string,
     sentenceId: string,
     blob: Blob,
+    startedAtUnixMs: number,
+    stoppedAtUnixMs: number,
+    firstChunkAtUnixMs: number,
   ) => {
     const body = new FormData()
     body.append('session_id', sessionId)
     body.append('sentence_id', sentenceId)
+    body.append('started_at_unix_ms', String(startedAtUnixMs))
+    body.append('stopped_at_unix_ms', String(stoppedAtUnixMs))
+    body.append('first_chunk_at_unix_ms', String(firstChunkAtUnixMs))
     body.append('video_file', blob, `${takeId}.camera.webm`)
     return request<{ video_file: string }>(`/api/takes/${encodeURIComponent(takeId)}/camera-upload`, {
       method: 'POST',

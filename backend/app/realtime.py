@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -23,7 +24,7 @@ class RealtimeHub:
     def __init__(self) -> None:
         self._event_clients: dict[WebSocket, _Client] = {}
         self._preview_clients: dict[str, dict[WebSocket, _Client]] = {}
-        self._latest_frames: dict[str, bytes] = {}
+        self._latest_frames: dict[str, tuple[float, bytes]] = {}
         self._pose_clients: dict[str, dict[WebSocket, _Client]] = {}
         self._latest_skeletons: dict[str, dict] = {}
         self._lock = asyncio.Lock()
@@ -58,9 +59,9 @@ class RealtimeHub:
         client = await self._create_client(websocket, capacity=1)
         async with self._lock:
             self._preview_clients.setdefault(device_id, {})[websocket] = client
-            frame = self._latest_frames.get(device_id)
-        if frame:
-            self._enqueue_latest(client, ("bytes", frame))
+            cached = self._latest_frames.get(device_id)
+        if cached and time.monotonic() - cached[0] <= 5.0:
+            self._enqueue_latest(client, ("bytes", cached[1]))
 
     async def remove_preview(self, device_id: str, websocket: WebSocket) -> None:
         async with self._lock:
@@ -78,14 +79,17 @@ class RealtimeHub:
 
     async def publish_preview(self, device_id: str, jpeg: bytes) -> None:
         async with self._lock:
-            self._latest_frames[device_id] = jpeg
+            self._latest_frames[device_id] = (time.monotonic(), jpeg)
             clients = tuple(self._preview_clients.get(device_id, {}).values())
         for client in clients:
             self._enqueue_latest(client, ("bytes", jpeg))
 
     async def latest_preview(self, device_id: str) -> bytes | None:
         async with self._lock:
-            return self._latest_frames.get(device_id)
+            cached = self._latest_frames.get(device_id)
+        if cached is None or time.monotonic() - cached[0] > 5.0:
+            return None
+        return cached[1]
 
     async def add_pose(self, device_id: str, websocket: WebSocket) -> None:
         client = await self._create_client(websocket, capacity=2)

@@ -41,6 +41,7 @@ class UdpService:
         self._discovery_worker: asyncio.Task[None] | None = None
         self._control_tasks: set[asyncio.Task[None]] = set()
         self.on_signal: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        self.on_ack: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
@@ -128,16 +129,32 @@ class UdpService:
         device_id: str,
         packet: dict[str, Any],
         timeout_seconds: float = 2.5,
+        retry_interval_seconds: float = 0.75,
     ) -> dict[str, Any]:
         cmd_id = str(packet["command_id"])
-        future = asyncio.get_running_loop().create_future()
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
         self._pending_acks[cmd_id] = future
-        await self.send_to_device(device_id, packet)
+        deadline = loop.time() + timeout_seconds
 
         try:
-            return await asyncio.wait_for(future, timeout_seconds)
+            while True:
+                await self.send_to_device(device_id, packet)
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise TimeoutError
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.shield(future),
+                        min(retry_interval_seconds, remaining),
+                    )
+                except TimeoutError:
+                    if loop.time() >= deadline:
+                        raise
         finally:
             self._pending_acks.pop(cmd_id, None)
+            if not future.done():
+                future.cancel()
 
     async def handle_packet(self, data: bytes, addr: tuple[str, int]) -> None:
         try:
@@ -197,6 +214,8 @@ class UdpService:
             if future and not future.done():
                 future.set_result(packet)
             await self.hub.publish_event({"type": "command_ack", "payload": packet})
+            if self.on_ack is not None:
+                await self.on_ack(packet)
             return
         if packet_type == "signal":
             # The teacher pressed the help button inside the headset. They cannot

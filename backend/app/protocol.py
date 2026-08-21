@@ -56,6 +56,15 @@ def pedal_packet(*, cmd_id: str, phase: str, progress: float = 0.0) -> dict[str,
     }
 
 
+def heartbeat_packet(*, cmd_id: str) -> dict[str, Any]:
+    return {
+        "type": "command",
+        "version": PROTOCOL_VERSION,
+        "command_id": cmd_id,
+        "action": "heartbeat",
+    }
+
+
 def guidance_packet(*, cmd_id: str, enabled: bool) -> dict[str, Any]:
     return {
         "type": "command",

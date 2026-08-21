@@ -73,3 +73,53 @@ def test_long_press_after_stop_returns_to_just_recorded_sentence(tmp_path):
         assert second_take_index == 2
 
     anyio.run(scenario)
+
+
+def test_start_confirmation_uses_actual_quest_time_and_failure_recovers(tmp_path):
+    async def scenario() -> None:
+        repository = RecordingRepository(tmp_path)
+        service = RecordingService(repository)
+        await service.create_round("batch-a", "round_001")
+
+        take_id, take_index, _ = repository.reserve_take(
+            "batch-a", "round_001", "sentence_001"
+        )
+        _, _, command_id, _ = await service.start(
+            "batch-a", "round_001", take_id, take_index
+        )
+        started = await service.mark_recording_started(command_id, 123456789)
+        assert started is not None
+        assert started.recording_status is RecordingStatus.RECORDING
+        assert started.started_at_unix_ms == 123456789
+
+        await service.abort()
+        retry_id, retry_index, _ = repository.reserve_take(
+            "batch-a", "round_001", "sentence_001"
+        )
+        _, _, retry_command_id, _ = await service.start(
+            "batch-a", "round_001", retry_id, retry_index
+        )
+        failed = await service.fail_recording_start(retry_command_id)
+        assert failed is not None
+        assert failed.recording_status is RecordingStatus.READY
+        assert failed.current_sentence_index == 0
+        assert failed.current_take is not None
+        assert failed.current_take.status == "candidate"
+
+    anyio.run(scenario)
+
+
+def test_countdown_without_actual_quest_confirmation_times_out(tmp_path):
+    async def scenario() -> None:
+        repository = RecordingRepository(tmp_path)
+        service = RecordingService(repository)
+        await service.create_round("batch-a", "round_001")
+        take_id, take_index, _ = repository.reserve_take(
+            "batch-a", "round_001", "sentence_001"
+        )
+        await service.start("batch-a", "round_001", take_id, take_index)
+
+        service._state.started_at_unix_ms = 1
+        assert await service.start_confirmation_timed_out(5.0) is True
+
+    anyio.run(scenario)

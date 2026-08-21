@@ -83,13 +83,14 @@ data/recordings/{batch_id}/{round_id}/
   {take_id}.pose.jsonl
   {take_id}.meta.json
   {take_id}.camera.webm
+  {take_id}.camera.meta.json
 ```
 
 `round.json` 会记录所属 `station_id`。另一工作站直接打开该轮次时会快速失败，避免双机数据被误写到一起。离线汇总时应保留两个工作站的顶层目录。
 
 Quest 在上传成功前始终保留 `Application.persistentDataPath/Recordings` 中的本地 Pose/Meta；成功后写入 `.uploaded` 标记。重新配对时会继续上传未标记文件。
 
-每次开始录制前，网页必须打开批次并选择轮次。每个轮次独立保存 300 句的当前位置和完成进度，可随时切换后继续；后端从当前轮次与句子的磁盘目录中原子预留下一个新的 `take_NNN`，并拒绝覆盖已经存在的 Pose、Meta 或相机文件。同一个 Take 的 Pose、Meta 和相机视频全部到齐后，该句自动标记完成。
+每次开始录制前，网页必须打开批次并选择轮次。每个轮次独立保存 300 句的当前位置和完成进度，可随时切换后继续；后端从当前轮次与句子的磁盘目录中原子预留下一个新的 `take_NNN`，并拒绝覆盖已经存在的 Pose/Meta。浏览器崩溃恢复只允许幂等重传同一 Take 的相机文件，不会改写已落盘视频。同一个 Take 的 Pose、Meta 和相机视频全部到齐后，该句自动标记完成。
 
 固定语料位于 `backend/app/sentence_catalog.json`，编号顺序为 `social 001–100`、`collaborate 101–180`、`spatial 181–220`、`question 221–250`、`stress 251–300`。
 
@@ -103,7 +104,9 @@ Quest 在上传成功前始终保留 `Application.persistentDataPath/Recordings`
 6. 任意状态下长按空格 1.2 秒会显示进度并重置当前句；已经产生的 Take 保留为候选。
 7. 可按编号跳转、点击任意句、筛选完成状态或直接前往下一条未完成句；切换轮次时各自进度互不影响。
 
-网页具备两种 Quest 监控链路：30 FPS 的 Meta 骨架用于判断动作捕捉状态；480 × 270、3 FPS 的侧后方 JPEG 用于确认角色、桌面和场景仍在正常渲染。当前单个 Quest 面板会在收到首张 JPEG 后由骨架切换为场景画面，尚未同时展示两者；画面中的旧分辨率/帧率标签也仍待修正。JPEG 仅是低频辅助画面，不用于精确动作判断或音视频同步。
+网页同时显示两种 Quest 监控链路：30 FPS 的 Meta 骨架用于判断动作捕捉状态；480 × 270、3 FPS 的侧后方 JPEG 用于确认角色、桌面和场景仍在正常渲染。两路 WebSocket 都会自动重连，并在数据停止后撤掉旧画面而不是继续显示缓存帧。JPEG 仅是低频辅助画面，不用于精确动作判断或音视频同步。
+
+开始命令分为“已排程”和“已实际开始”两次 Quest ACK。UDP 控制命令会用同一个 `command_id` 重发，Quest 对重复开始命令返回当前阶段而不会重复录制。主机只有收到实际开始 ACK 才进入 `recording`；若 Pose 未就绪或 5 秒内未收到实际开始确认，则回到当前句 `ready`，不会显示虚假录制。录制中主机每秒向 Quest 续租，连续 12 秒收不到控制包时 Quest 安全停止。浏览器每秒把相机 WebM 分片写入 IndexedDB，并按固定 Take 上下文上传；页面崩溃或刷新后会中止残留录制并恢复未上传分片。网页心跳中断 8 秒或 Quest 连续录制达到 10 分钟时，系统会把当前 Take 作为可追溯候选安全中止，不推进句子。
 
 ## 本地数据审核
 
