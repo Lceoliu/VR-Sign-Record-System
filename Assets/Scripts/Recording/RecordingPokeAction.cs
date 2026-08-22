@@ -17,7 +17,9 @@ namespace SignVR.Recording
             ToggleReplay,
             ToggleTutorial,
             TogglePassthrough,
-            ToggleHelp
+            ToggleHelp,
+            PreviousSentence,
+            NextSentence
         }
 
         [SerializeField]
@@ -41,6 +43,9 @@ namespace SignVR.Recording
         [SerializeField]
         private RecordingHelpController helpController;
 
+        [SerializeField]
+        private QuestDeviceGateway deviceGateway;
+
         public void Configure(
             PointableUnityEventWrapper wrapper,
             ActionType actionType,
@@ -53,6 +58,16 @@ namespace SignVR.Recording
             replayController = replay;
             promptBoard = board;
             tutorialController = tutorial;
+        }
+
+        public void ConfigureNavigation(
+            PointableUnityEventWrapper wrapper,
+            QuestDeviceGateway gateway,
+            bool next)
+        {
+            eventWrapper = wrapper;
+            deviceGateway = gateway;
+            action = next ? ActionType.NextSentence : ActionType.PreviousSentence;
         }
 
         private void Awake()
@@ -117,6 +132,12 @@ namespace SignVR.Recording
                     break;
                 case ActionType.ToggleHelp:
                     helpController.ToggleHelp();
+                    break;
+                case ActionType.PreviousSentence:
+                    deviceGateway.RequestSentenceNavigation(-1);
+                    break;
+                case ActionType.NextSentence:
+                    deviceGateway.RequestSentenceNavigation(1);
                     break;
             }
         }

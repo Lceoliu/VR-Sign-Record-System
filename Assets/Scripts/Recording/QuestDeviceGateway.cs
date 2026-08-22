@@ -49,10 +49,6 @@ namespace SignVR.Recording
 
         [Header("Recording Safety")]
         [SerializeField]
-        [Min(3f)]
-        private float hostContactTimeoutSeconds = 12f;
-
-        [SerializeField]
         [Min(30f)]
         private float maximumRecordingSeconds = 600f;
 
@@ -62,7 +58,6 @@ namespace SignVR.Recording
         private string pairedStationId;
         private IPAddress pairedHostAddress;
         private Coroutine announcementRoutine;
-        private float lastHostContactRealtime;
         private bool safetyStopTriggered;
         private string pendingStartCommandId;
         private string pendingStartTakeId;
@@ -118,6 +113,11 @@ namespace SignVR.Recording
             public string sentence_id;
             public int sentence_index;
             public string prompt;
+            public string previous_prompt;
+            public string next_prompt;
+            public int total_sentences;
+            public string signing_mode;
+            public string mode_switch_notice;
             public string take_id;
             public int take_index;
             public long start_at_unix_ms;
@@ -143,6 +143,7 @@ namespace SignVR.Recording
             public string message;
             public string take_id;
             public long actual_at_unix_ms;
+            public int direction;
         }
 
         [Serializable]
@@ -212,7 +213,6 @@ namespace SignVR.Recording
                 enabled = false;
             }
 
-            lastHostContactRealtime = Time.realtimeSinceStartup;
         }
 
         /// <summary>
@@ -239,6 +239,31 @@ namespace SignVR.Recording
                 packet,
                 new IPEndPoint(pairedHostAddress, hostAnnouncementPort)
             );
+        }
+
+        public bool RequestSentenceNavigation(int direction)
+        {
+            if (direction != -1 && direction != 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(direction));
+            }
+
+            if (pairedHostAddress == null ||
+                (coordinator.State != RecordingFlowState.Ready &&
+                 coordinator.State != RecordingFlowState.Completed))
+            {
+                return false;
+            }
+
+            var packet = new SignalPacket
+            {
+                device_id = deviceId,
+                station_id = pairedStationId,
+                signal = "navigate_sentence",
+                direction = direction
+            };
+            SendPacket(packet, new IPEndPoint(pairedHostAddress, hostAnnouncementPort));
+            return true;
         }
 
         private void OnEnable()
@@ -349,14 +374,8 @@ namespace SignVR.Recording
                 out IPAddress hostAddress
             );
             bool stationValid = !string.IsNullOrWhiteSpace(packet.station_id);
-            bool stationMatches = string.IsNullOrWhiteSpace(pairedStationId) ||
-                string.Equals(
-                    pairedStationId,
-                    packet.station_id,
-                    StringComparison.Ordinal
-                );
             bool accepted = packet.version == ProtocolVersion &&
-                hostAddressValid && stationValid && stationMatches &&
+                hostAddressValid && stationValid &&
                 packet.http_port > 0 && packet.pose_port > 0;
 
             string message = "paired";
@@ -372,14 +391,8 @@ namespace SignVR.Recording
             {
                 message = "station_id_missing";
             }
-            else if (!stationMatches)
-            {
-                message = "paired_to_other_station";
-            }
-
             if (accepted)
             {
-                lastHostContactRealtime = Time.realtimeSinceStartup;
                 pairedStationId = packet.station_id.Trim();
                 pairedHostAddress = hostAddress;
                 PlayerPrefs.SetString(
@@ -415,8 +428,6 @@ namespace SignVR.Recording
                 );
                 return;
             }
-
-            lastHostContactRealtime = Time.realtimeSinceStartup;
 
             bool accepted;
 
@@ -475,7 +486,18 @@ namespace SignVR.Recording
                     }
                     break;
                 case "reset_take":
+                    coordinator.LoadPrompt(
+                        packet.session_id,
+                        packet.sentence_id,
+                        packet.prompt,
+                        Mathf.Max(1, packet.take_index)
+                    );
+                    ApplyPromptContext(packet);
                     coordinator.ResetCurrentPrompt();
+                    accepted = true;
+                    break;
+                case "prompt_context":
+                    ApplyPromptContext(packet);
                     accepted = true;
                     break;
                 case "pedal":
@@ -528,7 +550,7 @@ namespace SignVR.Recording
 
         private bool StartRemoteTake(CommandPacket packet)
         {
-            if (!recorder.IsPoseReady || packet.start_at_unix_ms <= 0L)
+            if (!recorder.IsPoseReady)
             {
                 return false;
             }
@@ -545,6 +567,8 @@ namespace SignVR.Recording
                 return false;
             }
 
+            ApplyPromptContext(packet);
+
             var take = new RecordingTakeContext(
                 packet.session_id,
                 packet.sentence_id,
@@ -554,7 +578,23 @@ namespace SignVR.Recording
                 DateTimeOffset.FromUnixTimeMilliseconds(packet.start_at_unix_ms).UtcDateTime
             );
 
-            return coordinator.BeginRemoteTake(take, packet.start_at_unix_ms);
+            return coordinator.BeginRemoteTake(
+                take,
+                Mathf.Max(0f, packet.countdown_seconds)
+            );
+        }
+
+        private void ApplyPromptContext(CommandPacket packet)
+        {
+            coordinator.ApplyPromptContext(
+                packet.previous_prompt,
+                packet.prompt,
+                packet.next_prompt,
+                packet.sentence_index,
+                packet.total_sentences,
+                packet.signing_mode,
+                packet.mode_switch_notice
+            );
         }
 
         private void HandleTakeStartResolved(
@@ -619,15 +659,9 @@ namespace SignVR.Recording
                 return;
             }
 
-            string reason = string.Empty;
-            if (Time.realtimeSinceStartup - lastHostContactRealtime >= hostContactTimeoutSeconds)
-            {
-                reason = "host_contact_timeout";
-            }
-            else if (coordinator.RecordingElapsedSeconds >= maximumRecordingSeconds)
-            {
-                reason = "maximum_recording_duration";
-            }
+            string reason = coordinator.RecordingElapsedSeconds >= maximumRecordingSeconds
+                ? "maximum_recording_duration"
+                : string.Empty;
 
             if (string.IsNullOrEmpty(reason) ||
                 !coordinator.StopCurrentTakeAsInterrupted(reason))
@@ -654,7 +688,7 @@ namespace SignVR.Recording
                 active = true,
                 message = reason,
                 take_id = coordinator.CurrentTake.TakeId,
-                actual_at_unix_ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+                actual_at_unix_ms = 0L
             };
             SendPacket(
                 packet,

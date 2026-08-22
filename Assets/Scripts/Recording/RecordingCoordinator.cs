@@ -43,7 +43,6 @@ namespace SignVR.Recording
         private int nextTakeIndex;
         private double recordingStartedAt;
         private RecordingFlowState reviewReturnState;
-        private long countdownTargetUnixMs;
         private bool reportRemoteStartResult;
 
         public event Action PresentationChanged;
@@ -68,6 +67,12 @@ namespace SignVR.Recording
         public string SessionId { get; private set; } = string.Empty;
         public string SentenceId { get; private set; } = string.Empty;
         public string PromptText { get; private set; } = string.Empty;
+        public string PreviousPromptText { get; private set; } = string.Empty;
+        public string NextPromptText { get; private set; } = string.Empty;
+        public int SentenceIndex { get; private set; }
+        public int TotalSentences { get; private set; }
+        public string SigningMode { get; private set; } = string.Empty;
+        public string ModeSwitchNotice { get; private set; } = string.Empty;
         public RecordingTakeContext CurrentTake { get; private set; }
         public float CountdownRemaining { get; private set; }
         public float ResetHoldProgress { get; private set; }
@@ -165,6 +170,25 @@ namespace SignVR.Recording
             return true;
         }
 
+        public void ApplyPromptContext(
+            string previousPrompt,
+            string prompt,
+            string nextPrompt,
+            int sentenceIndex,
+            int totalSentences,
+            string signingMode,
+            string modeSwitchNotice)
+        {
+            PreviousPromptText = previousPrompt ?? string.Empty;
+            PromptText = prompt ?? string.Empty;
+            NextPromptText = nextPrompt ?? string.Empty;
+            SentenceIndex = Mathf.Max(0, sentenceIndex);
+            TotalSentences = Mathf.Max(0, totalSentences);
+            SigningMode = signingMode ?? string.Empty;
+            ModeSwitchNotice = modeSwitchNotice ?? string.Empty;
+            NotifyPresentationChanged();
+        }
+
         public bool BeginCurrentTake()
         {
             RecordingTakeContext take = RecordingTakeContext.CreateLocal(
@@ -174,29 +198,24 @@ namespace SignVR.Recording
                 nextTakeIndex
             );
 
-            return BeginTake(take, countdownSeconds, 0L, false);
+            return BeginTake(take, countdownSeconds, false);
         }
 
         public bool BeginRemoteTake(
             RecordingTakeContext take,
-            long startAtUnixMs)
+            float countdownDurationSeconds)
         {
             if (!take.IsValid)
             {
                 throw new ArgumentException("Remote take is invalid.", nameof(take));
             }
 
-            float delaySeconds = Mathf.Max(
-                0f,
-                (startAtUnixMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) / 1000f
-            );
-            return BeginTake(take, delaySeconds, startAtUnixMs, true);
+            return BeginTake(take, countdownDurationSeconds, true);
         }
 
         private bool BeginTake(
             RecordingTakeContext take,
             float delaySeconds,
-            long targetUnixMs,
             bool notifyRemoteResult)
         {
             if (IsPaused)
@@ -214,7 +233,6 @@ namespace SignVR.Recording
             StopActiveRoutine();
             CurrentTake = take;
             CountdownRemaining = Mathf.Max(0f, delaySeconds);
-            countdownTargetUnixMs = targetUnixMs;
             reportRemoteStartResult = notifyRemoteResult;
             activeRoutine = StartCoroutine(CountdownRoutine());
             return true;
@@ -369,7 +387,6 @@ namespace SignVR.Recording
             CurrentTake = default;
             CountdownRemaining = 0f;
             reportRemoteStartResult = false;
-            countdownTargetUnixMs = 0L;
             LastError = string.Empty;
             activeRoutine = StartCoroutine(CompleteResetNextFrame());
         }
@@ -384,13 +401,10 @@ namespace SignVR.Recording
             {
                 NotifyPresentationChanged();
                 yield return null;
-                CountdownRemaining = countdownTargetUnixMs > 0L
-                    ? Mathf.Max(
-                        0f,
-                        (countdownTargetUnixMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) /
-                        1000f
-                    )
-                    : Mathf.Max(0f, CountdownRemaining - Time.unscaledDeltaTime);
+                CountdownRemaining = Mathf.Max(
+                    0f,
+                    CountdownRemaining - Time.unscaledDeltaTime
+                );
             }
 
             RecordingTakeContext take = CurrentTake;
@@ -422,13 +436,9 @@ namespace SignVR.Recording
 
             RecordingTakeContext take = CurrentTake;
             reportRemoteStartResult = false;
-            countdownTargetUnixMs = 0L;
-            TakeStartResolved?.Invoke(
-                take,
-                started,
-                DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                message
-            );
+            // The host is the clock authority. Zero tells it to retain its own
+            // scheduled/start timestamp instead of trusting the Quest wall clock.
+            TakeStartResolved?.Invoke(take, started, 0L, message);
         }
 
         private IEnumerator CompleteFinalizingNextFrame()

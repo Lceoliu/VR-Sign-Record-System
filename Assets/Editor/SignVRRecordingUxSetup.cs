@@ -19,6 +19,12 @@ public static class SignVRRecordingUxSetup
         "Assets/Fonts/SignVRChinese SDF.asset";
     private const string PokeButtonPrefabPath =
         "Packages/com.meta.xr.sdk.interaction/Runtime/Sample/Prefabs/OculusInteractionSamplePokeButton.prefab";
+    private const string RedButtonModelPath =
+        "Assets/ThirdParty/PolyPizza/BigRedButton/BigRedButton.obj";
+    private const string RedButtonBaseMaterialPath =
+        "Assets/Materials/RecordingRedButtonBase.mat";
+    private const string RedButtonCapMaterialPath =
+        "Assets/Materials/RecordingRedButtonCap.mat";
     private const string ConsoleMaterialPath =
         "Assets/Materials/RecordingDeskConsole.mat";
     private const string TrackingGuideMaterialPath =
@@ -112,6 +118,430 @@ public static class SignVRRecordingUxSetup
             "measured hand-capture boundary, and fixed upper-body " +
             "preview are configured."
         );
+    }
+
+    [MenuItem("SignVR/Upgrade Recording Prompt Navigation")]
+    public static void UpgradeRecordingPromptNavigation()
+    {
+        if (EditorSceneManager.GetActiveScene().path != RecordingScenePath)
+        {
+            throw new InvalidOperationException(
+                $"Open {RecordingScenePath} before running this upgrade."
+            );
+        }
+
+        TMP_FontAsset font = EnsureChineseFont();
+        var coordinator = FindSceneComponent<RecordingCoordinator>("_Recording");
+        var gateway = FindSceneComponent<QuestDeviceGateway>("_Recording");
+        Transform centerEye = FindTransformByPath(
+            "[BuildingBlock] Camera Rig/TrackingSpace/CenterEyeAnchor"
+        );
+        Transform environment = FindTransformByPath("Environment");
+        RectTransform deskPrompt = environment.Find("DeskPromptCanvas") as RectTransform;
+        if (deskPrompt == null)
+        {
+            throw new InvalidOperationException("Environment/DeskPromptCanvas was not found.");
+        }
+
+        FreezeDeskPrompt(deskPrompt);
+        SetupSidePrompt(environment, deskPrompt, centerEye, coordinator, font);
+        SetupDeskNavigation(environment, centerEye, gateway, font);
+        ApplyFontToScene(font);
+
+        EditorUtility.SetDirty(coordinator);
+        EditorUtility.SetDirty(gateway);
+        EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
+        EditorSceneManager.SaveScene(EditorSceneManager.GetActiveScene());
+        AssetDatabase.SaveAssets();
+        Debug.Log(
+            "[SignVRRecordingUxSetup] Fixed desk prompt, left lyric prompt, and " +
+            "two independent desk navigation buttons are configured. " +
+            "TouchScreenDevice_03 was not modified."
+        );
+    }
+
+    private static void FreezeDeskPrompt(RectTransform deskPrompt)
+    {
+        Transform drag = deskPrompt.Find("HologramPanel/PromptHeightDrag");
+        if (drag != null)
+        {
+            Undo.DestroyObjectImmediate(drag.gameObject);
+        }
+        RemoveComponent<RecordingPromptBoard>(deskPrompt.gameObject);
+    }
+
+    private static void SetupSidePrompt(
+        Transform environment,
+        RectTransform deskPrompt,
+        Transform centerEye,
+        RecordingCoordinator coordinator,
+        TMP_FontAsset font)
+    {
+        RectTransform canvasRect = environment.Find("SidePromptCanvas") as RectTransform;
+        bool created = canvasRect == null;
+        if (created)
+        {
+            var canvasObject = new GameObject(
+                "SidePromptCanvas",
+                typeof(RectTransform),
+                typeof(Canvas),
+                typeof(CanvasScaler)
+            );
+            Undo.RegisterCreatedObjectUndo(canvasObject, "Create side prompt canvas");
+            canvasRect = (RectTransform)canvasObject.transform;
+            canvasRect.SetParent(environment, false);
+
+            Vector3 horizontalRight = centerEye.right;
+            horizontalRight.y = 0f;
+            horizontalRight.Normalize();
+            Vector3 worldPosition = deskPrompt.position - horizontalRight * 0.58f + Vector3.up * 0.28f;
+            Vector3 facing = worldPosition - centerEye.position;
+            facing.y = 0f;
+            canvasRect.SetPositionAndRotation(
+                worldPosition,
+                Quaternion.LookRotation(facing.normalized, Vector3.up)
+            );
+        }
+
+        canvasRect.sizeDelta = new Vector2(680f, 430f);
+        canvasRect.localScale = Vector3.one * 0.001f;
+        Canvas canvas = GetOrAdd<Canvas>(canvasRect.gameObject);
+        canvas.renderMode = RenderMode.WorldSpace;
+        CanvasScaler scaler = GetOrAdd<CanvasScaler>(canvasRect.gameObject);
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+        scaler.dynamicPixelsPerUnit = 2f;
+
+        RectTransform panel = canvasRect.Find("LyricPanel") as RectTransform ??
+                              CreateStretchRect(canvasRect, "LyricPanel", Vector2.zero, Vector2.zero);
+        Image panelImage = GetOrAdd<Image>(panel.gameObject);
+        panelImage.color = new Color(0.025f, 0.075f, 0.085f, 0.88f);
+        panelImage.raycastTarget = false;
+        Outline outline = GetOrAdd<Outline>(panel.gameObject);
+        outline.effectColor = new Color(0.25f, 0.72f, 0.72f, 0.75f);
+        outline.effectDistance = new Vector2(2f, -2f);
+
+        TMP_Text progress = EnsureUiText(
+            panel, "ProgressText", "等待主机同步句子", 23f,
+            new Color(0.70f, 0.90f, 0.89f, 1f), font,
+            TextAlignmentOptions.Left, new Vector2(-115f, 184f), new Vector2(390f, 42f)
+        );
+        progress.fontStyle = FontStyles.Bold;
+        TMP_Text mode = EnsureUiText(
+            panel, "ModeText", string.Empty, 28f,
+            new Color(1f, 0.78f, 0.30f, 1f), font,
+            TextAlignmentOptions.Right, new Vector2(220f, 184f), new Vector2(180f, 42f)
+        );
+        mode.fontStyle = FontStyles.Bold;
+        TMP_Text previous = EnsureUiText(
+            panel, "PreviousText", "—", 25f,
+            new Color(0.58f, 0.70f, 0.70f, 1f), font,
+            TextAlignmentOptions.Center, new Vector2(0f, 103f), new Vector2(610f, 68f)
+        );
+        TMP_Text current = EnsureUiText(
+            panel, "CurrentText", "请准备录制当前句子的手语动作", 42f,
+            new Color(0.94f, 1f, 0.98f, 1f), font,
+            TextAlignmentOptions.Center, new Vector2(0f, 4f), new Vector2(620f, 118f)
+        );
+        current.enableAutoSizing = true;
+        current.fontSizeMin = 30f;
+        current.fontSizeMax = 42f;
+        current.fontStyle = FontStyles.Bold;
+        TMP_Text next = EnsureUiText(
+            panel, "NextText", "—", 25f,
+            new Color(0.58f, 0.70f, 0.70f, 1f), font,
+            TextAlignmentOptions.Center, new Vector2(0f, -111f), new Vector2(610f, 68f)
+        );
+        ConfigureHologramLine(panel, "CurrentTopLine", new Vector2(0f, 61f), 610f);
+        ConfigureHologramLine(panel, "CurrentBottomLine", new Vector2(0f, -62f), 610f);
+
+        RectTransform noticeRoot = panel.Find("ModeSwitchNotice") as RectTransform ??
+                                   CreateRect(panel, "ModeSwitchNotice", new Vector2(630f, 185f), Vector2.zero);
+        Image noticeBackground = GetOrAdd<Image>(noticeRoot.gameObject);
+        noticeBackground.color = new Color(0.45f, 0.19f, 0.025f, 0.97f);
+        noticeBackground.raycastTarget = false;
+        TMP_Text noticeText = EnsureUiText(
+            noticeRoot, "NoticeText", string.Empty, 42f, Color.white, font,
+            TextAlignmentOptions.Center, Vector2.zero, new Vector2(580f, 155f)
+        );
+        noticeText.fontStyle = FontStyles.Bold;
+        noticeRoot.gameObject.SetActive(false);
+
+        RecordingSidePromptPresenter presenter =
+            GetOrAdd<RecordingSidePromptPresenter>(coordinator.gameObject);
+        presenter.Configure(
+            coordinator,
+            previous,
+            current,
+            next,
+            progress,
+            mode,
+            noticeRoot.gameObject,
+            noticeText
+        );
+        EditorUtility.SetDirty(presenter);
+
+        int overlayLayer = LayerMask.NameToLayer("Overlay UI");
+        if (overlayLayer >= 0)
+        {
+            SetLayerRecursively(canvasRect.gameObject, overlayLayer);
+        }
+        canvasRect.gameObject.SetActive(true);
+    }
+
+    private static void SetupDeskNavigation(
+        Transform environment,
+        Transform centerEye,
+        QuestDeviceGateway gateway,
+        TMP_FontAsset font)
+    {
+        Transform table = FindTransformByPath("Environment/Table_01A");
+        Renderer[] renderers = table.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length == 0)
+        {
+            throw new InvalidOperationException("Environment/Table_01A has no renderer bounds.");
+        }
+
+        Bounds bounds = renderers[0].bounds;
+        for (int index = 1; index < renderers.Length; index++)
+        {
+            bounds.Encapsulate(renderers[index].bounds);
+        }
+
+        Transform root = EnsureTransform(environment, "DeskNavigationButtons");
+        Vector3 towardTeacher = centerEye.position - bounds.center;
+        towardTeacher.y = 0f;
+        towardTeacher.Normalize();
+        Vector3 right = centerEye.right;
+        right.y = 0f;
+        right.Normalize();
+        Vector3 basePosition = new(
+            bounds.center.x,
+            bounds.max.y + 0.003f,
+            bounds.center.z
+        );
+        basePosition += towardTeacher * Mathf.Min(0.22f, bounds.extents.z * 0.45f);
+        Quaternion rotation = Quaternion.LookRotation(Vector3.up, towardTeacher);
+
+        SetupNavigationButton(
+            root, "PreviousSentence", "← 上一句", basePosition - right * 0.15f,
+            rotation, towardTeacher, centerEye, false, gateway, font
+        );
+        SetupNavigationButton(
+            root, "NextSentence", "下一句 →", basePosition + right * 0.15f,
+            rotation, towardTeacher, centerEye, true, gateway, font
+        );
+
+        int overlayLayer = LayerMask.NameToLayer("Overlay UI");
+        if (overlayLayer >= 0)
+        {
+            SetLayerRecursively(root.gameObject, overlayLayer);
+        }
+    }
+
+    private static void SetupNavigationButton(
+        Transform parent,
+        string name,
+        string label,
+        Vector3 worldPosition,
+        Quaternion worldRotation,
+        Vector3 towardTeacher,
+        Transform centerEye,
+        bool next,
+        QuestDeviceGateway gateway,
+        TMP_FontAsset font)
+    {
+        Bounds visualBounds = SetupDownloadedButtonModel(
+            parent,
+            name + "Model",
+            worldPosition,
+            towardTeacher
+        );
+
+        Transform existing = parent.Find(name);
+        GameObject button;
+        if (existing == null)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PokeButtonPrefabPath);
+            button = (GameObject)PrefabUtility.InstantiatePrefab(prefab, parent);
+            button.name = name;
+        }
+        else
+        {
+            button = existing.gameObject;
+        }
+
+        Vector3 interactionPosition = new(
+            worldPosition.x,
+            visualBounds.max.y - 0.004f,
+            worldPosition.z
+        );
+        button.transform.SetPositionAndRotation(interactionPosition, worldRotation);
+        button.transform.localScale = new Vector3(0.095f, 0.05f, 0.095f);
+
+        foreach (Renderer renderer in button.GetComponentsInChildren<Renderer>(true))
+        {
+            if (renderer.GetComponent<TMP_Text>() == null)
+            {
+                renderer.enabled = false;
+            }
+        }
+
+        foreach (TMP_Text text in button.GetComponentsInChildren<TMP_Text>(true))
+        {
+            text.text = label;
+            text.font = font;
+            text.color = Color.white;
+        }
+
+        PointableUnityEventWrapper wrapper =
+            button.GetComponentInChildren<PointableUnityEventWrapper>(true);
+        RecordingPokeAction action = GetOrAdd<RecordingPokeAction>(button);
+        action.ConfigureNavigation(wrapper, gateway, next);
+        EditorUtility.SetDirty(action);
+
+        SetupNavigationButtonLabel(
+            parent,
+            name + "Label",
+            label,
+            worldPosition + towardTeacher * 0.115f + Vector3.up * 0.055f,
+            centerEye,
+            font
+        );
+    }
+
+    private static Bounds SetupDownloadedButtonModel(
+        Transform parent,
+        string name,
+        Vector3 baseWorldPosition,
+        Vector3 towardTeacher)
+    {
+        GameObject modelAsset = AssetDatabase.LoadAssetAtPath<GameObject>(
+            RedButtonModelPath
+        );
+        if (modelAsset == null)
+        {
+            throw new InvalidOperationException(
+                $"Downloaded button model was not imported: {RedButtonModelPath}"
+            );
+        }
+
+        Transform existing = parent.Find(name);
+        GameObject model;
+        if (existing == null)
+        {
+            model = (GameObject)PrefabUtility.InstantiatePrefab(modelAsset, parent);
+            model.name = name;
+            Undo.RegisterCreatedObjectUndo(model, "Create downloaded red button model");
+        }
+        else
+        {
+            model = existing.gameObject;
+        }
+
+        model.transform.SetPositionAndRotation(
+            baseWorldPosition,
+            Quaternion.LookRotation(towardTeacher, Vector3.up)
+        );
+        model.transform.localScale = Vector3.one;
+
+        Renderer[] renderers = model.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length == 0)
+        {
+            throw new InvalidOperationException("Downloaded red button has no renderers.");
+        }
+
+        Material baseMaterial = EnsureRedButtonMaterial(false);
+        Material capMaterial = EnsureRedButtonMaterial(true);
+        foreach (Renderer renderer in renderers)
+        {
+            MeshFilter meshFilter = renderer.GetComponent<MeshFilter>();
+            renderer.sharedMaterials = meshFilter != null &&
+                meshFilter.sharedMesh != null &&
+                meshFilter.sharedMesh.subMeshCount == 2
+                    ? new[] { capMaterial, baseMaterial }
+                    : new[] { baseMaterial };
+            renderer.enabled = true;
+        }
+
+        Bounds bounds = renderers[0].bounds;
+        for (int index = 1; index < renderers.Length; index++)
+        {
+            bounds.Encapsulate(renderers[index].bounds);
+        }
+
+        float footprint = Mathf.Max(bounds.size.x, bounds.size.z);
+        float scale = 0.18f / footprint;
+        model.transform.localScale = Vector3.one * scale;
+
+        bounds = renderers[0].bounds;
+        for (int index = 1; index < renderers.Length; index++)
+        {
+            bounds.Encapsulate(renderers[index].bounds);
+        }
+        model.transform.position += Vector3.up * (baseWorldPosition.y - bounds.min.y);
+
+        bounds = renderers[0].bounds;
+        for (int index = 1; index < renderers.Length; index++)
+        {
+            bounds.Encapsulate(renderers[index].bounds);
+        }
+        return bounds;
+    }
+
+    private static void SetupNavigationButtonLabel(
+        Transform parent,
+        string name,
+        string value,
+        Vector3 worldPosition,
+        Transform centerEye,
+        TMP_FontAsset font)
+    {
+        RectTransform canvasRect = parent.Find(name) as RectTransform;
+        if (canvasRect == null)
+        {
+            var canvasObject = new GameObject(
+                name,
+                typeof(RectTransform),
+                typeof(Canvas),
+                typeof(CanvasScaler)
+            );
+            Undo.RegisterCreatedObjectUndo(canvasObject, "Create desk button label");
+            canvasRect = (RectTransform)canvasObject.transform;
+            canvasRect.SetParent(parent, false);
+        }
+
+        canvasRect.sizeDelta = new Vector2(360f, 80f);
+        canvasRect.localScale = Vector3.one * 0.00055f;
+        Vector3 facing = worldPosition - centerEye.position;
+        canvasRect.SetPositionAndRotation(
+            worldPosition,
+            Quaternion.LookRotation(facing.normalized, Vector3.up)
+        );
+
+        Canvas canvas = GetOrAdd<Canvas>(canvasRect.gameObject);
+        canvas.renderMode = RenderMode.WorldSpace;
+        CanvasScaler scaler = GetOrAdd<CanvasScaler>(canvasRect.gameObject);
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+        scaler.dynamicPixelsPerUnit = 2f;
+
+        RectTransform background = canvasRect.Find("Background") as RectTransform ??
+                                   CreateStretchRect(canvasRect, "Background", Vector2.zero, Vector2.zero);
+        Image image = GetOrAdd<Image>(background.gameObject);
+        image.color = new Color(0.025f, 0.028f, 0.032f, 0.94f);
+        image.raycastTarget = false;
+
+        TMP_Text text = EnsureUiText(
+            background,
+            "Text",
+            value,
+            36f,
+            Color.white,
+            font,
+            TextAlignmentOptions.Center,
+            Vector2.zero,
+            new Vector2(340f, 70f)
+        );
+        text.fontStyle = FontStyles.Bold;
     }
 
     private static RecordingPromptBoard SetupPromptBoard(
@@ -488,62 +918,11 @@ public static class SignVRRecordingUxSetup
         ConfigureHologramLine(panel, "BottomLine", new Vector2(0f, -96f));
 
         Transform dragTarget = panel.Find("PromptHeightDrag");
-        if (dragTarget == null)
+        if (dragTarget != null)
         {
-            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-                PokeButtonPrefabPath
-            );
-            var instance = (GameObject)PrefabUtility.InstantiatePrefab(
-                prefab,
-                panel
-            );
-            instance.name = "PromptHeightDrag";
-            dragTarget = instance.transform;
+            Undo.DestroyObjectImmediate(dragTarget.gameObject);
         }
-
-        dragTarget.localPosition = new Vector3(0f, 82f, -12f);
-        dragTarget.localRotation = Quaternion.identity;
-        dragTarget.localScale = new Vector3(120f, 30f, 38f);
-        foreach (TMP_Text text in dragTarget.GetComponentsInChildren<TMP_Text>(true))
-        {
-            text.text = "上下调节";
-            text.font = font;
-            text.color = Color.white;
-        }
-
-        PointableUnityEventWrapper dragEvents =
-            dragTarget.GetComponentInChildren<PointableUnityEventWrapper>(true);
-        PokeInteractable pokeInteractable =
-            dragTarget.GetComponentInChildren<PokeInteractable>(true);
-        var pokeSerialized = new SerializedObject(pokeInteractable);
-        pokeSerialized.FindProperty("_cancelSelectNormal").floatValue = 1f;
-        pokeSerialized.FindProperty("_cancelSelectTangent").floatValue = 1f;
-        pokeSerialized.ApplyModifiedPropertiesWithoutUndo();
-
-        RecordingPromptBoardPokeDrag pokeDrag =
-            GetOrAdd<RecordingPromptBoardPokeDrag>(dragTarget.gameObject);
-        pokeDrag.Configure(dragEvents, canvasRect);
-
-        Vector3 minimumWorld = new(
-            canvasRect.position.x,
-            tableBounds.max.y + 0.10f,
-            canvasRect.position.z
-        );
-        Vector3 maximumWorld = minimumWorld + Vector3.up * 0.90f;
-        float minimumLocalY = environment.InverseTransformPoint(minimumWorld).y;
-        float maximumLocalY = environment.InverseTransformPoint(maximumWorld).y;
-        RecordingPromptBoard promptBoard =
-            GetOrAdd<RecordingPromptBoard>(canvasRect.gameObject);
-        promptBoard.ConfigureHeightOnly(
-            coordinator,
-            dragTarget.gameObject,
-            canvasRect.localPosition,
-            minimumLocalY,
-            maximumLocalY,
-            canvasRect.localRotation
-        );
-        EditorUtility.SetDirty(pokeDrag);
-        EditorUtility.SetDirty(promptBoard);
+        RemoveComponent<RecordingPromptBoard>(canvasRect.gameObject);
         panel.SetAsFirstSibling();
 
         int overlayLayer = LayerMask.NameToLayer("Overlay UI");
@@ -558,7 +937,8 @@ public static class SignVRRecordingUxSetup
     private static void ConfigureHologramLine(
         Transform parent,
         string name,
-        Vector2 anchoredPosition)
+        Vector2 anchoredPosition,
+        float width = 790f)
     {
         RectTransform line = parent.Find(name) as RectTransform;
         if (line == null)
@@ -566,13 +946,13 @@ public static class SignVRRecordingUxSetup
             line = CreateRect(
                 parent,
                 name,
-                new Vector2(790f, 3f),
+                new Vector2(width, 3f),
                 anchoredPosition
             );
         }
         else
         {
-            line.sizeDelta = new Vector2(790f, 3f);
+            line.sizeDelta = new Vector2(width, 3f);
             line.anchoredPosition = anchoredPosition;
         }
 
@@ -1165,6 +1545,37 @@ public static class SignVRRecordingUxSetup
         material.SetFloat("_Smoothness", 0.18f);
         material.SetColor("_BaseColor", Slate);
         AssetDatabase.CreateAsset(material, ConsoleMaterialPath);
+        return material;
+    }
+
+    private static Material EnsureRedButtonMaterial(bool cap)
+    {
+        string path = cap
+            ? RedButtonCapMaterialPath
+            : RedButtonBaseMaterialPath;
+        Material material = AssetDatabase.LoadAssetAtPath<Material>(path);
+        if (material == null)
+        {
+            material = new Material(Shader.Find("Universal Render Pipeline/Lit"))
+            {
+                name = cap ? "RecordingRedButtonCap" : "RecordingRedButtonBase"
+            };
+            AssetDatabase.CreateAsset(material, path);
+        }
+
+        Color color = cap
+            ? new Color(0.72f, 0.018f, 0.022f, 1f)
+            : new Color(0.035f, 0.04f, 0.045f, 1f);
+        material.color = color;
+        material.SetColor("_BaseColor", color);
+        material.SetFloat("_Metallic", cap ? 0.12f : 0.58f);
+        material.SetFloat("_Smoothness", cap ? 0.62f : 0.38f);
+        if (cap)
+        {
+            material.SetColor("_EmissionColor", color * 0.2f);
+            material.EnableKeyword("_EMISSION");
+        }
+        EditorUtility.SetDirty(material);
         return material;
     }
 

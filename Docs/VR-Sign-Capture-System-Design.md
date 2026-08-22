@@ -1,6 +1,6 @@
 # VR 手语录制系统与场景设计
 
-- 文档状态：实现基线 v1.3
+- 文档状态：实现基线 v1.4
 - 更新日期：2026-08-21
 - 适用项目：SignVR / Quest 3
 - 当前阶段：双工作站录制链路与首日数据采集已完成；当前代码基线同时包含录制系统、本地数据审核台和实时翻译 Demo 的前期场景资产
@@ -46,6 +46,11 @@
 22. 手部越界提示使用 Quest 实际的左右手追踪状态与置信度，再叠加相对 HMD 的保守安全工作区；不把 RGB 透视相机视锥误当成 Meta 手部追踪的精确硬边界。
 23. 设备配对不再使用上传密钥鉴权；系统只部署在可信录制网络，并以持久化 `station_id` 防止两台工作站抢占同一 Quest。
 24. Python 后端是批次、轮次、句子和 Take 状态的权威来源；外置相机采集仍由 React 页面中的 `MediaRecorder` 执行。
+25. 正面全息提词板固定不动；左前方略高处增加歌词式侧屏，同时显示上一句、放大的当前句、下一句、句子序号和粗打/精打状态。
+26. 桌面导航使用两枚独立实体 Poke 按钮，只允许上一句/下一句，不提供开始或结束录制；`TouchScreenDevice_03` 的既有摆放与四个按钮不由该功能修改。
+27. 每个批次共享一份可编辑的 `sentences.json`。网页允许修改当前句或在其后临时加句；旧 Take 的 Meta 保留录制当时文本，不被后续编辑改写。
+28. 标准轮次固定映射为 `round_001 = 粗打`、`round_002 = 精打`，按“粗打 1–50 → 精打 1–50 → 粗打 51–100 → 精打 51–100”自动交替；最后不足 50 句时按实际剩余句完成后切换。
+29. 网页在非句子编辑状态下全局捕获空格，不受输入框或按钮焦点变化影响；打开句子编辑器时空格恢复为正常文本输入。
 
 ## 3. 当前 Unity 工程基线
 
@@ -101,6 +106,13 @@ Unity 第一阶段实现已经完成：
 - 网页监控端的 Quest 画面改为骨架实时渲染：主机转发 30 FPS 的 Meta 骨架包，React 在 Canvas 上做正面正交投影。Unity 端无需改动，`MetaBodyMotionStreamer` 原有的 UDP 数据直接复用。
 - 主机新增 `/ws/pose/{device_id}`，`UdpService` 按源 IP 解析 `device_id` 后转发 `skeleton`、`frame`、`status` 三类包，并缓存最近一份拓扑供中途连入的客户端使用。
 - 后端 pytest、前端 lint 与 build 均通过；已用真实 UDP 包与 WebSocket 客户端完成端到端验证。
+
+第五阶段录制导航与轮次自动化已完成：
+
+- 固定现有正面提词板并删除其高度拖动把手与移动组件。
+- 新增左前方歌词式侧屏、两枚桌面实体导航键，以及主机到 Quest 的相邻句/序号/粗精打模式同步。
+- 后端为每个批次持久化可编辑语料，支持修改和临时插句，并在两个标准轮次间按 50 句区块自动切换；末段不足 50 句按实际末句切换。
+- 网页空格脚踏输入改为全局捕获，仅在句子编辑对话框内让出空格输入。
 
 首日采集已经证明双工作站可以完成批次、轮次、视频与 Pose 落盘。当前仍需持续验收的项目：
 
@@ -377,6 +389,8 @@ Sessions/
 - 字号应保证不前倾也能清楚阅读。
 - 使用动态多图集 `SignVRChinese SDF`，源字体为 OFL 授权的 Noto Sans SC。
 - 句子板使用 `Overlay UI` 层以排除网页预览，但其 Canvas 仍是普通 World Space 渲染。
+- 左前方略高于正面提词板的 `SidePromptCanvas` 使用歌词式三行布局：上一句和下一句弱化，当前句放大加粗；顶部显示当前序号与粗打/精打模式。
+- 自动切换粗打/精打时，侧屏以高对比琥珀提示覆盖普通歌词内容，直到下一次录制开始或操作员改变句子。
 - 录制状态放在 HMD 顶部左侧小区域；REC 使用红点、计时器和短操作提示，不使用覆盖中央视野的大面板。
 
 ### 10.4 状态 UI
@@ -405,7 +419,8 @@ Sessions/
 
 - 正式操作不显示控制器射线，不依赖 XRI Controller 输入。
 - 场景复用 Meta Interaction SDK 的左右手 PokeInteractor；所有低频操作都有可见、可触碰的大尺寸按钮。
-- 用户摆放的 `TouchScreenDevice_03` 是唯一低频工具入口；录制倒计时开始后按钮自动不可用。
+- 用户摆放的 `TouchScreenDevice_03` 保留回看、教程、透视与求助入口；录制倒计时开始后这些按钮自动不可用。
+- `DeskNavigationButtons` 是独立于触屏的上一句/下一句实体按钮，只在 Ready/Completed 状态向主机请求导航，主机仍是句子状态的唯一权威来源。
 - 第一个按钮常态为“重播动作”，进入回看后原位改为“退出重播”；不另设一套回看控制面板。
 - 第二个按钮位于回看按钮下方，切换“查看教程/关闭教程”；回看期间隐藏，避免操作冲突。
 - 回看只读取最近一次本地候选 Take，不修改、不删除、不重新写入动作文件。
@@ -482,7 +497,7 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
   - `[BuildingBlock] Interaction` 下为左右手追踪与 Poke 交互器。
 - `_Recording`
   - 唯一的录制系统入口，靠 `RecordingCoordinator` 的 `[DefaultExecutionOrder(-10000)]` 保证初始化顺序。
-  - 承载 `RecordingCoordinator`、`QuestDeviceGateway`、`QuestTakeUploader`、`QuestPreviewStreamer`、`RecordingReplayController`、`RecordingTutorialController`、`RecordingTouchscreenPresenter`、`HandCaptureBoundaryMonitor`、`RecordingDebugInput`。
+  - 承载 `RecordingCoordinator`、`QuestDeviceGateway`、`QuestTakeUploader`、`QuestPreviewStreamer`、`RecordingReplayController`、`RecordingTutorialController`、`RecordingTouchscreenPresenter`、`RecordingSidePromptPresenter`、`HandCaptureBoundaryMonitor`、`RecordingDebugInput`。
 - `Objects`
   - `StylizedCharacter`：被 `CharacterRetargeter` 驱动的骨架源，只提供数据不渲染。其 `Animator` 没有 Controller，由重定向器直接写骨骼，属预期状态。
   - `MotionRecorder`：`MetaBodyMotionRecorder` 与 `MetaBodyMotionStreamer`。
@@ -492,7 +507,9 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
   - `SignVR Lighting`：混合主光、两盏烘焙顶灯、Light Probe 网格、Reflection Probe 与全局 URP Volume。
   - `ImportedEnvironment`：房间、墙地面与固定家具，烘焙时统一标记静态。
   - `DeskPromptCanvas`：桌面全息翻译文本，普通 World Space Canvas、正常深度测试，使用 `Overlay UI` 层以排除网页预览。
-  - `TouchScreenDevice_03/ScreenArea/SignVRControls`：桌面触屏上的 `ReplayToggle` 与 `TutorialToggle` 两个 Poke 按钮。
+  - `SidePromptCanvas`：左前方歌词式上下文屏，显示上一句、当前句、下一句、句子序号、当前粗打/精打模式及自动切换提示。
+  - `DeskNavigationButtons`：桌面上两枚独立 Poke 按钮，仅发送上一句/下一句请求。
+  - `TouchScreenDevice_03/ScreenArea/SignVRControls`：用户摆放的桌面触屏，保留 `ReplayToggle`、`TutorialToggle`、`ExitImmerse` 与 `HelpToggle`，录制导航升级不修改其位置或层级。
   - 旧的三盏 Directional Light 与 `LightProbe` 仍在场景中，但 Light 组件已 `enabled = false`。
 - `UI`
   - Meta Movement SDK 示例菜单，整棵树 `isActive = false`，不参与录制流程。
@@ -510,12 +527,13 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 
 - Quest 扫描、选择与连接状态。
 - 单台外置相机选择、720p 预览与 WebM 录制。
-- UTF-8 逐行句子文本导入、当前句显示与句子队列。
+- 批次级 UTF-8 句子清单、当前句显示与句子队列；可修改当前句或在其后临时添加新句。
 - Quest 30 FPS 骨架实时动作视图，显示有效关节数与实际帧率。
 - Quest 骨架与 480 × 270、3 FPS 场景画面同时显示，三路 WebSocket 自动重连并识别陈旧数据。
 - 2 秒倒计时、录制计时、候选 Take 和三类文件接收状态。
 - 人工开始、结束、重新录制按钮。
-- 空格键短按与 1.2 秒长按进度反馈。
+- 空格键短按与 1.2 秒长按进度反馈；除句子编辑对话框外全局捕获，不依赖页面焦点。
+- 标准粗打/精打轮次初始化、当前模式显示、50 句区块自动交替与醒目切换提示。
 - 相机 WebM 每秒分片持久化到 IndexedDB；页面重载后按原 Take 恢复上传，避免串句或丢失整条视频。
 
 ### 12.2 Python 模块实现
@@ -526,6 +544,7 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 - `UdpService`：5005 设备公告、命令 ACK 与现有 Pose 包入口。
 - `DeviceRegistry`：设备在线状态、选择、工作站绑定与接收计数；固定兼容 token 不承担安全鉴权。
 - `RecordingRepository`：Pose、Meta 与相机视频分层落盘。
+- `RecordingRepository` 同时持久化批次共享的 `sentences.json` 与两个标准轮次各自的游标/完成进度。
 - `RealtimeHub`：状态事件、Quest 骨架包与 JPEG 预览的 WebSocket 转发，并缓存最近一份骨架拓扑。
 - `main`：HTTP API、上传入口与 React 静态文件服务。
 - `ReviewRepository`：扫描既有老师/轮次/句子/Take 数据，并原子保存仅含问题项的 `review_labels.json`。
@@ -540,7 +559,7 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 - 短按不会同时被识别成长按。
 - 长按进度满只触发一次重置。
 - 任意录制流程状态下，长按都能最终回到当前句开始前状态。
-- 长按不会切换句子。
+- 长按在正常推进后返回刚刚录完的句子；若停止时刚好发生粗打/精打自动切换，也必须返回原轮次的原句。
 - 长按不会覆盖或删除旧 Take。
 - 每个 Take 的视频、Pose 和元数据可通过 take_id 关联。
 - 同一句话的多个候选 Take 文件名均不同。
@@ -549,6 +568,9 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 - 镜像角色左右翻转，但原始 Meta Pose 不翻转。
 - 中文句子无缺字、镜像或裁切。
 - 不拿控制器时，左右手食指可点击所有低频工具按钮。
+- 两枚桌面导航键只切换句子，不会开始或结束录制；录制中点击无效。
+- 每个完整 50 句区块按粗打后精打交替；最后不足 50 句时在实际末句切换，不等待补足 50 句。
+- 网页临时修改或添加句子后，正面提词板、侧屏和两个标准轮次使用同一批次语料，既有 Take 不被覆盖。
 - 桌面句子板不遮挡镜像角色头部和手部主要动作区域；HMD REC 与状态仅占视野边缘。
 - 短暂低置信度和接近边界不触发告警；真实越界出现弱方向提示，持续追踪丢失出现能立即察觉的四边红色脉冲和中文提示。
 - 手部重新稳定回到安全区后，提示不会闪烁并能在 0.35 秒内自动消失。
@@ -572,6 +594,14 @@ Take 由镜像角色播放）、站位偏移守护、电量预警。
 - 实时翻译 Demo 与录制系统是否继续共用同一 URP/XR 全局配置。
 
 ## 15. 变更记录
+
+### v1.4 - 2026-08-21
+
+- 固定正面桌面提词板，移除高度拖动把手；新增左前方歌词式侧屏和桌面上一对独立上一句/下一句 Poke 按钮，未修改 `TouchScreenDevice_03`。
+- 扩展 Quest UDP 提示上下文，实时同步上一句、当前句、下一句、序号、总数、粗打/精打模式和自动切换提示。
+- 新增批次共享可编辑语料与网页修改/临时插句，脚踏空格改为编辑器外全局捕获。
+- 固定 `round_001` 为粗打、`round_002` 为精打，完成 50 句区块自动交替与不足 50 句末段切换；长按可跨自动切换返回刚录句。
+- 后端 23 项 pytest、前端 lint/build、Unity 编译、场景校验和 6 秒 Play Mode 观察通过。
 
 ### v1.3 - 2026-08-21
 
