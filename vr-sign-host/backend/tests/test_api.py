@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 
 from fastapi.testclient import TestClient
 
@@ -19,7 +20,7 @@ def build_app(tmp_path):
     return create_app(settings=settings, start_udp=False)
 
 
-def register_and_select(client: TestClient, app) -> tuple[str, str]:
+def register_and_select(client: TestClient, app) -> str:
     device_id = "quest-test"
     with client.websocket_connect("/ws/events") as websocket:
         websocket.receive_json()
@@ -37,8 +38,7 @@ def register_and_select(client: TestClient, app) -> tuple[str, str]:
         )
     response = client.post(f"/api/devices/{device_id}/select")
     assert response.status_code == 200
-    record = app.state.registry._devices[device_id]
-    return device_id, record.session_token
+    return device_id
 
 
 def create_round(
@@ -73,6 +73,74 @@ def test_health_and_fixed_sentence_catalog(tmp_path):
     assert not any(sentence["text"].startswith("大纲") for sentence in state["sentences"])
 
 
+def test_review_page_lists_media_and_persists_only_issue_labels(tmp_path):
+    take_directory = (
+        tmp_path
+        / "0819"
+        / "lin"
+        / "round_001"
+        / "sentence_001"
+        / "take_001"
+    )
+    take_directory.mkdir(parents=True)
+    meta = {
+        "sentence_id": "sentence_001",
+        "sentence_text": "你叫什么名字？",
+        "take_id": "take_001",
+        "capture_status": "completed",
+        "utc_started": "2026-08-19T05:25:15Z",
+        "utc_stopped": "2026-08-19T05:25:21Z",
+        "pose_frame_count": 1,
+        "hand_capture_quality": {"clean_ratio": 1.0},
+    }
+    (take_directory / "take_001.meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    (take_directory / "take_001.pose.jsonl").write_text(
+        '{"recording_time":0,"pose_valid":true,"joint_count":1,"positions":[{"x":0,"y":0,"z":0}]}\n',
+        encoding="utf-8",
+    )
+    (take_directory / "take_001.camera.webm").write_bytes(b"webm-review")
+
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        assert client.get("/api/review/datasets").json()["datasets"] == ["0819"]
+        response = client.get("/api/review/items", params={"dataset": "0819"})
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["sentence_text"] == "你叫什么名字？"
+        assert item["video_issue"] is False
+        assert client.get(f"/api/review/files/{item['video_file']}").content == b"webm-review"
+
+        marked = client.put(
+            "/api/review/labels",
+            json={
+                "dataset": "0819",
+                "item_id": item["id"],
+                "video_issue": True,
+                "sentence_issue": False,
+            },
+        )
+        assert marked.status_code == 200
+        label_path = tmp_path / "0819" / "review_labels.json"
+        assert json.loads(label_path.read_text(encoding="utf-8"))["items"][item["id"]][
+            "video_issue"
+        ] is True
+
+        cleared = client.put(
+            "/api/review/labels",
+            json={
+                "dataset": "0819",
+                "item_id": item["id"],
+                "video_issue": False,
+                "sentence_issue": False,
+            },
+        )
+        assert cleared.status_code == 200
+        assert json.loads(label_path.read_text(encoding="utf-8"))["items"] == {}
+
+
 def test_recording_commands_require_selected_device(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
@@ -87,7 +155,7 @@ def test_recording_commands_require_selected_device(tmp_path):
 def test_nested_round_recording_upload_and_completion(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
-        device_id, token = register_and_select(client, app)
+        device_id = register_and_select(client, app)
         created = create_round(client)
         assert created["station_id"] == "station-test"
         session_id = created["session_id"]
@@ -115,7 +183,7 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
         jpeg = b"\xff\xd8fake-jpeg\xff\xd9"
         preview = client.post(
             f"/api/devices/{device_id}/preview-frame",
-            headers={"x-signvr-token": token, "content-type": "image/jpeg"},
+            headers={"content-type": "image/jpeg"},
             content=jpeg,
         )
         assert preview.status_code == 202
@@ -123,7 +191,6 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
 
         upload = client.post(
             f"/api/devices/{device_id}/takes/upload",
-            headers={"x-signvr-token": token},
             data={
                 "session_id": session_id,
                 "sentence_id": "sentence_001",
@@ -145,6 +212,9 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
             data={
                 "session_id": session_id,
                 "sentence_id": "sentence_001",
+                "started_at_unix_ms": "1000",
+                "first_chunk_at_unix_ms": "1100",
+                "stopped_at_unix_ms": "4500",
             },
             files={
                 "video_file": (
@@ -168,6 +238,25 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
         assert pose_path.read_bytes() == b'{"frame":1}\n'
         assert (take_directory / f"{take_id}.meta.json").is_file()
         assert (take_directory / f"{take_id}.camera.webm").is_file()
+        camera_meta = json.loads(
+            (take_directory / f"{take_id}.camera.meta.json").read_text(encoding="utf-8")
+        )
+        assert camera_meta["duration_ms"] == 3500
+        assert camera_meta["first_chunk_at_unix_ms"] == 1100
+
+        retry = client.post(
+            f"/api/takes/{take_id}/camera-upload",
+            data={
+                "session_id": session_id,
+                "sentence_id": "sentence_001",
+                "started_at_unix_ms": "1000",
+                "first_chunk_at_unix_ms": "1100",
+                "stopped_at_unix_ms": "4500",
+            },
+            files={"video_file": ("camera.webm", io.BytesIO(b"retry"), "video/webm")},
+        )
+        assert retry.status_code == 200
+        assert (take_directory / f"{take_id}.camera.webm").read_bytes() == b"webm"
 
         current = client.get("/api/state").json()
         assert current["current_sentence_index"] == 1
@@ -176,11 +265,11 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
 
         rounds = client.get("/api/recording/batches/测试批次/rounds").json()
         assert rounds["rounds"][0]["completed_sentences"] == 1
-        assert rounds["suggested_round_id"] == "round_002"
+        assert rounds["suggested_round_id"] == "round_003"
+        assert [item["signing_mode"] for item in rounds["rounds"]] == ["rough", "precise"]
 
         duplicate = client.post(
             f"/api/devices/{device_id}/takes/upload",
-            headers={"x-signvr-token": token},
             data={
                 "session_id": session_id,
                 "sentence_id": "sentence_001",
@@ -214,7 +303,11 @@ def test_round_switching_preserves_independent_cursor(tmp_path):
         assert jump.status_code == 200
         assert jump.json()["current_sentence_index"] == 50
 
-        second = create_round(client, round_id="round_002")
+        second_response = client.post(
+            "/api/recording/batches/测试批次/rounds/round_002/select"
+        )
+        assert second_response.status_code == 200
+        second = second_response.json()
         assert second["current_sentence_index"] == 0
 
         first_again = client.post(
@@ -245,7 +338,7 @@ def test_round_switching_preserves_independent_cursor(tmp_path):
         ]
 
 
-def test_device_reported_by_another_station_cannot_be_selected(tmp_path):
+def test_device_can_be_rebound_by_the_active_trusted_lan_host(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
         import anyio
@@ -261,5 +354,5 @@ def test_device_reported_by_another_station_cannot_be_selected(tmp_path):
         )
 
         response = client.post("/api/devices/quest-other/select")
-        assert response.status_code == 409
-        assert "station-other" in response.json()["detail"]
+        assert response.status_code == 200
+        assert response.json()["selected"]["device_id"] == "quest-other"

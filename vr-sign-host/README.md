@@ -70,6 +70,8 @@ cd D:\SignVR\vr-sign-host
 
 Quest 和主机必须位于同一可信局域网。Windows 主机需要允许 Python 的 TCP 8000 和 UDP 5005 入站；UDP 5006 位于 Quest 端，仅在 Unity Editor 本机模拟时需要 Windows 入站规则。Unity 项目允许明文 HTTP，仅用于这个受信任的本地录制网络。
 
+当前协议不使用上传密钥鉴权。设备隔离依赖每台工作站唯一的 `station_id`：Quest 会持久保存首次接受的工作站 ID，并拒绝其他工作站配对。因此两台主机不得使用同一个 `station_id`，更换 Quest 所属工作站前需要清除应用数据或补充显式解绑流程。
+
 ## 数据目录
 
 文件保存在 `config\station.json` 指定的数据根目录中：
@@ -81,25 +83,47 @@ data/recordings/{batch_id}/{round_id}/
   {take_id}.pose.jsonl
   {take_id}.meta.json
   {take_id}.camera.webm
+  {take_id}.camera.meta.json
 ```
+
+每个批次根目录另有一份两个标准轮次共享的 `sentences.json`。网页修改或临时添加句子时只更新这份工作语料和轮次总数；已经录制的 Take Meta 不会被追溯改写。
 
 `round.json` 会记录所属 `station_id`。另一工作站直接打开该轮次时会快速失败，避免双机数据被误写到一起。离线汇总时应保留两个工作站的顶层目录。
 
 Quest 在上传成功前始终保留 `Application.persistentDataPath/Recordings` 中的本地 Pose/Meta；成功后写入 `.uploaded` 标记。重新配对时会继续上传未标记文件。
 
-每次开始录制前，网页必须打开批次并选择轮次。每个轮次独立保存 300 句的当前位置和完成进度，可随时切换后继续；后端从当前轮次与句子的磁盘目录中原子预留下一个新的 `take_NNN`，并拒绝覆盖已经存在的 Pose、Meta 或相机文件。同一个 Take 的 Pose、Meta 和相机视频全部到齐后，该句自动标记完成。
+每次开始录制前，网页必须打开批次并选择轮次。`round_001` 固定为粗打，`round_002` 固定为精打；两者独立保存当前位置和完成进度并共享批次语料。后端从当前轮次与句子的磁盘目录中原子预留下一个新的 `take_NNN`，并拒绝覆盖已经存在的 Pose/Meta。浏览器崩溃恢复只允许幂等重传同一 Take 的相机文件，不会改写已落盘视频。同一个 Take 的 Pose、Meta 和相机视频全部到齐后，该句自动标记完成。
 
-固定语料位于 `backend/app/sentence_catalog.json`，编号顺序为 `social 001–100`、`collaborate 101–180`、`spatial 181–220`、`question 221–250`、`stress 251–300`。
+默认语料位于 `backend/app/sentence_catalog.json`，新批次首次创建时复制为批次自己的 `sentences.json`。网页可修改当前句，或在当前句后添加带稳定 `custom_NNN` ID 的临时句。
 
 ## 默认录制流程
 
-1. 网页打开录制批次目录，选择已有轮次或新建下一个 `round_NNN`。
+1. 网页打开录制批次目录；首次初始化会同时建立粗打 `round_001` 和精打 `round_002`。
 2. 网页扫描并选择 Quest。
-3. 网页选择一台外置相机；固定的 300 句语料会自动载入。
+3. 网页选择一台外置相机；该批次的可编辑句子清单会自动载入。
 4. 短按空格开始 2 秒倒计时，再同步启动浏览器视频和 Quest Pose。
-5. 再短按空格结束并前进到下一句，浏览器上传 WebM，Quest 上传 Pose/Meta。
-6. 任意状态下长按空格 1.2 秒会显示进度并重置当前句；已经产生的 Take 保留为候选。
-7. 可按编号跳转、点击任意句、筛选完成状态或直接前往下一条未完成句；切换轮次时各自进度互不影响。
+5. 再短按空格结束并前进到下一句，浏览器上传 WebM，Quest 上传 Pose/Meta。每个 50 句区块按“粗打 → 精打 → 下一块粗打”自动切换；最后不足 50 句时在实际末句切换。
+6. 任意状态下长按空格 1.2 秒会显示进度并返回刚刚录制的轮次与句子；已经产生的 Take 保留为候选。
+7. 可按编号跳转、点击任意句、筛选完成状态、修改当前句、临时添加句子或直接前往下一条未完成句。
+8. 页面除句子编辑对话框外全局捕获空格，因此焦点落在普通输入框或按钮上也不会丢失脚踏操作。
+
+网页同时显示两种 Quest 监控链路：30 FPS 的 Meta 骨架用于判断动作捕捉状态；480 × 270、3 FPS 的侧后方 JPEG 用于确认角色、桌面和场景仍在正常渲染。两路 WebSocket 都会自动重连，并在数据停止后撤掉旧画面而不是继续显示缓存帧。JPEG 仅是低频辅助画面，不用于精确动作判断或音视频同步。
+
+开始命令分为“已排程”和“已实际开始”两次 Quest ACK。UDP 控制命令会用同一个 `command_id` 重发，Quest 对重复开始命令返回当前阶段而不会重复录制。主机只有收到实际开始 ACK 才进入 `recording`；若 Pose 未就绪或 5 秒内未收到实际开始确认，则回到当前句 `ready`，不会显示虚假录制。录制中主机每秒向 Quest 续租，连续 12 秒收不到控制包时 Quest 安全停止。浏览器每秒把相机 WebM 分片写入 IndexedDB，并按固定 Take 上下文上传；页面崩溃或刷新后会中止残留录制并恢复未上传分片。网页心跳中断 8 秒或 Quest 连续录制达到 10 分钟时，系统会把当前 Take 作为可追溯候选安全中止，不推进句子。
+
+## 本地数据审核
+
+在 `config\station.json` 中设置独立的审核数据根目录：
+
+```json
+{
+  "review_root": "D:\\SignVRData\\real data"
+}
+```
+
+启动服务后打开 `http://127.0.0.1:8000/review`。审核台扫描 `{dataset}/{teacher}/round_XXX/sentence_XXX/take_XXX` 下的 Meta、Pose 和 WebM，只把存在问题的项目写入数据集根目录的 `review_labels.json`，不会修改原始采集文件。
+
+常用单手快捷键：`A/D` 或左右方向键切换 Take，`W/S` 切换 Round，`Q` 标记视频问题，`E` 标记句子问题，空格播放/暂停，`R` 从头回放。
 
 ## 开发检查
 

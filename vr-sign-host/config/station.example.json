@@ -1,6 +1,7 @@
 {
   "station_id": "Station-01",
   "data_root": "D:\\SignVRData\\Station-01",
+  "review_root": "D:\\SignVRData\\real data",
   "http_host": "0.0.0.0",
   "http_port": 8000,
   "udp_host": "0.0.0.0",

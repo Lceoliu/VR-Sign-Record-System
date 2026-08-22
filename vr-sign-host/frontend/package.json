@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
+    "idb": "^8.0.3",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
@@ -27,4 +28,3 @@
     "typescript-eslint": "latest"
   }
 }
-

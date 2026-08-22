@@ -4,6 +4,9 @@ import type {
   HostState,
   RecordingBatchesResponse,
   RecordingRoundsResponse,
+  ReviewDatasetsResponse,
+  ReviewItem,
+  ReviewItemsResponse,
 } from './types'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -19,6 +22,23 @@ export const api = {
   state: () => request<HostState>('/api/state'),
   devices: () => request<DeviceInfo[]>('/api/devices'),
   recordingBatches: () => request<RecordingBatchesResponse>('/api/recording/batches'),
+  reviewDatasets: () => request<ReviewDatasetsResponse>('/api/review/datasets'),
+  reviewItems: (dataset: string) =>
+    request<ReviewItemsResponse>(`/api/review/items?dataset=${encodeURIComponent(dataset)}`),
+  updateReviewLabel: (item: ReviewItem) =>
+    request<{ item_id: string; video_issue: boolean; sentence_issue: boolean }>(
+      '/api/review/labels',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dataset: item.dataset,
+          item_id: item.id,
+          video_issue: item.video_issue,
+          sentence_issue: item.sentence_issue,
+        }),
+      },
+    ),
   recordingRounds: (batchId: string) =>
     request<RecordingRoundsResponse>(`/api/recording/batches/${encodeURIComponent(batchId)}/rounds`),
   createRound: (batchId: string, roundId: string) =>
@@ -37,6 +57,18 @@ export const api = {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sentence_index: sentenceIndex }),
+    }),
+  updateSentence: (sentenceIndex: number, text: string) =>
+    request<HostState>(`/api/recording/sentences/${sentenceIndex}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }),
+  addSentence: (afterIndex: number, text: string) =>
+    request<HostState>('/api/recording/sentences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ after_index: afterIndex, text }),
     }),
   scan: () => request<{ status: string }>('/api/devices/scan', { method: 'POST' }),
   selectDevice: (deviceId: string) =>
@@ -60,16 +92,25 @@ export const api = {
       body: JSON.stringify({ batch_id: batchId, round_id: roundId }),
     }),
   stop: () => request<CommandResponse>('/api/recording/stop', { method: 'POST' }),
+  abort: () => request<CommandResponse>('/api/recording/abort', { method: 'POST' }),
   reset: () => request<CommandResponse>('/api/recording/reset', { method: 'POST' }),
+  operatorHeartbeat: () => fetch('/api/operator/heartbeat', { method: 'POST' }),
+  operatorDisconnect: () => fetch('/api/operator/disconnect', { method: 'POST', keepalive: true }),
   uploadCamera: async (
     takeId: string,
     sessionId: string,
     sentenceId: string,
     blob: Blob,
+    startedAtUnixMs: number,
+    stoppedAtUnixMs: number,
+    firstChunkAtUnixMs: number,
   ) => {
     const body = new FormData()
     body.append('session_id', sessionId)
     body.append('sentence_id', sentenceId)
+    body.append('started_at_unix_ms', String(startedAtUnixMs))
+    body.append('stopped_at_unix_ms', String(stoppedAtUnixMs))
+    body.append('first_chunk_at_unix_ms', String(firstChunkAtUnixMs))
     body.append('video_file', blob, `${takeId}.camera.webm`)
     return request<{ video_file: string }>(`/api/takes/${encodeURIComponent(takeId)}/camera-upload`, {
       method: 'POST',
