@@ -68,6 +68,8 @@ class HostState(BaseModel):
     session_id: str = ""
     batch_id: str | None = None
     round_id: str | None = None
+    signing_mode: Literal["rough", "precise"] | None = None
+    mode_switch_notice: str | None = None
     recording_status: RecordingStatus
     selected_device_id: str | None = None
     current_sentence_index: int
@@ -86,6 +88,7 @@ class RoundInfo(BaseModel):
     station_id: str
     batch_id: str
     round_id: str
+    signing_mode: Literal["rough", "precise"] | None = None
     session_id: str
     current_sentence_index: int
     completed_sentences: int
@@ -100,6 +103,15 @@ class RoundCreateRequest(BaseModel):
 
 class SentenceSelectRequest(BaseModel):
     sentence_index: int = Field(ge=0)
+
+
+class SentenceUpdateRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+
+
+class SentenceCreateRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=500)
+    after_index: int = Field(ge=0)
 
 
 class StartRecordingRequest(BaseModel):

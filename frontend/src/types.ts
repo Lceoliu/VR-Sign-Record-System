@@ -53,6 +53,8 @@ export interface HostState {
   session_id: string
   batch_id: string | null
   round_id: string | null
+  signing_mode: 'rough' | 'precise' | null
+  mode_switch_notice: string | null
   recording_status: RecordingStatus
   selected_device_id: string | null
   current_sentence_index: number
@@ -81,6 +83,7 @@ export interface RoundInfo {
   station_id: string
   batch_id: string
   round_id: string
+  signing_mode: 'rough' | 'precise' | null
   session_id: string
   current_sentence_index: number
   completed_sentences: number

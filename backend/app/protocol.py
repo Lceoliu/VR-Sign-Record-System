@@ -7,7 +7,6 @@ from typing import Any
 
 
 PROTOCOL_VERSION = 3
-LEGACY_COMPATIBILITY_TOKEN = "trusted-lan"
 
 
 def unix_ms() -> int:
@@ -75,6 +74,32 @@ def guidance_packet(*, cmd_id: str, enabled: bool) -> dict[str, Any]:
     }
 
 
+def prompt_context_packet(
+    *,
+    cmd_id: str,
+    previous_prompt: str,
+    prompt: str,
+    next_prompt: str,
+    sentence_index: int,
+    total_sentences: int,
+    signing_mode: str | None,
+    mode_switch_notice: str | None,
+) -> dict[str, Any]:
+    return {
+        "type": "command",
+        "version": PROTOCOL_VERSION,
+        "command_id": cmd_id,
+        "action": "prompt_context",
+        "previous_prompt": previous_prompt,
+        "prompt": prompt,
+        "next_prompt": next_prompt,
+        "sentence_index": sentence_index,
+        "total_sentences": total_sentences,
+        "signing_mode": signing_mode,
+        "mode_switch_notice": mode_switch_notice,
+    }
+
+
 def pair_packet(
     *,
     cmd_id: str,
@@ -82,7 +107,6 @@ def pair_packet(
     http_port: int,
     pose_port: int,
     station_id: str,
-    session_token: str,
 ) -> dict[str, Any]:
     return {
         "type": "pair",
@@ -92,5 +116,4 @@ def pair_packet(
         "http_port": http_port,
         "pose_port": pose_port,
         "station_id": station_id,
-        "session_token": session_token,
     }

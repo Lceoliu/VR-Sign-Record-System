@@ -18,7 +18,9 @@ from .models import (
     RecordingCommandResponse,
     ReviewLabelRequest,
     RoundCreateRequest,
+    SentenceCreateRequest,
     SentenceSelectRequest,
+    SentenceUpdateRequest,
     StartRecordingRequest,
 )
 from .protocol import command_id, heartbeat_packet, pair_packet, pedal_packet
@@ -38,8 +40,36 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     recordings = RecordingService(repository)
     udp = UdpService(config, registry, hub)
 
+    async def sync_prompt_context() -> None:
+        if not start_udp:
+            return
+        device = await registry.selected()
+        if device is None:
+            return
+        try:
+            state = await recordings.snapshot()
+            if state.selected_device_id != device.device_id:
+                state = await recordings.set_selected_device(device.device_id)
+                await hub.publish_event(
+                    {"type": "state_changed", "payload": state.model_dump(mode="json")}
+                )
+            packet, _ = await recordings.prompt_context()
+            await udp.send_to_device(device.device_id, packet)
+        except (KeyError, RuntimeError, ValueError):
+            return
+
     async def handle_signal(packet: dict) -> None:
         signal = str(packet.get("signal"))
+        if signal == "navigate_sentence":
+            try:
+                state = await recordings.navigate_sentence(int(packet.get("direction") or 0))
+            except ValueError:
+                return
+            await sync_prompt_context()
+            await hub.publish_event(
+                {"type": "state_changed", "payload": state.model_dump(mode="json")}
+            )
+            return
         if signal == "recording_interrupted":
             try:
                 state, _, _ = await recordings.abort()
@@ -98,6 +128,12 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
 
     udp.on_signal = handle_signal
     udp.on_ack = handle_ack
+
+    async def handle_device_updated(device) -> None:
+        if device.selected:
+            await sync_prompt_context()
+
+    udp.on_device_updated = handle_device_updated
 
     async def keep_recording_lease() -> None:
         state = await recordings.snapshot()
@@ -233,6 +269,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_prompt_context()
         return state
 
     @app.post("/api/recording/batches/{batch_id}/rounds/{round_id}/select")
@@ -247,6 +284,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_prompt_context()
         return state
 
     @app.put("/api/recording/current-sentence")
@@ -256,6 +294,27 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_prompt_context()
+        return state
+
+    @app.patch("/api/recording/sentences/{sentence_index}")
+    async def update_recording_sentence(sentence_index: int, body: SentenceUpdateRequest):
+        try:
+            state = await recordings.update_sentence(sentence_index, body.text)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_prompt_context()
+        return state
+
+    @app.post("/api/recording/sentences")
+    async def add_recording_sentence(body: SentenceCreateRequest):
+        try:
+            state = await recordings.add_sentence(body.after_index, body.text)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_prompt_context()
         return state
 
     @app.get("/api/devices")
@@ -274,21 +333,14 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         device = await registry.get(device_id)
         if device is None:
             raise HTTPException(status_code=404, detail="未找到这台 Quest 设备")
-        if device.paired_station_id and device.paired_station_id != config.station_id:
-            raise HTTPException(
-                status_code=409,
-                detail=f"这台 Quest 已绑定 {device.paired_station_id}",
-            )
-        quest_station_id = config.station_id
-        selected, token = await registry.select(device_id)
+        selected = await registry.select(device_id)
         cmd_id = command_id()
         packet = pair_packet(
             cmd_id=cmd_id,
             host_ip=udp.host_ip_for(selected.ip),
             http_port=config.http_port,
             pose_port=config.udp_port,
-            station_id=quest_station_id,
-            session_token=token,
+            station_id=config.station_id,
         )
         if start_udp:
             try:
@@ -299,6 +351,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         selected = await registry.mark_pairing_result(device_id, True)
         await recordings.set_selected_device(device_id)
         await hub.publish_event({"type": "device_selected", "payload": selected.model_dump()})
+        await sync_prompt_context()
         return DeviceSelectResponse(selected=selected, command_id=cmd_id)
 
     async def selected_device_id() -> str:
@@ -422,6 +475,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
                 await recordings.restore(previous)
                 raise
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_prompt_context()
         return RecordingCommandResponse(action="stop_take", state=state, command_id=cmd_id)
 
     @app.post("/api/recording/reset", response_model=RecordingCommandResponse)
@@ -437,6 +491,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
                 await recordings.restore(previous)
                 raise
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_prompt_context()
         return RecordingCommandResponse(action="reset_take", state=state, command_id=cmd_id)
 
     @app.post("/api/pedal/{phase}", status_code=202)

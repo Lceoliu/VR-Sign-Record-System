@@ -42,6 +42,7 @@ class UdpService:
         self._control_tasks: set[asyncio.Task[None]] = set()
         self.on_signal: Callable[[dict[str, Any]], Awaitable[None]] | None = None
         self.on_ack: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+        self.on_device_updated: Callable[[Any], Awaitable[None]] | None = None
 
     async def start(self) -> None:
         loop = asyncio.get_running_loop()
@@ -112,17 +113,7 @@ class UdpService:
         device = await self.registry.get(device_id)
         if device is None:
             raise KeyError(device_id)
-        outbound = packet
-        if packet.get("type") == "command":
-            token = await self.registry.session_token(device_id)
-            if token is None:
-                raise RuntimeError("Quest command session is not paired")
-            outbound = {
-                **packet,
-                "station_id": device.paired_station_id or self.settings.station_id,
-                "session_token": token,
-            }
-        self._send(outbound, (device.ip, device.control_port))
+        self._send(packet, (device.ip, device.control_port))
 
     async def send_to_device_and_wait(
         self,
@@ -191,19 +182,18 @@ class UdpService:
             device = await self.registry.upsert_announcement(packet, addr[0])
             await self.hub.publish_event({"type": "device_updated", "payload": device.model_dump()})
             if device.selected:
-                token = await self.registry.session_token(device.device_id)
-                if token:
-                    self._send(
-                        pair_packet(
-                            cmd_id=command_id(),
-                            host_ip=self.host_ip_for(device.ip),
-                            http_port=self.settings.http_port,
-                            pose_port=self.settings.udp_port,
-                            station_id=device.paired_station_id or self.settings.station_id,
-                            session_token=token,
-                        ),
-                        (device.ip, device.control_port),
-                    )
+                self._send(
+                    pair_packet(
+                        cmd_id=command_id(),
+                        host_ip=self.host_ip_for(device.ip),
+                        http_port=self.settings.http_port,
+                        pose_port=self.settings.udp_port,
+                        station_id=self.settings.station_id,
+                    ),
+                    (device.ip, device.control_port),
+                )
+            if self.on_device_updated is not None:
+                await self.on_device_updated(device)
             return
         if packet_type == "ack":
             device_id = str(packet.get("device_id") or "")

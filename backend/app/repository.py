@@ -11,12 +11,13 @@ from pathlib import Path
 import aiofiles
 from fastapi import UploadFile
 
-from .models import RoundInfo, TakeItem, TakeQuality
+from .models import RoundInfo, SentenceItem, TakeItem, TakeQuality
 
 
 _TAKE_DIRECTORY = re.compile(r"^take_(\d+)$")
 _ROUND_DIRECTORY = re.compile(r"^round_(\d+)$")
 _ROUND_MANIFEST = "round.json"
+_BATCH_SENTENCES = "sentences.json"
 _WINDOWS_RESERVED_NAMES = {
     "CON",
     "PRN",
@@ -83,14 +84,21 @@ class RecordingRepository:
         safe_round = safe_segment(round_id)
         batch_directory = self.recordings_root / safe_batch
         batch_directory.mkdir(parents=True, exist_ok=True)
+        try:
+            existing_directory = self._round_directory(safe_batch, safe_round)
+        except FileNotFoundError:
+            existing_directory = None
+        if existing_directory is not None:
+            raise FileExistsError(f"轮次已存在：{safe_round}")
         round_directory = batch_directory / safe_round
         round_directory.mkdir()
         now = int(time.time() * 1000)
         manifest = {
-            "version": 2,
+            "version": 3,
             "station_id": self.station_id,
             "batch_id": safe_batch,
             "round_id": safe_round,
+            "signing_mode": self.signing_mode_for_round(safe_round),
             "session_id": f"session_{uuid.uuid4().hex}",
             "current_sentence_index": 0,
             "total_sentences": total_sentences,
@@ -101,6 +109,66 @@ class RecordingRepository:
         self._sessions[manifest["session_id"]] = (safe_batch, safe_round)
         return self.round_info(safe_batch, safe_round)
 
+    def ensure_batch_sentences(
+        self,
+        batch_id: str,
+        defaults: list[SentenceItem],
+    ) -> list[SentenceItem]:
+        safe_batch = safe_segment(batch_id)
+        batch_directory = self.recordings_root / safe_batch
+        batch_directory.mkdir(parents=True, exist_ok=True)
+        path = batch_directory / _BATCH_SENTENCES
+        if not path.is_file():
+            self._write_json_atomic(
+                path,
+                [item.model_dump(mode="json") for item in defaults],
+            )
+        return self.load_batch_sentences(safe_batch)
+
+    def load_batch_sentences(self, batch_id: str) -> list[SentenceItem]:
+        path = self.recordings_root / safe_segment(batch_id) / _BATCH_SENTENCES
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        sentences = [SentenceItem.model_validate(item) for item in payload]
+        if not sentences:
+            raise ValueError("批次语料不能为空")
+        for index, sentence in enumerate(sentences):
+            sentence.index = index
+            sentence.status = "pending"
+            sentence.completed = False
+            sentence.take_count = 0
+        return sentences
+
+    def save_batch_sentences(
+        self,
+        batch_id: str,
+        sentences: list[SentenceItem],
+        *,
+        inserted_after_index: int | None = None,
+    ) -> None:
+        safe_batch = safe_segment(batch_id)
+        normalized = []
+        for index, item in enumerate(sentences):
+            sentence = item.model_copy(deep=True)
+            sentence.index = index
+            sentence.status = "pending"
+            sentence.completed = False
+            sentence.take_count = 0
+            normalized.append(sentence)
+        self._write_json_atomic(
+            self.recordings_root / safe_batch / _BATCH_SENTENCES,
+            [item.model_dump(mode="json") for item in normalized],
+        )
+        for info in self.list_rounds(safe_batch):
+            round_directory = self._round_directory(safe_batch, info.round_id)
+            manifest = self._read_round_manifest(round_directory)
+            manifest["total_sentences"] = len(normalized)
+            current_index = manifest["current_sentence_index"]
+            if inserted_after_index is not None and current_index > inserted_after_index:
+                current_index += 1
+            manifest["current_sentence_index"] = min(current_index, len(normalized) - 1)
+            manifest["updated_at_unix_ms"] = int(time.time() * 1000)
+            self._write_round_manifest(round_directory, manifest)
+
     def round_info(self, batch_id: str, round_id: str) -> RoundInfo:
         manifest = self._read_round_manifest(self._round_directory(batch_id, round_id))
         progress = self.round_progress(batch_id, round_id)
@@ -108,6 +176,7 @@ class RecordingRepository:
             station_id=manifest["station_id"],
             batch_id=manifest["batch_id"],
             round_id=manifest["round_id"],
+            signing_mode=manifest.get("signing_mode") or self.signing_mode_for_round(manifest["round_id"]),
             session_id=manifest["session_id"],
             current_sentence_index=manifest["current_sentence_index"],
             completed_sentences=sum(1 for completed, _ in progress.values() if completed),
@@ -225,10 +294,20 @@ class RecordingRepository:
                 )
 
     def _round_directory(self, batch_id: str, round_id: str) -> Path:
-        directory = self.recordings_root / safe_segment(batch_id) / safe_segment(round_id)
-        if not (directory / _ROUND_MANIFEST).is_file():
-            raise FileNotFoundError(f"未找到轮次：{round_id}")
-        return directory
+        safe_batch = safe_segment(batch_id)
+        safe_round = safe_segment(round_id)
+        batch_directory = self.recordings_root / safe_batch
+        directory = batch_directory / safe_round
+        if (directory / _ROUND_MANIFEST).is_file():
+            return directory
+        if batch_directory.is_dir():
+            for candidate in batch_directory.iterdir():
+                if not candidate.is_dir() or not (candidate / _ROUND_MANIFEST).is_file():
+                    continue
+                manifest = self._read_round_manifest(candidate)
+                if manifest["round_id"] == safe_round:
+                    return candidate
+        raise FileNotFoundError(f"未找到轮次：{safe_round}")
 
     def _read_round_manifest(self, round_directory: Path) -> dict:
         payload = json.loads((round_directory / _ROUND_MANIFEST).read_text(encoding="utf-8"))
@@ -244,8 +323,9 @@ class RecordingRepository:
         missing = required.difference(payload)
         if missing:
             raise ValueError(f"轮次清单缺少字段：{', '.join(sorted(missing))}")
-        if payload["batch_id"] != round_directory.parent.name or payload["round_id"] != round_directory.name:
+        if payload["batch_id"] != round_directory.parent.name:
             raise ValueError(f"轮次清单与目录不匹配：{round_directory}")
+        payload["round_id"] = safe_segment(str(payload["round_id"]))
         safe_segment(str(payload["session_id"]))
         manifest_station_id = safe_segment(str(payload.get("station_id") or self.station_id))
         if manifest_station_id.casefold() != self.station_id.casefold():
@@ -260,6 +340,14 @@ class RecordingRepository:
         temporary = round_directory / f".{_ROUND_MANIFEST}.{uuid.uuid4().hex}.tmp"
         temporary.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, destination)
+
+    def _write_json_atomic(self, destination: Path, payload: object) -> None:
+        temporary = destination.parent / f".{destination.name}.{uuid.uuid4().hex}.tmp"
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
         os.replace(temporary, destination)
@@ -310,6 +398,14 @@ class RecordingRepository:
     def _round_sort_key(round_id: str) -> tuple[int, int | str]:
         match = _ROUND_DIRECTORY.fullmatch(round_id)
         return (0, int(match.group(1))) if match else (1, round_id.casefold())
+
+    @staticmethod
+    def signing_mode_for_round(round_id: str) -> str | None:
+        if round_id == "round_001":
+            return "rough"
+        if round_id == "round_002":
+            return "precise"
+        return None
 
     async def save_upload(self, upload: UploadFile, destination: Path) -> Path:
         return (await self.save_uploads([(upload, destination)]))[0]

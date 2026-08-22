@@ -4,13 +4,12 @@ import asyncio
 from dataclasses import dataclass
 
 from .models import DeviceInfo
-from .protocol import LEGACY_COMPATIBILITY_TOKEN, unix_ms
+from .protocol import unix_ms
 
 
 @dataclass(slots=True)
 class DeviceRecord:
     info: DeviceInfo
-    session_token: str | None = None
 
 
 class DeviceRegistry:
@@ -59,10 +58,7 @@ class DeviceRegistry:
                 preview_frames=current.info.preview_frames if current else 0,
                 pose_packets=current.info.pose_packets if current else 0,
             )
-            self._devices[device_id] = DeviceRecord(
-                info=info,
-                session_token=LEGACY_COMPATIBILITY_TOKEN,
-            )
+            self._devices[device_id] = DeviceRecord(info=info)
             return info.model_copy()
 
     async def list(self) -> list[DeviceInfo]:
@@ -74,15 +70,14 @@ class DeviceRegistry:
             record = self._devices.get(device_id)
             return record.info.model_copy() if record else None
 
-    async def select(self, device_id: str) -> tuple[DeviceInfo, str]:
+    async def select(self, device_id: str) -> DeviceInfo:
         async with self._lock:
             record = self._devices[device_id]
             self._selected_id = device_id
             for candidate_id, candidate in self._devices.items():
                 candidate.info.selected = candidate_id == device_id
             record.info.paired = False
-            record.session_token = LEGACY_COMPATIBILITY_TOKEN
-            return record.info.model_copy(), LEGACY_COMPATIBILITY_TOKEN
+            return record.info.model_copy()
 
     async def mark_pairing_result(self, device_id: str, paired: bool) -> DeviceInfo:
         async with self._lock:
@@ -95,11 +90,6 @@ class DeviceRegistry:
             if self._selected_id is None:
                 return None
             return self._devices[self._selected_id].info.model_copy()
-
-    async def session_token(self, device_id: str) -> str | None:
-        async with self._lock:
-            record = self._devices.get(device_id)
-            return LEGACY_COMPATIBILITY_TOKEN if record else None
 
     async def mark_pose_packet(self, device_id: str | None, ip: str) -> str | None:
         async with self._lock:

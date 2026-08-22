@@ -9,7 +9,7 @@ from starlette.websockets import WebSocketDisconnect
 import app.realtime as realtime_module
 from app.config import Settings
 from app.device_registry import DeviceRegistry
-from app.protocol import LEGACY_COMPATIBILITY_TOKEN, decode_packet, encode_packet, pair_packet
+from app.protocol import decode_packet, encode_packet, pair_packet
 from app.realtime import RealtimeHub
 from app.udp_service import UdpService
 
@@ -117,6 +117,39 @@ def test_only_devices_owned_by_this_station_are_auto_selected():
     anyio.run(scenario)
 
 
+def test_selected_device_announcement_notifies_host_sync(tmp_path):
+    async def scenario() -> None:
+        registry = DeviceRegistry("station-a")
+        service = UdpService(
+            Settings(data_root=tmp_path, station_id="station-a"),
+            registry,
+            RealtimeHub(),
+        )
+        service.transport = FakeDatagramTransport()  # type: ignore[assignment]
+        observed: list[str] = []
+
+        async def observe(device) -> None:
+            observed.append(device.device_id)
+
+        service.on_device_updated = observe
+        await service.handle_packet(
+            encode_packet(
+                {
+                    "type": "announce",
+                    "device_id": "quest-a",
+                    "control_port": 5006,
+                    "paired_station_id": "station-a",
+                }
+            ),
+            ("192.168.1.42", 5006),
+        )
+
+        assert observed == ["quest-a"]
+        assert (await registry.selected()).device_id == "quest-a"
+
+    anyio.run(scenario)
+
+
 def test_command_wait_resolves_matching_ack(tmp_path):
     async def scenario() -> None:
         registry = DeviceRegistry()
@@ -143,7 +176,6 @@ def test_command_wait_resolves_matching_ack(tmp_path):
             http_port=8000,
             pose_port=5005,
             station_id="station-test",
-            session_token="token",
         )
 
         pending = asyncio.create_task(
@@ -172,7 +204,7 @@ def test_command_wait_resolves_matching_ack(tmp_path):
     anyio.run(scenario)
 
 
-def test_commands_use_stable_legacy_fields_for_old_quest_builds(tmp_path):
+def test_commands_are_sent_without_authorization_fields(tmp_path):
     async def scenario() -> None:
         registry = DeviceRegistry()
         await registry.upsert_announcement(
@@ -194,8 +226,8 @@ def test_commands_use_stable_legacy_fields_for_old_quest_builds(tmp_path):
         )
 
         packet = decode_packet(transport.sent[0][0])
-        assert packet["station_id"] == "station-test"
-        assert packet["session_token"] == LEGACY_COMPATIBILITY_TOKEN
+        assert packet["action"] == "start_take"
+        assert "session_token" not in packet
 
     anyio.run(scenario)
 
@@ -216,7 +248,6 @@ def test_command_wait_retries_until_timeout(tmp_path):
             http_port=8000,
             pose_port=5005,
             station_id="station-test",
-            session_token="token",
         )
 
         with pytest.raises(TimeoutError):

@@ -20,7 +20,7 @@ def build_app(tmp_path):
     return create_app(settings=settings, start_udp=False)
 
 
-def register_and_select(client: TestClient, app) -> tuple[str, str]:
+def register_and_select(client: TestClient, app) -> str:
     device_id = "quest-test"
     with client.websocket_connect("/ws/events") as websocket:
         websocket.receive_json()
@@ -38,8 +38,7 @@ def register_and_select(client: TestClient, app) -> tuple[str, str]:
         )
     response = client.post(f"/api/devices/{device_id}/select")
     assert response.status_code == 200
-    record = app.state.registry._devices[device_id]
-    return device_id, record.session_token
+    return device_id
 
 
 def create_round(
@@ -156,7 +155,7 @@ def test_recording_commands_require_selected_device(tmp_path):
 def test_nested_round_recording_upload_and_completion(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
-        device_id, token = register_and_select(client, app)
+        device_id = register_and_select(client, app)
         created = create_round(client)
         assert created["station_id"] == "station-test"
         session_id = created["session_id"]
@@ -184,7 +183,7 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
         jpeg = b"\xff\xd8fake-jpeg\xff\xd9"
         preview = client.post(
             f"/api/devices/{device_id}/preview-frame",
-            headers={"x-signvr-token": token, "content-type": "image/jpeg"},
+            headers={"content-type": "image/jpeg"},
             content=jpeg,
         )
         assert preview.status_code == 202
@@ -192,7 +191,6 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
 
         upload = client.post(
             f"/api/devices/{device_id}/takes/upload",
-            headers={"x-signvr-token": token},
             data={
                 "session_id": session_id,
                 "sentence_id": "sentence_001",
@@ -267,11 +265,11 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
 
         rounds = client.get("/api/recording/batches/测试批次/rounds").json()
         assert rounds["rounds"][0]["completed_sentences"] == 1
-        assert rounds["suggested_round_id"] == "round_002"
+        assert rounds["suggested_round_id"] == "round_003"
+        assert [item["signing_mode"] for item in rounds["rounds"]] == ["rough", "precise"]
 
         duplicate = client.post(
             f"/api/devices/{device_id}/takes/upload",
-            headers={"x-signvr-token": token},
             data={
                 "session_id": session_id,
                 "sentence_id": "sentence_001",
@@ -305,7 +303,11 @@ def test_round_switching_preserves_independent_cursor(tmp_path):
         assert jump.status_code == 200
         assert jump.json()["current_sentence_index"] == 50
 
-        second = create_round(client, round_id="round_002")
+        second_response = client.post(
+            "/api/recording/batches/测试批次/rounds/round_002/select"
+        )
+        assert second_response.status_code == 200
+        second = second_response.json()
         assert second["current_sentence_index"] == 0
 
         first_again = client.post(
@@ -336,7 +338,7 @@ def test_round_switching_preserves_independent_cursor(tmp_path):
         ]
 
 
-def test_device_reported_by_another_station_cannot_be_selected(tmp_path):
+def test_device_can_be_rebound_by_the_active_trusted_lan_host(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
         import anyio
@@ -352,5 +354,5 @@ def test_device_reported_by_another_station_cannot_be_selected(tmp_path):
         )
 
         response = client.post("/api/devices/quest-other/select")
-        assert response.status_code == 409
-        assert "station-other" in response.json()["detail"]
+        assert response.status_code == 200
+        assert response.json()["selected"]["device_id"] == "quest-other"

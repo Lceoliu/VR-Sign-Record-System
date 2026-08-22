@@ -58,6 +58,18 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sentence_index: sentenceIndex }),
     }),
+  updateSentence: (sentenceIndex: number, text: string) =>
+    request<HostState>(`/api/recording/sentences/${sentenceIndex}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    }),
+  addSentence: (afterIndex: number, text: string) =>
+    request<HostState>('/api/recording/sentences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ after_index: afterIndex, text }),
+    }),
   scan: () => request<{ status: string }>('/api/devices/scan', { method: 'POST' }),
   selectDevice: (deviceId: string) =>
     request(

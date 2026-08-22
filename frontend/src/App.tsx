@@ -16,6 +16,7 @@ import {
   ListFilter,
   Play,
   Plus,
+  Pencil,
   RefreshCw,
   RotateCcw,
   Search,
@@ -47,6 +48,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   spatial: '空间',
   question: '问答',
   stress: '辨析',
+  temporary: '临时',
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -85,7 +87,6 @@ export default function App() {
   const [recordingRoot, setRecordingRoot] = useState('data/recordings')
   const [batchId, setBatchId] = useState('')
   const [openedBatchId, setOpenedBatchId] = useState('')
-  const [suggestedRoundId, setSuggestedRoundId] = useState('round_001')
   const [sentenceFilter, setSentenceFilter] = useState<'all' | 'pending' | 'completed'>('all')
   const [sentenceQuery, setSentenceQuery] = useState('')
   const [jumpValue, setJumpValue] = useState('1')
@@ -98,6 +99,11 @@ export default function App() {
   const [uploading, setUploading] = useState(false)
   const [recoveringCapture, setRecoveringCapture] = useState(false)
   const [captureActive, setCaptureActive] = useState(false)
+  const [sentenceEditor, setSentenceEditor] = useState<{
+    mode: 'edit' | 'add'
+    index: number
+    text: string
+  } | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -121,6 +127,11 @@ export default function App() {
   const currentRoundId = state?.round_id ?? null
   const activeRoundId = currentBatchId === openedBatchId ? currentRoundId : null
   const contextReady = Boolean(openedBatchId && activeRoundId)
+  const missingStandardRoundId = !recordingRounds.some((round) => round.round_id === 'round_001')
+    ? 'round_001'
+    : !recordingRounds.some((round) => round.round_id === 'round_002')
+      ? 'round_002'
+      : null
   const captureBusy = uploading || recoveringCapture || captureActive
   const captureReady = contextReady && Boolean(selectedDeviceId) && cameraReady && !captureBusy
   const startBlockedReason = !contextReady
@@ -159,7 +170,6 @@ export default function App() {
   const refreshRoundList = useCallback(async (targetBatchId: string) => {
     const response = await api.recordingRounds(targetBatchId)
     setRecordingRounds(response.rounds)
-    setSuggestedRoundId(response.suggested_round_id)
     return response
   }, [])
 
@@ -545,15 +555,29 @@ export default function App() {
   }
 
   const createNextRound = async () => {
-    if (!openedBatchId) return
+    if (!openedBatchId || !missingStandardRoundId) return
     try {
-      const nextState = await api.createRound(openedBatchId, suggestedRoundId)
+      const nextState = await api.createRound(openedBatchId, missingStandardRoundId)
       commitState(nextState)
       setRecordingBatches((current) => current.includes(openedBatchId) ? current : [...current, openedBatchId])
       await refreshRoundList(openedBatchId)
       setError(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '无法创建录制轮次')
+    }
+  }
+
+  const saveSentenceEditor = async () => {
+    if (!sentenceEditor || !sentenceEditor.text.trim()) return
+    try {
+      const nextState = sentenceEditor.mode === 'edit'
+        ? await api.updateSentence(sentenceEditor.index, sentenceEditor.text)
+        : await api.addSentence(sentenceEditor.index, sentenceEditor.text)
+      commitState(nextState)
+      setSentenceEditor(null)
+      setError(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '无法保存句子')
     }
   }
 
@@ -602,7 +626,8 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || event.repeat || isEditableTarget(event.target)) return
+      if (event.code !== 'Space' || event.repeat) return
+      if (sentenceEditor && isEditableTarget(event.target)) return
       event.preventDefault()
       keyDownAtRef.current = performance.now()
       longPressTriggeredRef.current = false
@@ -643,7 +668,7 @@ export default function App() {
       window.removeEventListener('keyup', onKeyUp)
       if (holdTimerRef.current !== null) window.clearInterval(holdTimerRef.current)
     }
-  }, [isRecording, resetRecording, startRecording, stopRecording])
+  }, [isRecording, resetRecording, sentenceEditor, startRecording, stopRecording])
 
   const selectQuest = async (deviceId: string) => {
     try {
@@ -673,6 +698,7 @@ export default function App() {
           <span className="online"><i />本地服务在线</span>
           <span>工作站 {state.station_id}</span>
           <span>{state.batch_id && state.round_id ? `${state.batch_id} / ${state.round_id}` : '尚未选择录制轮次'}</span>
+          {state.signing_mode && <span className={`mode-chip ${state.signing_mode}`}>{state.signing_mode === 'rough' ? '粗打' : '精打'}</span>}
           <strong>{completedCount} 已完成 · 第 {state.current_sentence_index + 1} / {state.sentences.length} 句</strong>
         </div>
       </header>
@@ -711,12 +737,12 @@ export default function App() {
                 <option value="">{recordingRounds.length ? '选择轮次' : '尚无轮次'}</option>
                 {recordingRounds.map((round) => (
                   <option key={round.round_id} value={round.round_id}>
-                    {round.round_id} · {round.completed_sentences}/{round.total_sentences}
+                    {round.signing_mode === 'rough' ? '粗打' : round.signing_mode === 'precise' ? '精打' : round.round_id} · {round.completed_sentences}/{round.total_sentences}
                   </option>
                 ))}
               </select>
-              <button disabled={!openedBatchId || state.recording_status !== 'ready'} onClick={() => void createNextRound()}>
-                <Plus size={15} />新建 {suggestedRoundId}
+              <button disabled={!openedBatchId || !missingStandardRoundId || state.recording_status !== 'ready'} onClick={() => void createNextRound()}>
+                <Plus size={15} />{missingStandardRoundId ? '初始化粗打 / 精打' : '粗打 / 精打已就绪'}
               </button>
             </div>
             <p>{openedBatchId ? `${recordingRoot}/${openedBatchId}${activeRoundId ? `/${activeRoundId}` : ''}` : '开始录制前必须打开批次并选择轮次'}</p>
@@ -779,8 +805,21 @@ export default function App() {
         </aside>
 
         <main className="main-stage">
+          {state.mode_switch_notice && (
+            <div className="mode-switch-banner" role="alert">
+              <strong>{state.mode_switch_notice}</strong>
+              {state.signing_mode && <span>当前进入{state.signing_mode === 'rough' ? '粗打' : '精打'} · 第 {state.current_sentence_index + 1} 句</span>}
+            </div>
+          )}
           <section className="prompt-block">
-            <div className="section-heading"><h2>当前句子</h2><span>{CATEGORY_LABELS[currentSentence?.category ?? ''] ?? currentSentence?.category} · #{String(state.current_sentence_index + 1).padStart(3, '0')}</span></div>
+            <div className="section-heading">
+              <h2>当前句子</h2>
+              <div className="prompt-actions">
+                <span>{CATEGORY_LABELS[currentSentence?.category ?? ''] ?? currentSentence?.category} · #{String(state.current_sentence_index + 1).padStart(3, '0')}</span>
+                <button disabled={!contextReady || state.recording_status !== 'ready'} onClick={() => setSentenceEditor({ mode: 'edit', index: state.current_sentence_index, text: currentSentence?.text ?? '' })}><Pencil size={14} />修改</button>
+                <button disabled={!contextReady || state.recording_status !== 'ready'} onClick={() => setSentenceEditor({ mode: 'add', index: state.current_sentence_index, text: '' })}><Plus size={14} />在后面临时加一句</button>
+              </div>
+            </div>
             <p>{currentSentence?.text}</p>
           </section>
           <div className="video-grid">
@@ -885,6 +924,15 @@ export default function App() {
           {holdProgress > 0 && <div className="hold-ring" style={{ '--progress': `${holdProgress * 360}deg` } as React.CSSProperties}><i /></div>}
         </div>
       </footer>
+      {sentenceEditor && (
+        <div className="sentence-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSentenceEditor(null) }}>
+          <section className="sentence-editor" role="dialog" aria-modal="true" aria-label={sentenceEditor.mode === 'edit' ? '修改句子' : '临时添加句子'}>
+            <h2>{sentenceEditor.mode === 'edit' ? `修改第 ${sentenceEditor.index + 1} 句` : `在第 ${sentenceEditor.index + 1} 句后添加`}</h2>
+            <textarea autoFocus value={sentenceEditor.text} onChange={(event) => setSentenceEditor({ ...sentenceEditor, text: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void saveSentenceEditor() }} />
+            <div><button onClick={() => setSentenceEditor(null)}>取消</button><button className="primary" disabled={!sentenceEditor.text.trim()} onClick={() => void saveSentenceEditor()}>保存 Ctrl+Enter</button></div>
+          </section>
+        </div>
+      )}
     </div>
   )
 }
