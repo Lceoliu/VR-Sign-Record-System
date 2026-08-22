@@ -33,7 +33,7 @@
 
 ## 构建
 
-Android IL2CPP 开发包输出到 `Builds/Android/`（该目录不入库）。安装到 Quest 3 后，应用会在局域网内广播 UDP 公告等待主机配对。
+Android IL2CPP 开发包输出到 `Builds/Android/`（该目录不入库）。安装到 Quest 3 后，应用会在局域网内广播 UDP 公告等待主机配对。开始录制使用主机下发的绝对 Unix 毫秒时刻，并在 Pose 真正启动后返回第二次 ACK；主机失联或单条录制达到 10 分钟时，Quest 会把当前 Take 作为中断候选安全落盘。
 
 正式产品身份为：
 
