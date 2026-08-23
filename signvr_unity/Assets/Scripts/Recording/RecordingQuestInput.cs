@@ -3,9 +3,9 @@ using UnityEngine;
 namespace SignVR.Recording
 {
     /// <summary>
-    /// Single-button headset control: tap A to start/stop and hold A to reset
-    /// the current sentence. Host pedal commands continue to use the same
-    /// coordinator methods, so both control paths produce identical states.
+    /// Quest controller shortcuts for the local recording workflow. A starts
+    /// and stops a take, holding A resets it, B loads the next sentence, and X
+    /// loads the previous sentence. Host commands use the same coordinator.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class RecordingQuestInput : MonoBehaviour
@@ -21,6 +21,20 @@ namespace SignVR.Recording
 
         [SerializeField]
         private OVRInput.Controller controller = OVRInput.Controller.RTouch;
+
+        [SerializeField]
+        private OVRInput.Button nextSentenceButton = OVRInput.Button.Two;
+
+        [SerializeField]
+        private OVRInput.Controller nextSentenceController =
+            OVRInput.Controller.RTouch;
+
+        [SerializeField]
+        private OVRInput.Button previousSentenceButton = OVRInput.Button.Three;
+
+        [SerializeField]
+        private OVRInput.Controller previousSentenceController =
+            OVRInput.Controller.LTouch;
 
         [SerializeField]
         [Min(0.5f)]
@@ -43,6 +57,24 @@ namespace SignVR.Recording
             if (coordinator == null)
             {
                 return;
+            }
+
+            if (CanSwitchSentence())
+            {
+                if (OVRInput.GetDown(
+                        nextSentenceButton,
+                        nextSentenceController
+                    ))
+                {
+                    sentenceSequence.TryMoveNext();
+                }
+                else if (OVRInput.GetDown(
+                             previousSentenceButton,
+                             previousSentenceController
+                         ))
+                {
+                    sentenceSequence.TryMovePrevious();
+                }
             }
 
             if (OVRInput.GetDown(toggleButton, controller))
@@ -111,6 +143,13 @@ namespace SignVR.Recording
                     coordinator.BeginCurrentTake();
                     break;
             }
+        }
+
+        private bool CanSwitchSentence()
+        {
+            return sentenceSequence != null &&
+                   (coordinator.State == RecordingFlowState.Ready ||
+                    coordinator.State == RecordingFlowState.Completed);
         }
 
         private void OnDisable()

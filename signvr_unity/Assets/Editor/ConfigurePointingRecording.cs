@@ -16,6 +16,11 @@ internal static class ConfigurePointingRecording
 {
     internal const string ScenePath = "Assets/Scenes/VRroom.unity";
     private const string ViewpointRootName = "RecordingViewpoints";
+    private const string SafeDoorPath =
+        "root/GLTF_SceneRootNode/Safe_0/Object_5";
+    private const string SafeDoorHingeName = "RecordingSafeDoorLeftHinge";
+    private const string OpenSafeViewpointId = "state_02";
+    private const float SafeDoorOpenAngle = 105f;
 
     private readonly struct ViewpointSpec
     {
@@ -174,6 +179,57 @@ internal static class ConfigurePointingRecording
         return Application.isPlaying;
     }
 
+    [MenuItem("Tools/SignVR/Simulation/Previous Sentence")]
+    private static void SelectPreviousEditorSentence()
+    {
+        SelectRelativeEditorSentence(-1);
+    }
+
+    [MenuItem("Tools/SignVR/Simulation/Previous Sentence", true)]
+    private static bool CanSelectPreviousEditorSentence()
+    {
+        return Application.isPlaying;
+    }
+
+    [MenuItem("Tools/SignVR/Simulation/Next Sentence")]
+    private static void SelectNextEditorSentence()
+    {
+        SelectRelativeEditorSentence(1);
+    }
+
+    [MenuItem("Tools/SignVR/Simulation/Next Sentence", true)]
+    private static bool CanSelectNextEditorSentence()
+    {
+        return Application.isPlaying;
+    }
+
+    private static void SelectRelativeEditorSentence(int offset)
+    {
+        if (!Application.isPlaying)
+        {
+            throw new InvalidOperationException(
+                "Enter Play Mode before switching simulated sentences."
+            );
+        }
+
+        RecordingSentenceSequence sequence =
+            UnityEngine.Object.FindAnyObjectByType<RecordingSentenceSequence>();
+        if (sequence == null || !sequence.HasCurrentSentence)
+        {
+            throw new InvalidOperationException(
+                "The runtime sentence sequence is not available."
+            );
+        }
+
+        int target = sequence.CurrentSentenceIndex + Math.Sign(offset);
+        if (!sequence.TryLoadSentence(target))
+        {
+            throw new InvalidOperationException(
+                $"Sentence switch to index {target + 1} was rejected."
+            );
+        }
+    }
+
     public static void ValidateSceneForAutomation()
     {
         Scene scene = SceneManager.GetActiveScene();
@@ -241,6 +297,8 @@ internal static class ConfigurePointingRecording
             Undo.AddComponent<RecordingSentenceSequence>(root);
         EditorUtility.SetDirty(sequence);
 
+        ConfigureSafeDoorState(scene, root, controller);
+
         ConfigureXrWorldFrame(cameraRig);
         NormalizeCameraTags(scene, cameraRig.centerEyeAnchor.GetComponent<Camera>());
 
@@ -253,8 +311,64 @@ internal static class ConfigurePointingRecording
         ValidateScene(scene);
         Debug.Log(
             "[SignVR] Pointing recording configured: six fixed world-space " +
-            "camera poses, FloorLevel tracking, and recentering disabled."
+            "camera poses, deterministic safe state, FloorLevel tracking, " +
+            "and recentering disabled."
         );
+    }
+
+    private static void ConfigureSafeDoorState(
+        Scene scene,
+        GameObject recordingRoot,
+        RecordingViewpointController viewpointController)
+    {
+        Transform safeRoot = FindRootByName(scene, "safe")?.transform;
+        Transform panel = safeRoot?.Find(SafeDoorPath);
+        if (panel == null || panel.parent == null)
+        {
+            throw new InvalidOperationException(
+                $"Safe door panel is missing at safe/{SafeDoorPath}."
+            );
+        }
+
+        Transform hinge = panel.parent.Find(SafeDoorHingeName);
+        if (hinge == null)
+        {
+            GameObject hingeObject = new(SafeDoorHingeName);
+            hingeObject.transform.SetParent(panel.parent, false);
+            Undo.RegisterCreatedObjectUndo(
+                hingeObject,
+                "Create safe door recording hinge"
+            );
+            hinge = hingeObject.transform;
+        }
+
+        Undo.RecordObject(hinge, "Place safe door recording hinge");
+        Bounds panelBounds = GetPanelLocalBounds(panel);
+        Vector3 leftEdge = new(
+            panelBounds.max.x,
+            panelBounds.center.y,
+            panelBounds.center.z
+        );
+        hinge.SetPositionAndRotation(
+            panel.TransformPoint(leftEdge),
+            panel.rotation
+        );
+        hinge.localScale = Vector3.one;
+        EditorUtility.SetDirty(hinge);
+
+        RecordingViewpointSceneStateController stateController =
+            recordingRoot.GetComponent<RecordingViewpointSceneStateController>() ??
+            Undo.AddComponent<RecordingViewpointSceneStateController>(recordingRoot);
+        stateController.Configure(
+            viewpointController,
+            panel,
+            hinge,
+            OpenSafeViewpointId,
+            panel.localPosition,
+            panel.localRotation,
+            SafeDoorOpenAngle
+        );
+        EditorUtility.SetDirty(stateController);
     }
 
     private static Camera EnsureReferenceCamera(
@@ -375,6 +489,41 @@ internal static class ConfigurePointingRecording
             );
         }
 
+        RecordingViewpointSceneStateController stateController =
+            FindInScene<RecordingViewpointSceneStateController>(scene);
+        Transform safePanel = FindRootByName(scene, "safe")?.transform
+            .Find(SafeDoorPath);
+        Bounds safePanelBounds = safePanel != null
+            ? GetPanelLocalBounds(safePanel)
+            : default;
+        Vector3 expectedHingePosition = safePanel != null
+            ? safePanel.TransformPoint(new Vector3(
+                safePanelBounds.max.x,
+                safePanelBounds.center.y,
+                safePanelBounds.center.z
+            ))
+            : Vector3.zero;
+        if (stateController == null ||
+            safePanel == null ||
+            !stateController.ValidateConfiguration(true) ||
+            stateController.SafeDoorPanel != safePanel ||
+            stateController.SafeDoorHinge == null ||
+            stateController.SafeDoorHinge.name != SafeDoorHingeName ||
+            stateController.SafeDoorHinge.parent != safePanel.parent ||
+            Vector3.Distance(
+                stateController.SafeDoorHinge.position,
+                expectedHingePosition
+            ) > 0.002f ||
+            stateController.OpenSafeViewpointId != OpenSafeViewpointId ||
+            Mathf.Abs(stateController.OpenAngleDegrees - SafeDoorOpenAngle) > 0.1f ||
+            !safePanel.GetComponentsInChildren<Transform>(true)
+                .Any(child => child.name == "simple_keypad"))
+        {
+            throw new InvalidOperationException(
+                "The deterministic safe-door state for viewpoint 2 is invalid."
+            );
+        }
+
         for (int index = 0; index < Specs.Length; index++)
         {
             RecordingViewpoint entry = controller.Viewpoints[index];
@@ -450,6 +599,18 @@ internal static class ConfigurePointingRecording
     private static bool IsFinite(float value)
     {
         return !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    private static Bounds GetPanelLocalBounds(Transform panel)
+    {
+        MeshFilter meshFilter = panel.GetComponent<MeshFilter>();
+        if (meshFilter == null || meshFilter.sharedMesh == null)
+        {
+            throw new InvalidOperationException(
+                "The safe door panel has no directly authored mesh bounds."
+            );
+        }
+        return meshFilter.sharedMesh.bounds;
     }
 
     private static void SetIntIfPresent(

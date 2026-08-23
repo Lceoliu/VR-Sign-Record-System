@@ -64,15 +64,23 @@ internal static class ConfigureVRRoomPlayer
     private static readonly HashSet<string> MovableNames =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "dragon_coin",
-            "golden_coin",
-            "golden_coin (1)",
             "key",
             "key (1)",
-            "motorbike_key",
+            "motorbike_key"
+        };
+
+    private static readonly HashSet<string> FixedRecordingReferenceNames =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
             "box",
+            "box (1)",
+            "box (2)",
             "plate",
-            "plate (1)"
+            "dragon_plate",
+            "plate (1)",
+            "dragon_coin",
+            "golden_coin",
+            "golden_coin (1)"
         };
 
     static ConfigureVRRoomPlayer()
@@ -301,7 +309,49 @@ internal static class ConfigureVRRoomPlayer
             );
         }
 
+        ValidateFixedRecordingReferences(scene);
+
         Debug.Log("[SignVR] VRroom player and physics validation passed.");
+    }
+
+    private static void ValidateFixedRecordingReferences(Scene scene)
+    {
+        foreach (string objectName in FixedRecordingReferenceNames)
+        {
+            GameObject root = FindRootByName(scene, objectName);
+            if (root == null)
+            {
+                throw new InvalidOperationException(
+                    $"Fixed recording reference '{objectName}' is missing."
+                );
+            }
+
+            Rigidbody body = root.GetComponent<Rigidbody>();
+            if (body != null && (!body.isKinematic || body.useGravity ||
+                                 body.constraints != RigidbodyConstraints.FreezeAll))
+            {
+                throw new InvalidOperationException(
+                    $"Fixed recording reference '{objectName}' still has active physics."
+                );
+            }
+
+            if (root.GetComponentsInChildren<Collider>(true)
+                    .Any(collider => collider.enabled) ||
+                root.GetComponentsInChildren<Grabbable>(true)
+                    .Any(interactable => interactable.enabled) ||
+                root.GetComponentsInChildren<HandGrabInteractable>(true)
+                    .Any(interactable => interactable.enabled) ||
+                root.GetComponentsInChildren<GrabInteractable>(true)
+                    .Any(interactable => interactable.enabled) ||
+                root.GetComponentsInChildren<VRGrabEventForwarder>(true)
+                    .Any(forwarder => forwarder.enabled))
+            {
+                throw new InvalidOperationException(
+                    $"Fixed recording reference '{objectName}' still has an " +
+                    "enabled collider or grab component."
+                );
+            }
+        }
     }
 
     private static bool HasSolidCapsules(HandPhysicsCapsules capsules)
@@ -1015,6 +1065,13 @@ internal static class ConfigureVRRoomPlayer
                 GetOrAddComponent<VRPhysicalObject>(root);
             physical.SetObjectId(root.name);
 
+            if (FixedRecordingReferenceNames.Contains(root.name))
+            {
+                FreezeRecordingReference(root);
+                EditorUtility.SetDirty(physical);
+                continue;
+            }
+
             if (!MovableNames.Contains(root.name))
             {
                 EnsureStaticMeshColliders(root);
@@ -1039,6 +1096,61 @@ internal static class ConfigureVRRoomPlayer
             EditorUtility.SetDirty(body);
             EditorUtility.SetDirty(physical);
             EditorUtility.SetDirty(grabEvents);
+        }
+    }
+
+    private static void FreezeRecordingReference(GameObject root)
+    {
+        Rigidbody body = root.GetComponent<Rigidbody>();
+        if (body != null)
+        {
+            Undo.RecordObject(body, "Freeze recording reference prop");
+            body.useGravity = false;
+            body.isKinematic = true;
+            body.detectCollisions = false;
+            body.interpolation = RigidbodyInterpolation.None;
+            body.collisionDetectionMode = CollisionDetectionMode.Discrete;
+            body.constraints = RigidbodyConstraints.FreezeAll;
+            EditorUtility.SetDirty(body);
+        }
+
+        foreach (Collider collider in root.GetComponentsInChildren<Collider>(true))
+        {
+            Undo.RecordObject(collider, "Disable recording reference collider");
+            collider.enabled = false;
+            EditorUtility.SetDirty(collider);
+        }
+
+        DisableBehaviours<Grabbable>(root);
+        DisableBehaviours<HandGrabInteractable>(root);
+        DisableBehaviours<GrabInteractable>(root);
+        DisableBehaviours<VRGrabEventForwarder>(root);
+
+        Transform interactionRoot = root.transform.Find("ISDK_HandGrabInteraction");
+        if (interactionRoot != null && interactionRoot.gameObject.activeSelf)
+        {
+            Undo.RecordObject(
+                interactionRoot.gameObject,
+                "Disable recording reference grab interaction"
+            );
+            interactionRoot.gameObject.SetActive(false);
+            EditorUtility.SetDirty(interactionRoot.gameObject);
+        }
+    }
+
+    private static void DisableBehaviours<T>(GameObject root)
+        where T : Behaviour
+    {
+        foreach (T behaviour in root.GetComponentsInChildren<T>(true))
+        {
+            if (!behaviour.enabled)
+            {
+                continue;
+            }
+
+            Undo.RecordObject(behaviour, "Disable recording reference behaviour");
+            behaviour.enabled = false;
+            EditorUtility.SetDirty(behaviour);
         }
     }
 

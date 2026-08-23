@@ -15,12 +15,14 @@
 
 表中的眼位和观察目标共同定义相机世界姿态。场景内 `RecordingViewpoints` 下的六个 Camera 是可编辑的参考相机；Quest 实际渲染仍使用唯一的 `CenterEyeAnchor`。
 
+`state_02` 还会直接切换保险柜的确定性状态：`Object_5` 门板及其子级密码锁围绕门板左边线打开 `105°`；切换到其他视角时恢复精确的闭合姿态。该切换没有交互和动画，多次往返不会累计位移或旋转。
+
 ## 操作方式
 
-- PC Editor：进入 Play Mode，短按 `Space` 开始或结束当前 Take；长按 `Space` 1.2 秒重置当前句。也可使用 `Tools/SignVR/Simulation/Toggle Recording`。
-- Quest 3：右手控制器 `A` 键短按开始或结束；长按 1.2 秒重置当前句。
-- 场景配置：打开 `Assets/Scenes/VRroom.unity` 后运行 `Tools/SignVR/Configure Pointing Recording`；使用 `Tools/SignVR/Validate Pointing Recording` 检查六个视角、相机标签和追踪原点设置。
-- 头显左上角圆角气泡显示当前句、序号和录制状态；句子加载时会同步选择其绑定视角。
+- PC Editor：进入 Play Mode，短按 `Space` 开始或结束当前 Take；长按 `Space` 1.2 秒重置当前句；`Left Arrow`/`Right Arrow` 切换上一句/下一句。也可使用 `Tools/SignVR/Simulation/Toggle Recording`、`Previous Sentence` 和 `Next Sentence`。
+- Quest 3：右手控制器 `A` 键短按开始或结束，长按 1.2 秒重置当前句；未录制时右手 `B` 切换下一句，左手 `X` 切换上一句。录制、倒计时或保存过程中不会接受切句。
+- 场景配置：打开 `Assets/Scenes/VRroom.unity` 后依次运行 `Tools/SignVR/Configure VRroom Player and Physics` 与 `Tools/SignVR/Configure Pointing Recording`；对应的两个 `Validate` 菜单检查固定道具、六个视角、保险柜状态、相机标签和追踪原点设置。
+- 头显左上角只保留一套圆角气泡，显示当前句、序号和录制状态；底、描边和文字均使用不受场景深度遮挡的 Overlay 材质。句子加载时会同步选择其绑定视角。
 
 ## 主机与脚踏控制
 
@@ -37,7 +39,8 @@
 - 录制模式持续锁定玩家根节点的世界位置与朝向，抵消 Quest 在地面高度校准后对根节点的二次偏移；头、手和房间尺度内的真实追踪运动仍然保留。录制者可以按需求转头观察，因此起录校验固定眼位且要求位置追踪有效，但不强锁头部朝向。
 - 每次视角对齐完成后还会记录 XR Origin 的局部基准；录制期间若运行时重定位或地面校准改写 Origin，会在 `LateUpdate` 恢复该基准，并在元数据中记录修正次数。锁定的是世界参考系，不锁 CenterEyeAnchor 的头部旋转和房间尺度内的手/头运动。
 - 录制期间关闭摇杆移动和 `CharacterController`，禁用录制者层级内的非 Trigger Collider 与手部物理限制器。Trigger、头部追踪和手部追踪仍保留，因此录制者不参与场景碰撞，但本地控制与姿态采集继续工作。
-- 青色手骨架覆盖层直接读取左右手关节，只做显示、不参与物理；追踪失效时自动隐藏对应手。
+- `box`、`box (1)`、`box (2)`、三个盘子和三枚金币是视觉指代锚点。配置器会禁用它们全部 Collider 与抓取组件；已有 Rigidbody 固定为 Kinematic、关闭重力和碰撞并冻结所有轴，确保录制期间始终停在初始位置。
+- 青色手骨架覆盖层选择左右主 `OVRHandVisual`，沿用 Meta `OVRSkeletonRenderer` 的逐父子骨骼 LineRenderer 逻辑，每只手生成 25 根骨骼线。原手部网格隐藏，但同一套真实手追踪仍驱动物理关节与 pose 录制；追踪失效时自动隐藏对应手。
 
 ## 输出与模拟
 

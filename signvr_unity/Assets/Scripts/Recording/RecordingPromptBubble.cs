@@ -14,6 +14,11 @@ namespace SignVR.Recording
     public sealed class RecordingPromptBubble : MonoBehaviour
     {
         private const string RuntimeObjectName = "RecordingPromptBubbleCanvas";
+        private const string OverlayShaderResource =
+            "Shaders/RecordingUiOverlay";
+        private const string OverlayShaderName = "SignVR/Recording UI Overlay";
+        private const string TextOverlayShaderName =
+            "TextMeshPro/Distance Field Overlay";
 
         [Header("Dependencies")]
         [SerializeField]
@@ -31,7 +36,7 @@ namespace SignVR.Recording
         [Header("View Placement")]
         [SerializeField]
         [Min(0.35f)]
-        private float viewDistance = 0.8f;
+        private float viewDistance = 0.75f;
 
         [SerializeField]
         [Min(500f)]
@@ -39,23 +44,26 @@ namespace SignVR.Recording
 
         [SerializeField]
         [Range(0.25f, 0.6f)]
-        private float viewportWidthFraction = 0.46f;
+        private float viewportWidthFraction = 0.4f;
 
         [SerializeField]
         [Min(0f)]
-        private float edgeMargin = 42f;
+        private float edgeMargin = 18f;
 
         [SerializeField]
         [Min(120f)]
-        private float bubbleHeight = 188f;
+        private float bubbleHeight = 168f;
 
         [SerializeField]
         [Min(240f)]
-        private float maximumBubbleWidth = 620f;
+        private float maximumBubbleWidth = 540f;
 
         [Header("Appearance")]
         [SerializeField]
-        private Color backgroundColor = new(0.035f, 0.045f, 0.055f, 0.92f);
+        private Color borderColor = new(0.32f, 0.38f, 0.42f, 0.98f);
+
+        [SerializeField]
+        private Color backgroundColor = new(0.025f, 0.032f, 0.038f, 0.97f);
 
         [SerializeField]
         private Color promptColor = new(0.96f, 0.97f, 0.98f, 1f);
@@ -83,10 +91,14 @@ namespace SignVR.Recording
         private CanvasGroup canvasGroup;
         private RectTransform canvasRect;
         private RectTransform bubbleRect;
+        private RectTransform surfaceRect;
+        private RecordingRoundedRectangleGraphic border;
         private RecordingRoundedRectangleGraphic background;
         private TextMeshProUGUI statusText;
         private TextMeshProUGUI progressText;
         private TextMeshProUGUI promptText;
+        private Material uiOverlayMaterial;
+        private Material textOverlayMaterial;
         private Camera hmdCamera;
         private Transform trackedHmd;
         private bool bound;
@@ -191,6 +203,7 @@ namespace SignVR.Recording
             ResolveHmdCamera();
             EnsureVisuals();
             ApplyFont();
+            EnsureOverlayMaterials();
             UpdateViewportLayout(true);
             Refresh();
 
@@ -348,16 +361,28 @@ namespace SignVR.Recording
 
             GameObject panelObject = CreateUiObject("Bubble", transform);
             bubbleRect = (RectTransform)panelObject.transform;
-            background = panelObject.AddComponent<RecordingRoundedRectangleGraphic>();
-            background.raycastTarget = false;
-            background.color = backgroundColor;
-            background.CornerRadius = cornerRadius;
-            background.CornerSegments = 10;
+            border = panelObject.AddComponent<RecordingRoundedRectangleGraphic>();
+            border.raycastTarget = false;
+            border.color = borderColor;
+            border.CornerRadius = cornerRadius;
+            border.CornerSegments = 10;
 
             Shadow shadow = panelObject.AddComponent<Shadow>();
-            shadow.effectColor = new Color(0f, 0f, 0f, 0.36f);
-            shadow.effectDistance = new Vector2(0f, -8f);
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.55f);
+            shadow.effectDistance = new Vector2(0f, -6f);
             shadow.useGraphicAlpha = true;
+
+            GameObject surfaceObject = CreateUiObject("Surface", bubbleRect);
+            surfaceRect = (RectTransform)surfaceObject.transform;
+            surfaceRect.anchorMin = Vector2.zero;
+            surfaceRect.anchorMax = Vector2.one;
+            surfaceRect.offsetMin = new Vector2(4f, 4f);
+            surfaceRect.offsetMax = new Vector2(-4f, -4f);
+            background = surfaceObject.AddComponent<RecordingRoundedRectangleGraphic>();
+            background.raycastTarget = false;
+            background.color = backgroundColor;
+            background.CornerRadius = Mathf.Max(8f, cornerRadius - 4f);
+            background.CornerSegments = 10;
 
             statusText = CreateLabel("Status", bubbleRect);
             statusText.fontStyle = FontStyles.Bold;
@@ -440,6 +465,75 @@ namespace SignVR.Recording
             }
         }
 
+        private void EnsureOverlayMaterials()
+        {
+            if (uiOverlayMaterial == null)
+            {
+                Shader shader = Resources.Load<Shader>(OverlayShaderResource) ??
+                                Shader.Find(OverlayShaderName);
+                if (shader == null)
+                {
+                    Debug.LogError(
+                        $"[RecordingPromptBubble] Shader not found: " +
+                        OverlayShaderName
+                    );
+                    return;
+                }
+
+                uiOverlayMaterial = new Material(shader)
+                {
+                    name = "Recording Prompt UI Overlay",
+                    hideFlags = HideFlags.DontSave
+                };
+            }
+
+            if (border != null)
+            {
+                border.material = uiOverlayMaterial;
+            }
+            if (background != null)
+            {
+                background.material = uiOverlayMaterial;
+            }
+
+            Material source = statusText != null
+                ? statusText.fontSharedMaterial
+                : null;
+            Shader textOverlayShader = Shader.Find(TextOverlayShaderName);
+            if (source == null || textOverlayShader == null)
+            {
+                if (textOverlayShader == null)
+                {
+                    Debug.LogError(
+                        $"[RecordingPromptBubble] Shader not found: " +
+                        TextOverlayShaderName
+                    );
+                }
+                return;
+            }
+
+            if (textOverlayMaterial == null ||
+                textOverlayMaterial.shader != textOverlayShader)
+            {
+                if (textOverlayMaterial != null)
+                {
+                    Destroy(textOverlayMaterial);
+                }
+                textOverlayMaterial = new Material(textOverlayShader)
+                {
+                    name = "Recording Prompt Text Overlay",
+                    hideFlags = HideFlags.DontSave
+                };
+                textOverlayMaterial.CopyPropertiesFromMaterial(source);
+                textOverlayMaterial.shaderKeywords = source.shaderKeywords;
+                textOverlayMaterial.renderQueue = 5000;
+            }
+
+            statusText.fontSharedMaterial = textOverlayMaterial;
+            progressText.fontSharedMaterial = textOverlayMaterial;
+            promptText.fontSharedMaterial = textOverlayMaterial;
+        }
+
         private void UpdateViewportLayout(bool force)
         {
             if (canvasRect == null || bubbleRect == null)
@@ -496,8 +590,13 @@ namespace SignVR.Recording
             bubbleRect.pivot = new Vector2(0f, 1f);
             bubbleRect.anchoredPosition = new Vector2(edgeMargin, -edgeMargin);
             bubbleRect.sizeDelta = new Vector2(width, height);
+            border.color = borderColor;
+            border.CornerRadius = Mathf.Min(cornerRadius, height * 0.5f);
             background.color = backgroundColor;
-            background.CornerRadius = Mathf.Min(cornerRadius, height * 0.5f);
+            background.CornerRadius = Mathf.Min(
+                Mathf.Max(8f, cornerRadius - 4f),
+                height * 0.5f - 4f
+            );
 
             ConfigureHeaderRect(
                 statusText.rectTransform,
@@ -698,6 +797,14 @@ namespace SignVR.Recording
         {
             UnbindCanvasRenderCallback();
             Unbind();
+            if (uiOverlayMaterial != null)
+            {
+                Destroy(uiOverlayMaterial);
+            }
+            if (textOverlayMaterial != null)
+            {
+                Destroy(textOverlayMaterial);
+            }
         }
 
 #if UNITY_EDITOR

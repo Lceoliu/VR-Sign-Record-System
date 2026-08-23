@@ -23,11 +23,13 @@ as canonical so Unity and host changes cannot drift into separate commits.
 | `RecordingCoordinator` | Owns the recording state machine, countdown, finalization, reset, pause handling, and completion events. |
 | `RecordingSentenceSequence` | Owns the editable six-item local sequence and sentence-to-viewpoint mapping. It auto-advances only after a valid completed Take. |
 | `RecordingViewpointController` | Selects one of six disabled reference cameras and aligns the tracked XR view to its world pose. |
+| `RecordingViewpointSceneStateController` | Applies deterministic, non-animated environment state. `state_02` opens the safe door and every other viewpoint closes it. |
 | `VRPlayerRig` / `RecordingModeController` | Lock locomotion, player-root drift, XR-origin recalibration, and recorder collisions while leaving tracked head and hands free. |
 | `MetaBodyMotionRecorder` | Writes 30 Hz JSONL pose frames, applies completion quality gates, and atomically writes metadata. |
 | `RecordingSpatialMetadataProvider` | Snapshots the selected viewpoint, world frame, XR origin, tracked head, floor, and alignment error for every Take. |
-| `RecordingPromptBubble` | Renders the non-interactive rounded prompt bubble at the HMD viewport's upper left. |
-| `RecordingQuestInput` / `RecordingDebugInput` | Map Quest `A` and Editor `Space` to the same coordinator commands. |
+| `RecordingPromptBubble` | Renders one non-interactive, depth-independent rounded prompt bubble at the HMD viewport's upper left and disables the legacy duplicate recorder canvas. |
+| `RecordingHandSkeletonVisualizer` | Reuses the main Interaction SDK hand transforms and mirrors Meta `OVRSkeletonRenderer` with one line per parent-child bone; the hand mesh is hidden while tracking remains active. |
+| `RecordingQuestInput` / `RecordingDebugInput` | Map Quest and Editor start/stop, reset, previous-sentence, and next-sentence shortcuts to the same sequence/coordinator commands. |
 | `QuestDeviceGateway` | Handles host pairing and UDP commands; paired-host sentence and Take identifiers are authoritative. |
 | `QuestTakeUploader` | Uploads only completed, real-pose artifacts and preserves the local backlog until a receipt marker is written. |
 | `vr-sign-host` | Owns batches, rounds, formal sentence selection, Take reservation, external video, and final disk layout. |
@@ -66,6 +68,9 @@ Ready -> Countdown -> Recording -> Finalizing -> Completed
 - `CenterEyeAnchor` remains the only `MainCamera` and the only Quest render camera.
 - Loading a sentence selects its reference viewpoint. Starting a Take reapplies
   that viewpoint and waits for tracked-head alignment before countdown proceeds.
+- `state_02` opens `safe/.../Object_5` and its keypad around a generated left-edge
+  hinge by `105` degrees. Switching away restores the exact authored closed pose;
+  there is no interaction or animation and repeated switches do not accumulate.
 - OVR uses `FloorLevel`; `resetTrackerOnLoad` and `AllowRecenter` are disabled.
 - During recording, `VRPlayerRig` holds the authored player root and the aligned
   XR-origin local pose. Runtime floor-height recalibration is corrected without
@@ -101,14 +106,26 @@ reuse an existing batch/round after changing catalog length or ordering.
 
 ## Controls
 
-| Surface | Short press | Hold for 1.2 seconds |
+| Action | Quest 3 | Editor simulation |
 | --- | --- | --- |
-| Quest right-controller `A` | Start, cancel countdown, or stop current Take | Reset current sentence/Take state |
-| Editor `Space` | Same state-machine command | Same reset command |
-| Host pedal/operator UI | Sends the formal command over UDP | Shows hold progress and resets through the same coordinator |
+| Start, cancel countdown, or stop current Take | Right-controller `A` short press | `Space` short press |
+| Reset current sentence/Take state | Hold right-controller `A` for 1.2 seconds | Hold `Space` for 1.2 seconds |
+| Load next sentence and its viewpoint | Right-controller `B` while idle | `Right Arrow` or `Tools/SignVR/Simulation/Next Sentence` |
+| Load previous sentence and its viewpoint | Left-controller `X` while idle | `Left Arrow` or `Tools/SignVR/Simulation/Previous Sentence` |
+| Formal host control | Pedal/operator UI over UDP | Same coordinator state machine |
 
 The HMD bubble shows sentence progress and state. It is deliberately
 non-interactive so it cannot contaminate hand interaction data.
+
+## Fixed reference props
+
+The nine pointing references `box`, `box (1)`, `box (2)`, `plate`,
+`dragon_plate`, `plate (1)`, `dragon_coin`, `golden_coin`, and
+`golden_coin (1)` are visual-only recording anchors. The scene setup explicitly
+disables all of their colliders and grab behaviours. Existing rigidbodies are
+kinematic, gravity-free, collision-free, and frozen on every axis. Do not make
+these objects movable without revising the recording protocol because their
+authored positions disambiguate the pointing target.
 
 ## Artifact and upload contract
 
@@ -148,9 +165,13 @@ Host output remains under its configured data root:
 Open `signvr_unity/Assets/Scenes/VRroom.unity`, then use:
 
 ```text
+Tools/SignVR/Configure VRroom Player and Physics
 Tools/SignVR/Configure Pointing Recording
+Tools/SignVR/Validate VRroom Player and Physics
 Tools/SignVR/Validate Pointing Recording
 Tools/SignVR/Simulation/Toggle Recording
+Tools/SignVR/Simulation/Previous Sentence
+Tools/SignVR/Simulation/Next Sentence
 ```
 
 The configure command is idempotent and preserves hand-adjusted transforms of
@@ -196,7 +217,14 @@ Also verify in Unity:
 
 - compilation is idle with zero console errors;
 - `Tools/SignVR/Validate Pointing Recording` passes;
+- `Tools/SignVR/Validate VRroom Player and Physics` passes and all nine fixed
+  reference props have no active collider, dynamic body, or grab behaviour;
 - `VRroom` has six reference cameras and exactly one `MainCamera`;
+- switching `state_02 -> state_03 -> state_02` produces identical open-door
+  transforms, and the open view shows both coins and plates;
+- the prompt background and all text remain visible above the open safe door;
+- both main hand sources are selected and contain the expected parent-child
+  skeleton bones;
 - one Editor simulated Take reaches `Completed`, writes pose/meta files, and
   advances by exactly one sentence;
 - the simulated artifact stays out of the upload queue.
@@ -214,7 +242,12 @@ recording APK and workstation network:
 - Head rotation and both tracked hands remain live while locomotion and collision
   response remain disabled.
 - Short `A` press starts/stops; pressing during countdown cancels without a Take;
-  a hold resets without advancing.
+  a hold resets without advancing. Idle `B` and `X` move next/previous exactly once.
+- Boxes, plates, and coins remain at their authored transforms for the whole Take.
+- `state_02` opens the safe around its left edge, with coins and plates visible;
+  leaving that state closes it without transform drift.
+- The hand mesh is replaced by the per-bone skeleton while real tracking and pose
+  recording continue to use the main left/right hand sources.
 - A valid Take advances exactly one sentence. A tracking failure, app pause, or
   passthrough interruption stays on the current sentence.
 - Real pose/meta uploads and camera video land in the same host Take directory;

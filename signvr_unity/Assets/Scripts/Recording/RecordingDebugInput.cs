@@ -51,6 +51,21 @@ namespace SignVR.Recording
                 return;
             }
 
+            if (coordinator.State == RecordingFlowState.Ready ||
+                coordinator.State == RecordingFlowState.Completed)
+            {
+                if (Keyboard.current.rightArrowKey.wasPressedThisFrame)
+                {
+                    sentenceSequence?.TryMoveNext();
+                    return;
+                }
+                if (Keyboard.current.leftArrowKey.wasPressedThisFrame)
+                {
+                    sentenceSequence?.TryMovePrevious();
+                    return;
+                }
+            }
+
             if (Keyboard.current.rKey.wasPressedThisFrame)
             {
                 if (replayController == null)

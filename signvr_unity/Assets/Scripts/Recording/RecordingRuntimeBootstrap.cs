@@ -213,7 +213,7 @@ namespace SignVR.Recording
                     viewpointController
                 );
             }
-            ConfigureExistingCanvas(scene, coordinator, chineseFont);
+            DisableLegacyRecorderCanvas(scene);
             Debug.Log(
                 "[RecordingRuntimeBootstrap] Installed take recording stack in " +
                 scene.path + ". Six fixed viewpoints, local sequence, prompt " +
@@ -222,85 +222,26 @@ namespace SignVR.Recording
             );
         }
 
-        private static void ConfigureExistingCanvas(
-            Scene scene,
-            RecordingCoordinator coordinator,
-            TMP_FontAsset chineseFont)
+        private static void DisableLegacyRecorderCanvas(Scene scene)
         {
             MetaMotionRecorderUI legacyUi = FindInScene<MetaMotionRecorderUI>(scene);
-            Canvas canvas = legacyUi != null
-                ? legacyUi.GetComponent<Canvas>()
-                : FindInScene<Canvas>(scene);
-            if (canvas == null)
+            if (legacyUi == null)
             {
                 return;
             }
 
-            if (legacyUi != null)
+            legacyUi.DetachControls();
+            legacyUi.enabled = false;
+            Canvas legacyCanvas = legacyUi.GetComponent<Canvas>();
+            if (legacyCanvas != null)
             {
-                legacyUi.DetachControls();
+                legacyCanvas.enabled = false;
             }
-
-            Button start = FindNamed<Button>(canvas.transform, "Start");
-            Button stop = FindNamed<Button>(canvas.transform, "Stop");
-            TMP_Text status = FindNamed<TMP_Text>(canvas.transform, "Status");
-            TMP_Text prompt = FindNamed<TMP_Text>(canvas.transform, "RecordingPrompt");
-
-            if (prompt == null)
+            GraphicRaycaster raycaster = legacyUi.GetComponent<GraphicRaycaster>();
+            if (raycaster != null)
             {
-                prompt = CreatePromptText(canvas.transform, chineseFont);
+                raycaster.enabled = false;
             }
-            else if (chineseFont != null)
-            {
-                prompt.font = chineseFont;
-            }
-            if (status != null && chineseFont != null)
-            {
-                status.font = chineseFont;
-            }
-
-            RecordingCoordinatorUIBridge bridge =
-                canvas.gameObject.GetComponent<RecordingCoordinatorUIBridge>() ??
-                canvas.gameObject.AddComponent<RecordingCoordinatorUIBridge>();
-            bridge.Configure(coordinator, start, stop, status, prompt);
-        }
-
-        private static TMP_Text CreatePromptText(
-            Transform parent,
-            TMP_FontAsset chineseFont)
-        {
-            GameObject promptObject = new GameObject(
-                "RecordingPrompt",
-                typeof(RectTransform),
-                typeof(TextMeshProUGUI)
-            );
-            promptObject.transform.SetParent(parent, false);
-            RectTransform rect = (RectTransform)promptObject.transform;
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = new Vector2(0f, 66f);
-            rect.sizeDelta = new Vector2(560f, 54f);
-
-            TextMeshProUGUI text = promptObject.GetComponent<TextMeshProUGUI>();
-            if (chineseFont != null)
-            {
-                text.font = chineseFont;
-            }
-            text.fontSize = 24f;
-            text.alignment = TextAlignmentOptions.Center;
-            text.color = Color.white;
-            text.raycastTarget = false;
-            return text;
-        }
-
-        private static T FindNamed<T>(Transform root, string token)
-            where T : Component
-        {
-            string normalized = token.ToLowerInvariant();
-            return root.GetComponentsInChildren<T>(true)
-                .FirstOrDefault(component =>
-                    component.name.ToLowerInvariant().Contains(normalized));
         }
 
         private static Transform FindHead(Scene scene)

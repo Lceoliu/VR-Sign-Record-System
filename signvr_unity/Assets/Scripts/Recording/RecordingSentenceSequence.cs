@@ -361,6 +361,17 @@ namespace SignVR.Recording
             return TryLoadSentence(nextIndex);
         }
 
+        public bool TryMovePrevious()
+        {
+            if (hostAuthoritative || !HasCurrentSentence)
+            {
+                return false;
+            }
+
+            int previousIndex = currentSentenceIndex - 1;
+            return previousIndex >= 0 && TryLoadSentence(previousIndex);
+        }
+
         private void Awake()
         {
             ResolveLocalSessionId();
