@@ -14,8 +14,8 @@ def load_sentence_catalog() -> list[SentenceItem]:
     path = Path(__file__).with_name("sentence_catalog.json")
     payload = json.loads(path.read_text(encoding="utf-8"))
     sentences = [SentenceItem.model_validate(item) for item in payload]
-    if len(sentences) != 300:
-        raise ValueError(f"语料应为 300 句，实际为 {len(sentences)} 句")
+    if not sentences:
+        raise ValueError("默认语料不能为空")
     for index, sentence in enumerate(sentences):
         if sentence.index != index or sentence.sentence_id != f"sentence_{index + 1:03d}":
             raise ValueError(f"语料编号不连续：{sentence.sentence_id}")
@@ -140,11 +140,47 @@ class RecordingService:
             self._repository.save_batch_sentences(
                 self._state.batch_id,
                 self._state.sentences,
-                inserted_after_index=after_index,
             )
             self._select_sentence_locked(after_index + 1, persist=True)
             self._retake_context = None
             self._state.mode_switch_notice = None
+            return self._state.model_copy(deep=True)
+
+    async def delete_sentence(self, sentence_id: str) -> HostState:
+        async with self._lock:
+            self._require_ready()
+            self._require_round()
+            if len(self._state.sentences) == 1:
+                raise ValueError("批次至少需要保留一句")
+            sentence = next(
+                (item for item in self._state.sentences if item.sentence_id == sentence_id),
+                None,
+            )
+            if sentence is None:
+                raise ValueError("未找到要删除的句子")
+            if self._repository.sentence_has_takes(self._state.batch_id, sentence_id):
+                raise ValueError("该句已有 Take，不能删除")
+            remaining = [
+                item for item in self._state.sentences if item.sentence_id != sentence_id
+            ]
+            batch_id = self._state.batch_id
+            round_id = self._state.round_id
+            self._repository.save_batch_sentences(batch_id, remaining)
+            self._load_round_locked(batch_id, round_id)
+            return self._state.model_copy(deep=True)
+
+    async def reorder_sentences(self, sentence_ids: list[str]) -> HostState:
+        async with self._lock:
+            self._require_ready()
+            self._require_round()
+            current_by_id = {item.sentence_id: item for item in self._state.sentences}
+            if len(sentence_ids) != len(current_by_id) or set(sentence_ids) != set(current_by_id):
+                raise ValueError("排序必须包含当前批次的全部句子，且不能重复")
+            reordered = [current_by_id[sentence_id] for sentence_id in sentence_ids]
+            batch_id = self._state.batch_id
+            round_id = self._state.round_id
+            self._repository.save_batch_sentences(batch_id, reordered)
+            self._load_round_locked(batch_id, round_id)
             return self._state.model_copy(deep=True)
 
     async def navigate_sentence(self, delta: int) -> HostState:

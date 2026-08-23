@@ -1,7 +1,9 @@
 import {
   Activity,
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   BellRing,
   Camera,
   Check,
@@ -12,6 +14,7 @@ import {
   FileJson,
   FileText,
   FolderOpen,
+  GripVertical,
   Headset,
   ListFilter,
   Play,
@@ -22,6 +25,7 @@ import {
   Search,
   SkipForward,
   Square,
+  Trash2,
   UploadCloud,
 } from 'lucide-react'
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
@@ -48,6 +52,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   spatial: '空间',
   question: '问答',
   stress: '辨析',
+  supplemental: '新增',
   temporary: '临时',
 }
 
@@ -104,6 +109,13 @@ export default function App() {
     index: number
     text: string
   } | null>(null)
+  const [draggedSentenceId, setDraggedSentenceId] = useState<string | null>(null)
+  const [dragOverSentenceId, setDragOverSentenceId] = useState<string | null>(null)
+  const [sentenceDeleteTarget, setSentenceDeleteTarget] = useState<{
+    sentenceId: string
+    sentenceIndex: number
+    text: string
+  } | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
@@ -133,6 +145,7 @@ export default function App() {
       ? 'round_002'
       : null
   const captureBusy = uploading || recoveringCapture || captureActive
+  const canManageSentences = contextReady && state?.recording_status === 'ready'
   const captureReady = contextReady && Boolean(selectedDeviceId) && cameraReady && !captureBusy
   const startBlockedReason = !contextReady
     ? '请先打开录制批次并选择轮次'
@@ -149,6 +162,7 @@ export default function App() {
               : undefined
   const completedCount = state?.sentences.filter((sentence) => sentence.completed).length ?? 0
   const deferredSentenceQuery = useDeferredValue(sentenceQuery.trim().toLocaleLowerCase())
+  const canDragSentences = canManageSentences && sentenceFilter === 'all' && !deferredSentenceQuery
   const visibleSentences = useMemo(() => {
     if (!state) return []
     return state.sentences.filter((sentence) => {
@@ -574,6 +588,7 @@ export default function App() {
         ? await api.updateSentence(sentenceEditor.index, sentenceEditor.text)
         : await api.addSentence(sentenceEditor.index, sentenceEditor.text)
       commitState(nextState)
+      if (openedBatchId) await refreshRoundList(openedBatchId)
       setSentenceEditor(null)
       setError(null)
     } catch (reason) {
@@ -602,10 +617,42 @@ export default function App() {
     }
   }
 
+  const moveSentence = async (sentenceId: string, destinationIndex: number) => {
+    if (!state || !canManageSentences) return
+    const sourceIndex = state.sentences.findIndex((sentence) => sentence.sentence_id === sentenceId)
+    const targetIndex = Math.max(0, Math.min(destinationIndex, state.sentences.length - 1))
+    if (sourceIndex < 0 || sourceIndex === targetIndex) return
+    const sentenceIds = state.sentences.map((sentence) => sentence.sentence_id)
+    const [movedId] = sentenceIds.splice(sourceIndex, 1)
+    sentenceIds.splice(targetIndex, 0, movedId)
+    try {
+      commitState(await api.reorderSentences(sentenceIds))
+      setError(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '无法调整句子顺序')
+    } finally {
+      setDraggedSentenceId(null)
+      setDragOverSentenceId(null)
+    }
+  }
+
+  const deleteSentence = async () => {
+    if (!canManageSentences || !sentenceDeleteTarget) return
+    try {
+      commitState(await api.deleteSentence(sentenceDeleteTarget.sentenceId))
+      if (openedBatchId) await refreshRoundList(openedBatchId)
+      setError(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '无法删除句子')
+    } finally {
+      setSentenceDeleteTarget(null)
+    }
+  }
+
   const jumpToSentence = () => {
     const sentenceNumber = Number.parseInt(jumpValue, 10)
     if (!state || !Number.isInteger(sentenceNumber) || sentenceNumber < 1 || sentenceNumber > state.sentences.length) {
-      setError(`请输入 1–${state?.sentences.length ?? 300} 的句子编号`)
+      setError(`请输入 1–${state?.sentences.length ?? 339} 的句子编号`)
       return
     }
     void selectSentence(sentenceNumber - 1)
@@ -618,7 +665,7 @@ export default function App() {
     )
     const target = afterCurrent ?? state.sentences.find((sentence) => !sentence.completed)
     if (!target) {
-      setError('当前轮次的 300 句已经全部完成')
+      setError(`当前轮次的 ${state.sentences.length} 句已经全部完成`)
       return
     }
     void selectSentence(target.index)
@@ -877,12 +924,46 @@ export default function App() {
             </div>
             <ol className="sentence-list">
               {visibleSentences.map((sentence) => (
-                <li key={sentence.sentence_id} data-sentence-index={sentence.index} className={`${sentence.status} ${sentence.completed ? 'completed' : ''}`}>
-                  <button disabled={!contextReady || state.recording_status !== 'ready'} onClick={() => void selectSentence(sentence.index)}>
+                <li
+                  key={sentence.sentence_id}
+                  data-sentence-index={sentence.index}
+                  className={`${sentence.status} ${sentence.completed ? 'completed' : ''} ${dragOverSentenceId === sentence.sentence_id ? 'drag-target' : ''}`}
+                  onDragOver={(event) => {
+                    if (!canDragSentences || !draggedSentenceId || draggedSentenceId === sentence.sentence_id) return
+                    event.preventDefault()
+                    setDragOverSentenceId(sentence.sentence_id)
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault()
+                    if (draggedSentenceId) void moveSentence(draggedSentenceId, sentence.index)
+                  }}
+                >
+                  <button className="sentence-select" disabled={!canManageSentences} onClick={() => void selectSentence(sentence.index)}>
                     <span className="sentence-index">{String(sentence.index + 1).padStart(3, '0')}</span>
                     <span className="sentence-copy"><p>{sentence.text}</p><small>{CATEGORY_LABELS[sentence.category] ?? sentence.category}{sentence.take_count ? ` · ${sentence.take_count} Take` : ''}</small></span>
                     {sentence.completed ? <Check size={17} /> : sentence.status === 'current' ? <Circle size={10} fill="currentColor" /> : null}
                   </button>
+                  <div className="sentence-row-actions">
+                    <button
+                      className="drag-handle"
+                      draggable={canDragSentences}
+                      disabled={!canDragSentences}
+                      title={canDragSentences ? '拖拽调整顺序' : '清空搜索并选择“全部”后可拖拽'}
+                      aria-label={`拖拽第 ${sentence.index + 1} 句`}
+                      onDragStart={(event) => {
+                        setDraggedSentenceId(sentence.sentence_id)
+                        event.dataTransfer.effectAllowed = 'move'
+                        event.dataTransfer.setData('text/plain', sentence.sentence_id)
+                      }}
+                      onDragEnd={() => {
+                        setDraggedSentenceId(null)
+                        setDragOverSentenceId(null)
+                      }}
+                    ><GripVertical size={14} /></button>
+                    <button disabled={!canManageSentences || sentence.index === 0} title="上移一位" aria-label={`上移第 ${sentence.index + 1} 句`} onClick={() => void moveSentence(sentence.sentence_id, sentence.index - 1)}><ArrowUp size={14} /></button>
+                    <button disabled={!canManageSentences || sentence.index === state.sentences.length - 1} title="下移一位" aria-label={`下移第 ${sentence.index + 1} 句`} onClick={() => void moveSentence(sentence.sentence_id, sentence.index + 1)}><ArrowDown size={14} /></button>
+                    <button className="sentence-delete" disabled={!canManageSentences} title="删除未录制句子" aria-label={`删除第 ${sentence.index + 1} 句`} onClick={() => setSentenceDeleteTarget({ sentenceId: sentence.sentence_id, sentenceIndex: sentence.index, text: sentence.text })}><Trash2 size={14} /></button>
+                  </div>
                 </li>
               ))}
             </ol>
@@ -930,6 +1011,16 @@ export default function App() {
             <h2>{sentenceEditor.mode === 'edit' ? `修改第 ${sentenceEditor.index + 1} 句` : `在第 ${sentenceEditor.index + 1} 句后添加`}</h2>
             <textarea autoFocus value={sentenceEditor.text} onChange={(event) => setSentenceEditor({ ...sentenceEditor, text: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) void saveSentenceEditor() }} />
             <div><button onClick={() => setSentenceEditor(null)}>取消</button><button className="primary" disabled={!sentenceEditor.text.trim()} onClick={() => void saveSentenceEditor()}>保存 Ctrl+Enter</button></div>
+          </section>
+        </div>
+      )}
+      {sentenceDeleteTarget && (
+        <div className="sentence-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSentenceDeleteTarget(null) }}>
+          <section className="sentence-delete-dialog" role="dialog" aria-modal="true" aria-label="确认删除句子">
+            <h2>删除第 {sentenceDeleteTarget.sentenceIndex + 1} 句？</h2>
+            <p>{sentenceDeleteTarget.text}</p>
+            <small>只能删除没有 Take 的句子；已录制数据不会被删除。</small>
+            <div><button onClick={() => setSentenceDeleteTarget(null)}>取消</button><button className="danger" onClick={() => void deleteSentence()}>确认删除</button></div>
           </section>
         </div>
       )}

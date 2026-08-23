@@ -142,10 +142,10 @@ class RecordingRepository:
         self,
         batch_id: str,
         sentences: list[SentenceItem],
-        *,
-        inserted_after_index: int | None = None,
     ) -> None:
         safe_batch = safe_segment(batch_id)
+        previous = self.load_batch_sentences(safe_batch)
+        previous_ids = [item.sentence_id for item in previous]
         normalized = []
         for index, item in enumerate(sentences):
             sentence = item.model_copy(deep=True)
@@ -158,14 +158,22 @@ class RecordingRepository:
             self.recordings_root / safe_batch / _BATCH_SENTENCES,
             [item.model_dump(mode="json") for item in normalized],
         )
+        new_indices = {item.sentence_id: item.index for item in normalized}
         for info in self.list_rounds(safe_batch):
             round_directory = self._round_directory(safe_batch, info.round_id)
             manifest = self._read_round_manifest(round_directory)
             manifest["total_sentences"] = len(normalized)
-            current_index = manifest["current_sentence_index"]
-            if inserted_after_index is not None and current_index > inserted_after_index:
-                current_index += 1
-            manifest["current_sentence_index"] = min(current_index, len(normalized) - 1)
+            previous_index = manifest["current_sentence_index"]
+            previous_id = (
+                previous_ids[previous_index]
+                if 0 <= previous_index < len(previous_ids)
+                else None
+            )
+            manifest["current_sentence_index"] = (
+                new_indices[previous_id]
+                if previous_id in new_indices
+                else min(previous_index, len(normalized) - 1)
+            )
             manifest["updated_at_unix_ms"] = int(time.time() * 1000)
             self._write_round_manifest(round_directory, manifest)
 
@@ -198,18 +206,26 @@ class RecordingRepository:
         round_directory = self._round_directory(batch_id, round_id)
         progress: dict[str, tuple[bool, int]] = {}
         for sentence_directory in round_directory.iterdir():
-            if not sentence_directory.is_dir() or not sentence_directory.name.startswith("sentence_"):
+            if not sentence_directory.is_dir():
                 continue
             takes = [
                 path
                 for path in sentence_directory.iterdir()
                 if path.is_dir() and _TAKE_DIRECTORY.fullmatch(path.name)
             ]
+            if not takes:
+                continue
             progress[sentence_directory.name] = (
                 any(self._take_is_complete(path) for path in takes),
                 len(takes),
             )
         return progress
+
+    def sentence_has_takes(self, batch_id: str, sentence_id: str) -> bool:
+        return any(
+            self.sentence_progress(batch_id, info.round_id, sentence_id)[1] > 0
+            for info in self.list_rounds(batch_id)
+        )
 
     def sentence_progress(self, batch_id: str, round_id: str, sentence_id: str) -> tuple[bool, int]:
         sentence_directory = self._round_directory(batch_id, round_id) / safe_segment(sentence_id)

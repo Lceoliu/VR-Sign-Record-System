@@ -19,6 +19,7 @@ from .models import (
     ReviewLabelRequest,
     RoundCreateRequest,
     SentenceCreateRequest,
+    SentenceReorderRequest,
     SentenceSelectRequest,
     SentenceUpdateRequest,
     StartRecordingRequest,
@@ -311,6 +312,26 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     async def add_recording_sentence(body: SentenceCreateRequest):
         try:
             state = await recordings.add_sentence(body.after_index, body.text)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_prompt_context()
+        return state
+
+    @app.put("/api/recording/sentences/order")
+    async def reorder_recording_sentences(body: SentenceReorderRequest):
+        try:
+            state = await recordings.reorder_sentences(body.sentence_ids)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_prompt_context()
+        return state
+
+    @app.delete("/api/recording/sentences/{sentence_id}")
+    async def delete_recording_sentence(sentence_id: str):
+        try:
+            state = await recordings.delete_sentence(safe_segment(sentence_id))
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})

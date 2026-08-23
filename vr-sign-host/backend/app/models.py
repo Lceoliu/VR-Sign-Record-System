@@ -114,6 +114,10 @@ class SentenceCreateRequest(BaseModel):
     after_index: int = Field(ge=0)
 
 
+class SentenceReorderRequest(BaseModel):
+    sentence_ids: list[str] = Field(min_length=1)
+
+
 class StartRecordingRequest(BaseModel):
     batch_id: str = Field(min_length=1, max_length=80)
     round_id: str = Field(min_length=1, max_length=80)

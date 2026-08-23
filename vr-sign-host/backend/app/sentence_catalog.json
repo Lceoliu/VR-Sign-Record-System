@@ -1798,5 +1798,239 @@
     "index": 299,
     "category": "stress",
     "text": "他在游戏里像个皇帝一样。"
+  },
+  {
+    "sentence_id": "sentence_301",
+    "index": 300,
+    "category": "supplemental",
+    "text": "今天星期几？"
+  },
+  {
+    "sentence_id": "sentence_302",
+    "index": 301,
+    "category": "supplemental",
+    "text": "我要去超市买椅子，你去吗？"
+  },
+  {
+    "sentence_id": "sentence_303",
+    "index": 302,
+    "category": "supplemental",
+    "text": "我不是聋人，想学习手语。"
+  },
+  {
+    "sentence_id": "sentence_304",
+    "index": 303,
+    "category": "supplemental",
+    "text": "这里不允许抽烟。"
+  },
+  {
+    "sentence_id": "sentence_305",
+    "index": 304,
+    "category": "supplemental",
+    "text": "我是手语翻译。"
+  },
+  {
+    "sentence_id": "sentence_306",
+    "index": 305,
+    "category": "supplemental",
+    "text": "明天白天会下雨。"
+  },
+  {
+    "sentence_id": "sentence_307",
+    "index": 306,
+    "category": "supplemental",
+    "text": "午饭我想吃饺子。"
+  },
+  {
+    "sentence_id": "sentence_308",
+    "index": 307,
+    "category": "supplemental",
+    "text": "酒店的桌子上有面包和水果。"
+  },
+  {
+    "sentence_id": "sentence_309",
+    "index": 308,
+    "category": "supplemental",
+    "text": "我听说你身体不舒服，怎么了？"
+  },
+  {
+    "sentence_id": "sentence_310",
+    "index": 309,
+    "category": "supplemental",
+    "text": "他只知道重复他人的想法，一点没有自己的主张。"
+  },
+  {
+    "sentence_id": "sentence_311",
+    "index": 310,
+    "category": "supplemental",
+    "text": "晚上你有没有时间？我想和你去跑步。"
+  },
+  {
+    "sentence_id": "sentence_312",
+    "index": 311,
+    "category": "supplemental",
+    "text": "跑完步很渴，我想喝饮料。"
+  },
+  {
+    "sentence_id": "sentence_313",
+    "index": 312,
+    "category": "supplemental",
+    "text": "我们的航班延误了，现在住在酒店。"
+  },
+  {
+    "sentence_id": "sentence_314",
+    "index": 313,
+    "category": "supplemental",
+    "text": "你家有哪些远亲亲戚？"
+  },
+  {
+    "sentence_id": "sentence_315",
+    "index": 314,
+    "category": "supplemental",
+    "text": "学习是打开知识大门的钥匙。"
+  },
+  {
+    "sentence_id": "sentence_316",
+    "index": 315,
+    "category": "supplemental",
+    "text": "我们开发了一套VR环境的聋听双向无障碍交流系统。"
+  },
+  {
+    "sentence_id": "sentence_317",
+    "index": 316,
+    "category": "supplemental",
+    "text": "听人说的话，系统会把它转成文字。"
+  },
+  {
+    "sentence_id": "sentence_318",
+    "index": 317,
+    "category": "supplemental",
+    "text": "聋人打的手语，系统也会把它翻译成文字。"
+  },
+  {
+    "sentence_id": "sentence_319",
+    "index": 318,
+    "category": "supplemental",
+    "text": "如果VR设备难以捕捉某些手部动作，系统会马上提醒手语者。"
+  },
+  {
+    "sentence_id": "sentence_320",
+    "index": 319,
+    "category": "supplemental",
+    "text": "当手语者指向虚拟物体时，系统会识别他指向的目标。"
+  },
+  {
+    "sentence_id": "sentence_321",
+    "index": 320,
+    "category": "supplemental",
+    "text": "这可以帮助听人理解手语。"
+  },
+  {
+    "sentence_id": "sentence_322",
+    "index": 321,
+    "category": "supplemental",
+    "text": "VR的中文名是虚拟现实。"
+  },
+  {
+    "sentence_id": "sentence_323",
+    "index": 322,
+    "category": "supplemental",
+    "text": "在VR游戏中，用户可以创建自己的虚拟形象。"
+  },
+  {
+    "sentence_id": "sentence_324",
+    "index": 323,
+    "category": "supplemental",
+    "text": "在VR游戏中，可以创造奇特的世界。"
+  },
+  {
+    "sentence_id": "sentence_325",
+    "index": 324,
+    "category": "supplemental",
+    "text": "VR设备的重量和发热令人难以忍受。"
+  },
+  {
+    "sentence_id": "sentence_326",
+    "index": 325,
+    "category": "supplemental",
+    "text": "网络信号越好，视频画面的清晰度越高。"
+  },
+  {
+    "sentence_id": "sentence_327",
+    "index": 326,
+    "category": "supplemental",
+    "text": "网络延迟太高了，我从游戏里掉线了。"
+  },
+  {
+    "sentence_id": "sentence_328",
+    "index": 327,
+    "category": "supplemental",
+    "text": "我的手柄没电了，所以我先下线了。"
+  },
+  {
+    "sentence_id": "sentence_329",
+    "index": 328,
+    "category": "supplemental",
+    "text": "VR里的世界非常有趣，所以我想和朋友一起探索。"
+  },
+  {
+    "sentence_id": "sentence_330",
+    "index": 329,
+    "category": "supplemental",
+    "text": "我还没学会用手柄操作。"
+  },
+  {
+    "sentence_id": "sentence_331",
+    "index": 330,
+    "category": "supplemental",
+    "text": "用手柄玩游戏非常方便。"
+  },
+  {
+    "sentence_id": "sentence_332",
+    "index": 331,
+    "category": "supplemental",
+    "text": "游戏手柄需要经常充电。"
+  },
+  {
+    "sentence_id": "sentence_333",
+    "index": 332,
+    "category": "supplemental",
+    "text": "戴上头显后，我们就可以进入游戏世界了。"
+  },
+  {
+    "sentence_id": "sentence_334",
+    "index": 333,
+    "category": "supplemental",
+    "text": "在玩VR游戏的时候，我们需要在头上戴笨重的头显。"
+  },
+  {
+    "sentence_id": "sentence_335",
+    "index": 334,
+    "category": "supplemental",
+    "text": "只要连上网络，就可以在手机上看地图了。"
+  },
+  {
+    "sentence_id": "sentence_336",
+    "index": 335,
+    "category": "supplemental",
+    "text": "我没有在地图上找到你说的地方。"
+  },
+  {
+    "sentence_id": "sentence_337",
+    "index": 336,
+    "category": "supplemental",
+    "text": "一般来说，地图的上代表着北方。"
+  },
+  {
+    "sentence_id": "sentence_338",
+    "index": 337,
+    "category": "supplemental",
+    "text": "我经常和朋友们一起玩游戏。"
+  },
+  {
+    "sentence_id": "sentence_339",
+    "index": 338,
+    "category": "supplemental",
+    "text": "我已经上线了，你什么时候加入游戏？"
   }
 ]

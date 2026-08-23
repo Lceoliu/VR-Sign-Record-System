@@ -54,7 +54,7 @@ def create_round(
     return response.json()
 
 
-def test_health_and_fixed_sentence_catalog(tmp_path):
+def test_health_and_extended_sentence_catalog(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
         assert client.get("/api/health").json()["status"] == "ok"
@@ -64,13 +64,39 @@ def test_health_and_fixed_sentence_catalog(tmp_path):
     assert state["recording_status"] == "ready"
     assert state["countdown_seconds"] == 2.0
     assert state["batch_id"] is None
-    assert len(state["sentences"]) == 300
-    assert len({sentence["text"] for sentence in state["sentences"]}) == 300
+    assert len(state["sentences"]) == 339
+    assert len({sentence["text"] for sentence in state["sentences"]}) == 339
     assert state["sentences"][0]["text"] == "你叫什么名字？"
     assert state["sentences"][99]["category"] == "social"
     assert state["sentences"][100]["text"] == "你先打开门，我去找钥匙。"
     assert state["sentences"][299]["category"] == "stress"
+    assert state["sentences"][300]["text"] == "今天星期几？"
+    assert state["sentences"][338]["text"] == "我已经上线了，你什么时候加入游戏？"
     assert not any(sentence["text"].startswith("大纲") for sentence in state["sentences"])
+
+
+def test_sentence_reorder_and_delete_endpoints(tmp_path):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        state = create_round(client)
+        sentence_ids = [sentence["sentence_id"] for sentence in state["sentences"]]
+        moved = [*sentence_ids[1:], sentence_ids[0]]
+
+        response = client.put(
+            "/api/recording/sentences/order",
+            json={"sentence_ids": moved},
+        )
+        assert response.status_code == 200
+        assert response.json()["sentences"][-1]["sentence_id"] == "sentence_001"
+        assert response.json()["current_sentence_index"] == 338
+
+        response = client.delete("/api/recording/sentences/sentence_002")
+        assert response.status_code == 200
+        assert len(response.json()["sentences"]) == 338
+        assert not any(
+            sentence["sentence_id"] == "sentence_002"
+            for sentence in response.json()["sentences"]
+        )
 
 
 def test_review_page_lists_media_and_persists_only_issue_labels(tmp_path):

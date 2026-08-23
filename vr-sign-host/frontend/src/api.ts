@@ -70,6 +70,16 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ after_index: afterIndex, text }),
     }),
+  reorderSentences: (sentenceIds: string[]) =>
+    request<HostState>('/api/recording/sentences/order', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sentence_ids: sentenceIds }),
+    }),
+  deleteSentence: (sentenceId: string) =>
+    request<HostState>(`/api/recording/sentences/${encodeURIComponent(sentenceId)}`, {
+      method: 'DELETE',
+    }),
   scan: () => request<{ status: string }>('/api/devices/scan', { method: 'POST' }),
   selectDevice: (deviceId: string) =>
     request(
