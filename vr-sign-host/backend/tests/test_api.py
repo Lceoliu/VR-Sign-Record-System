@@ -8,7 +8,7 @@ from app.config import Settings
 from app.main import create_app
 
 
-def build_app(tmp_path):
+def build_app(tmp_path, *, start_udp: bool = False):
     settings = Settings(
         data_root=tmp_path,
         station_id="station-test",
@@ -16,7 +16,16 @@ def build_app(tmp_path):
         udp_port=5005,
         quest_control_port=5006,
     )
-    return create_app(settings=settings, start_udp=False)
+    return create_app(settings=settings, start_udp=start_udp)
+
+
+def stub_udp_lifecycle(app) -> None:
+    async def noop() -> None:
+        return None
+
+    app.state.udp.start = noop
+    app.state.udp.scan = noop
+    app.state.udp.stop = noop
 
 
 def register_and_select(client: TestClient, app) -> tuple[str, str]:
@@ -64,13 +73,19 @@ def test_health_and_fixed_sentence_catalog(tmp_path):
     assert state["recording_status"] == "ready"
     assert state["countdown_seconds"] == 2.0
     assert state["batch_id"] is None
-    assert len(state["sentences"]) == 300
-    assert len({sentence["text"] for sentence in state["sentences"]}) == 300
-    assert state["sentences"][0]["text"] == "你叫什么名字？"
-    assert state["sentences"][99]["category"] == "social"
-    assert state["sentences"][100]["text"] == "你先打开门，我去找钥匙。"
-    assert state["sentences"][299]["category"] == "stress"
-    assert not any(sentence["text"].startswith("大纲") for sentence in state["sentences"])
+    assert len(state["sentences"]) == 31
+    assert [
+        sum(sentence["viewpoint_id"] == f"state_{viewpoint:02d}" for sentence in state["sentences"])
+        for viewpoint in range(1, 7)
+    ] == [3, 9, 3, 3, 7, 6]
+    assert state["sentences"][18]["highlight_target_ids"] == ["industrial_button"]
+    assert state["sentences"][24]["highlight_target_ids"] == [
+        "industrial_button",
+        "red_button",
+        "alarm_button",
+    ]
+    assert state["sentences"][25]["sequence_numbers"] == [1, 2, 3]
+    assert state["sentences"][30]["sequence_numbers"] == [3, 2, 1]
 
 
 def test_recording_commands_require_selected_device(tmp_path):
@@ -211,10 +226,10 @@ def test_round_switching_preserves_independent_cursor(tmp_path):
         create_round(client, round_id="round_001")
         jump = client.put(
             "/api/recording/current-sentence",
-            json={"sentence_index": 50},
+            json={"sentence_index": 20},
         )
         assert jump.status_code == 200
-        assert jump.json()["current_sentence_index"] == 50
+        assert jump.json()["current_sentence_index"] == 20
 
         second = create_round(client, round_id="round_002")
         assert second["current_sentence_index"] == 0
@@ -223,7 +238,7 @@ def test_round_switching_preserves_independent_cursor(tmp_path):
             "/api/recording/batches/测试批次/rounds/round_001/select"
         )
         assert first_again.status_code == 200
-        assert first_again.json()["current_sentence_index"] == 50
+        assert first_again.json()["current_sentence_index"] == 20
 
         duplicate = client.post(
             "/api/recording/batches/测试批次/rounds",
@@ -239,12 +254,146 @@ def test_round_switching_preserves_independent_cursor(tmp_path):
             "/api/recording/batches/测试批次/rounds/round_001/select"
         )
         assert restored.status_code == 200
-        assert restored.json()["current_sentence_index"] == 50
+        assert restored.json()["current_sentence_index"] == 20
         rounds = client.get("/api/recording/batches/测试批次/rounds").json()
         assert [item["round_id"] for item in rounds["rounds"]] == [
             "round_001",
             "round_002",
         ]
+
+
+def test_pairing_syncs_the_active_round_sentence_to_quest(tmp_path):
+    app = build_app(tmp_path, start_udp=True)
+    stub_udp_lifecycle(app)
+    sent_packets: list[dict] = []
+
+    async def acknowledge(
+        device_id: str,
+        packet: dict,
+        timeout_seconds: float = 2.5,
+    ) -> dict:
+        del device_id, timeout_seconds
+        sent_packets.append(packet)
+        return {"accepted": True, "command_id": packet["command_id"]}
+
+    app.state.udp.send_to_device_and_wait = acknowledge
+
+    with TestClient(app) as client:
+        create_round(client)
+        selected = client.put(
+            "/api/recording/current-sentence",
+            json={"sentence_index": 20},
+        )
+        assert selected.status_code == 200
+        register_and_select(client, app)
+
+    assert [packet.get("action") or packet["type"] for packet in sent_packets] == [
+        "pair",
+        "select_sentence",
+    ]
+    assert sent_packets[-1]["sentence_id"] == "sentence_021"
+    assert sent_packets[-1]["sentence_index"] == 20
+    assert sent_packets[-1]["viewpoint_id"] == "state_05"
+
+
+def test_failed_sentence_sync_preserves_previous_sentence_retake(tmp_path):
+    app = build_app(tmp_path, start_udp=True)
+    stub_udp_lifecycle(app)
+
+    async def reject_sentence_three(
+        device_id: str,
+        packet: dict,
+        timeout_seconds: float = 2.5,
+    ) -> dict:
+        del device_id, timeout_seconds
+        if packet.get("action") == "select_sentence" and packet.get("sentence_index") == 2:
+            raise TimeoutError
+        return {"accepted": True, "command_id": packet["command_id"]}
+
+    app.state.udp.send_to_device_and_wait = reject_sentence_three
+
+    with TestClient(app) as client:
+        register_and_select(client, app)
+        create_round(client)
+        started = client.post(
+            "/api/recording/start",
+            json={"batch_id": "测试批次", "round_id": "round_001"},
+        )
+        assert started.status_code == 200
+
+        import anyio
+
+        anyio.run(
+            app.state.recordings.mark_recording_started,
+            started.json()["command_id"],
+        )
+        stopped = client.post("/api/recording/stop")
+        assert stopped.status_code == 200
+        assert stopped.json()["state"]["current_sentence_index"] == 1
+
+        failed_jump = client.put(
+            "/api/recording/current-sentence",
+            json={"sentence_index": 2},
+        )
+        assert failed_jump.status_code == 504
+        assert client.get("/api/state").json()["current_sentence_index"] == 1
+        rounds = client.get(
+            "/api/recording/batches/测试批次/rounds"
+        ).json()["rounds"]
+        assert rounds[0]["current_sentence_index"] == 1
+
+        retake = client.post("/api/recording/reset")
+        assert retake.status_code == 200
+        assert retake.json()["state"]["current_sentence_index"] == 0
+        assert retake.json()["action"] == "reset_take"
+
+
+def test_stop_syncs_advanced_sentence_and_sync_failure_keeps_take_state(tmp_path):
+    app = build_app(tmp_path, start_udp=True)
+    stub_udp_lifecycle(app)
+    sent_actions: list[str] = []
+
+    async def acknowledge_except_sentence_sync(
+        device_id: str,
+        packet: dict,
+        timeout_seconds: float = 2.5,
+    ) -> dict:
+        del device_id, timeout_seconds
+        action = str(packet.get("action") or packet.get("type"))
+        sent_actions.append(action)
+        if action == "select_sentence":
+            raise TimeoutError
+        return {"accepted": True, "command_id": packet["command_id"]}
+
+    app.state.udp.send_to_device_and_wait = acknowledge_except_sentence_sync
+
+    with TestClient(app) as client:
+        register_and_select(client, app)
+        create_round(client)
+        assert sent_actions[-1] == "select_sentence"
+        started = client.post(
+            "/api/recording/start",
+            json={"batch_id": "测试批次", "round_id": "round_001"},
+        )
+        assert started.status_code == 200
+
+        import anyio
+
+        anyio.run(
+            app.state.recordings.mark_recording_started,
+            started.json()["command_id"],
+        )
+        stopped = client.post("/api/recording/stop")
+
+        assert stopped.status_code == 200
+        assert stopped.json()["state"]["current_sentence_index"] == 1
+        assert sent_actions[-2:] == ["stop_take", "select_sentence"]
+        assert client.get("/api/state").json()["current_sentence_index"] == 1
+
+        reset = client.post("/api/recording/reset")
+        assert reset.status_code == 200
+        assert reset.json()["state"]["current_sentence_index"] == 0
+        assert sent_actions[-1] == "reset_take"
 
 
 def test_device_reported_by_another_station_cannot_be_selected(tmp_path):

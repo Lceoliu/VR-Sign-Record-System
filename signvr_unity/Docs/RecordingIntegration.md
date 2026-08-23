@@ -1,60 +1,64 @@
 # Recording integration
 
-The Unity recording client from `VR-Sign-Record-System/signvr_unity` is
-integrated into the main project under `Assets/Scripts/Recording`.
+The cloned recording stack is integrated directly into `VRroom`; no secondary
+recording scene or XR rig is loaded.
 
-## Runtime behavior
+## Runtime
 
-- `VRroom` is the sole enabled build scene. The legacy
-  `SignTrackingRecorder` scene is not loaded or included in the player build.
-- `VRroom/VRPlayer/MetaBodyTrackingSource` supplies full-body tracking data.
-  The scene-root `RecordingSource` owns `MetaBodyMotionRecorder` and
-  `MetaBodyMotionStreamer`, both wired to that provider.
-- `RecordingRuntimeBootstrap` only activates for that explicit `VRroom`
-  `RecordingSource` and creates one `_Recording` manager when the scene loads.
-  It does not create, load, or replace a scene or XR camera rig.
-- The coordinator owns start/stop timing. Legacy automatic recording is
-  disabled and coordinated takes have no fixed duration.
-- Pose samples are written at 30 Hz to:
+- `VRroom/VRPlayer/MetaBodyTrackingSource` provides body/hand data.
+- Scene-root `RecordingSource` owns `MetaBodyMotionRecorder` and
+  `MetaBodyMotionStreamer`.
+- `RecordingRuntimeBootstrap` creates one `_Recording` manager for this scene.
+- `RecordingCoordinator` is the only capture state machine.
+- `RecordingSentenceSequence` contains 31 target-specific entries across six
+  fixed viewpoints. The host is authoritative after pairing.
+- The upper-left HMD prompt, target outlines, breaker order labels, hand skeleton,
+  and two index-tip rays are presentation-only and never alter recorded Pose.
+- All catalog targets are fixed at their authored poses. State 2 opens the safe;
+  states 5 and 6 open the closet; other states restore closed poses.
+- No Touch-controller or in-headset sentence navigation is installed. A host USB
+  HID foot pedal/keyboard maps short `Space` to start/stop and a 1.2-second hold
+  to retake. The host webpage owns previous/next/jump/scene selection.
+- `select_sentence` received while Quest is finalizing/resetting is deferred until
+  an idle state.
 
-  `Application.persistentDataPath/Recordings/{session}/{sentence}/`
+Pose output:
 
-  A take contains `{stem}.pose.jsonl` and `{stem}.meta.json`. A successful
-  upload adds `{stem}.uploaded`.
-- The existing `motion_viewer.py` remains compatible with the UDP v1
-  skeleton/frame/status stream.
-- `VRroom` has a non-interactive prompt bubble in the HMD. A short press of the
-  Quest right-controller `A` button starts/stops a Take and a 1.2-second hold
-  resets it; Editor simulation uses `Space`. The paired host gateway remains
-  available for workstation and pedal control.
-- Six editable prompts are paired with six authored world-space viewpoints.
-  A normally completed Take advances both; interrupted Takes do not.
-- `scripts/start-local.ps1` selects
-  `backend/app/pointing_sentence_catalog.json`, which contains the same six
-  prompts and their explicit `state_01` through `state_06` viewpoint IDs. The
-  original 300-sentence catalog remains available for the other dataset.
-- New Quest Takes are queued and accepted only when metadata says
-  `capture_status=completed`, the pose quality fields are present and valid,
-  and neither `editor_simulation` nor `pose_source_simulated` is set. The host
-  still accepts legacy metadata that predates the quality fields for migration;
-  the Quest uploader intentionally leaves those legacy files local until they
-  are re-recorded with the quality contract. Simulated Editor artifacts always
-  stay local.
-- Local-network HTTP is enabled in Player Settings because the workstation
-  service uses `http://<host>:8000` on the trusted recording LAN.
+```text
+Application.persistentDataPath/Recordings/{session}/{sentence}/
+  {stem}.pose.jsonl
+  {stem}.meta.json
+  {stem}.meta.json.uploaded
+```
 
-## Host service
+Only completed real-pose artifacts enter the upload queue. Editor simulation is
+explicitly marked and remains local.
 
-The host remains a separate process in
-`VR-Sign-Record-System/vr-sign-host`. Its network contract is:
+## Host
+
+The host is `VR-Sign-Record-System/vr-sign-host`.
 
 | Port | Protocol | Purpose |
 | --- | --- | --- |
-| 8000 | HTTP / WebSocket | Operator UI, take uploads, preview |
-| 5005 | UDP | Device announcements, ACKs, live pose |
+| 8000 | HTTP / WebSocket | Operator UI, Take upload, preview |
+| 5005 | UDP | Device announcement, ACK, live Pose |
 | 5006 | UDP | Quest discovery and recording commands |
 
-First-time setup:
+`scripts/start-local.ps1` loads the 31-entry
+`backend/app/pointing_sentence_catalog.json`. The React console displays the HMD
+prompt plus `target_label`, so repeated pointing sentences are distinguishable.
+The old 300-entry catalog remains available for the separate dataset.
+
+Host output:
+
+```text
+{data_root}/{batch_id}/{round_id}/{sentence_id}/{take_id}/
+  {take_id}.pose.jsonl
+  {take_id}.meta.json
+  {take_id}.camera.webm
+```
+
+## Run
 
 ```powershell
 cd E:\SignVR_Unity\VR-Sign-Record-System\vr-sign-host\backend
@@ -67,37 +71,33 @@ pnpm build
 
 cd ..
 .\scripts\configure-station.ps1 -StationId Station-01 -DataRoot E:\SignVRData\Station-01
-```
-
-Run the workstation:
-
-```powershell
-cd E:\SignVR_Unity\VR-Sign-Record-System\vr-sign-host
 .\scripts\start-local.ps1
 ```
 
-Then open `http://127.0.0.1:8000`. Quest and workstation must be on the same
-trusted local network. Run `scripts/setup-firewall.ps1` from an elevated
-PowerShell once before device testing.
+Open `http://127.0.0.1:8000`. Quest and workstation must be on the same trusted
+LAN. Run `scripts/setup-firewall.ps1` once from elevated PowerShell before device
+testing.
 
-## Validation
+## Validate
 
-Unity validation commands:
+Unity:
 
-```powershell
-Unity.exe -batchmode -nographics -projectPath E:\SignVR_Unity `
-  -executeMethod ConfigureVRRoomPlayer.ValidateSceneForAutomation `
-  -quit -logFile validate-vrroom.log
+```text
+Tools/SignVR/Validate VRroom Player and Physics
+Tools/SignVR/Validate Pointing Recording
 ```
 
-Host validation after installing its locked dependencies:
+Host:
 
 ```powershell
-cd E:\SignVR_Unity\VR-Sign-Record-System\vr-sign-host\backend
+cd vr-sign-host/backend
 .\.venv\Scripts\python.exe -m pytest -q
+
+cd ../frontend
+pnpm lint
+pnpm build
 ```
 
-Replay and JPEG preview components are imported but are not automatically
-enabled in `VRroom`; they require a visible retargeted character and a preview
-camera. Raw body recording, local metadata, UDP pairing/control, streaming,
-and take upload are active without those optional visuals.
+The full component ownership and extension contract is in
+`POINTING_RECORDING.dev`; the 31-row target table is in
+`POINTING_SENTENCE_CATALOG.md`.

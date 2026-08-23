@@ -35,7 +35,7 @@ namespace SignVR.Recording
 
         private void Awake()
         {
-#if !UNITY_EDITOR && !DEVELOPMENT_BUILD
+#if !UNITY_EDITOR
             enabled = false;
 #endif
             if (replayController == null)

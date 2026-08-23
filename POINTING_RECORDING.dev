@@ -1,133 +1,176 @@
 # Pointing Recording Developer Handoff
 
-## Status and source of truth
+## Scope and source of truth
 
 - Canonical repository: the repository containing this file.
 - Delivery branch: `feat/integrated-vr-interactions-recording`.
 - Unity project: `signvr_unity/`, Unity `6000.5.6f1`.
-- Host project: `vr-sign-host/` (FastAPI backend and React operator console).
-- Editor simulation, local artifact writing, host catalog selection, upload validation,
-  and workstation tests are implemented.
-- Quest 3 hardware acceptance is still required. Editor simulation artifacts are
-  integration evidence only and must never enter the real dataset.
+- Host project: `vr-sign-host/` (FastAPI + React).
+- Runtime scene: `signvr_unity/Assets/Scenes/VRroom.unity`.
+- Requirement source: `E:\SignVR_Unity\有指代数据录制细节.pdf`.
+- Exact 31-row mapping and authored world coordinates:
+  `POINTING_SENTENCE_CATALOG.md`.
 
-`E:\SignVR_Unity` was the live integration workspace used while the headset was
-occupied. New development must treat this repository's `signvr_unity/` directory
-as canonical so Unity and host changes cannot drift into separate commits.
+The live Unity Editor may be opened on `E:\SignVR_Unity`; it is a working mirror.
+Commit and push only the canonical `VR-Sign-Record-System` repository, and keep
+shared Unity code/scene files byte-identical between the two trees.
+
+## Recording contract
+
+The dataset has exactly 31 sentences:
+
+| Viewpoint | Sentences | Rule |
+| --- | ---: | --- |
+| `state_01` | 3 | One of three boxes |
+| `state_02` | 9 | Cartesian product of three coins and three plates |
+| `state_03` | 3 | One of three picture frames |
+| `state_04` | 3 | One of three keys |
+| `state_05` | 7 | Every non-empty subset of exactly three buttons |
+| `state_06` | 6 | Every permutation of exactly three breakers |
+
+The state-5 buttons are only `industrial_button`, `red_button`, and
+`alarm_button`. `elevator_button_-_lift` is not a target. The state-6 breakers
+are the three `free_switch_handler_ue5` roots. Do not convert either group into
+seven physical objects.
+
+Repeated HMD prompt text is intentional. The referent changes through visual
+highlighting. `target_label` is host-only context that lets the supervisor
+distinguish entries such as `按钮 A+C` or `电闸顺序 B→C→A`.
 
 ## Runtime ownership
 
 | Component | Responsibility |
 | --- | --- |
-| `RecordingRuntimeBootstrap` | Installs the recording services only in `VRroom`; it does not replace the scene or XR rig. |
-| `RecordingCoordinator` | Owns the recording state machine, countdown, finalization, reset, pause handling, and completion events. |
-| `RecordingSentenceSequence` | Owns the editable six-item local sequence and sentence-to-viewpoint mapping. It auto-advances only after a valid completed Take. |
-| `RecordingViewpointController` | Selects one of six disabled reference cameras and aligns the tracked XR view to its world pose. |
-| `RecordingViewpointSceneStateController` | Applies deterministic, non-animated environment state. `state_02` opens the safe door and every other viewpoint closes it. |
-| `VRPlayerRig` / `RecordingModeController` | Lock locomotion, player-root drift, XR-origin recalibration, and recorder collisions while leaving tracked head and hands free. |
-| `MetaBodyMotionRecorder` | Writes 30 Hz JSONL pose frames, applies completion quality gates, and atomically writes metadata. |
-| `RecordingSpatialMetadataProvider` | Snapshots the selected viewpoint, world frame, XR origin, tracked head, floor, and alignment error for every Take. |
-| `RecordingPromptBubble` | Renders one non-interactive, depth-independent rounded prompt bubble at the HMD viewport's upper left and disables the legacy duplicate recorder canvas. |
-| `RecordingHandSkeletonVisualizer` | Reuses the main Interaction SDK hand transforms and mirrors Meta `OVRSkeletonRenderer` with one line per parent-child bone; the hand mesh is hidden while tracking remains active. |
-| `RecordingQuestInput` / `RecordingDebugInput` | Map Quest and Editor start/stop, reset, previous-sentence, and next-sentence shortcuts to the same sequence/coordinator commands. |
-| `QuestDeviceGateway` | Handles host pairing and UDP commands; paired-host sentence and Take identifiers are authoritative. |
-| `QuestTakeUploader` | Uploads only completed, real-pose artifacts and preserves the local backlog until a receipt marker is written. |
-| `vr-sign-host` | Owns batches, rounds, formal sentence selection, Take reservation, external video, and final disk layout. |
+| `RecordingRuntimeBootstrap` | Installs the recording stack only for `VRroom`; it keeps the authored XR rig and scene. |
+| `RecordingCoordinator` | Owns countdown, recording, finalization, reset, pause handling, and completion events. |
+| `RecordingSentenceSequence` | Holds the Inspector-editable 31 entries and mirrors host selection by `sentence_id`. |
+| `RecordingPointingSentenceCatalog` | Provides the canonical Unity defaults used by the scene configurator and validation. |
+| `RecordingViewpointController` | Aligns the tracked XR view to one of six disabled world-space reference cameras. |
+| `RecordingViewpointSceneStateController` | Opens the safe in `state_02`, opens both closet doors in `state_05/06`, and restores closed poses elsewhere. |
+| `RecordingTargetPoseLock` | Keeps all catalog targets at authored poses and disables physics/grab movement. |
+| `RecordingPointingTargetController` | Resolves target paths only when the sentence changes and feeds cached transforms to the cue renderer. |
+| `RecordingTargetVisualCues` | Draws subtle pulsing bounds outlines; state 6 also displays floating `1/2/3` labels. |
+| `RecordingIndexFingerRays` | Draws both index-tip rays from real hand skeletons and reports target-bound hits without colliders. |
+| `RecordingHandSkeletonVisualizer` | Reuses the main tracked hand joints and displays a per-bone skeleton instead of the hand mesh. |
+| `RecordingPromptBubble` | Renders the rounded, depth-independent upper-left prompt bubble. |
+| `MetaBodyMotionRecorder` | Writes 30 Hz pose JSONL and atomic metadata with quality gates. |
+| `QuestDeviceGateway` | Pairs with the host and applies host-authoritative recording and `select_sentence` commands. |
+| `QuestTakeUploader` | Uploads completed real-pose artifacts and preserves unacknowledged local files. |
+| `vr-sign-host` | Owns batches, rounds, sentence selection, foot-pedal input, external video, and final disk layout. |
 
-The detailed scene coordinates and user flow are in
-`signvr_unity/Docs/PointingRecording.md`. The cross-process integration notes are
-in `signvr_unity/Docs/RecordingIntegration.md`.
+The architecture intentionally has one bootstrap and one recording state machine.
+Static authored data lives in the sentence catalog/scene. Mutable capture state
+lives in the coordinator. Presentation components subscribe to sequence and state
+events; they do not poll or search the scene every frame.
 
-## State contract
-
-Normal local flow:
+## State and advancement
 
 ```text
 Ready -> Countdown -> Recording -> Finalizing -> Completed
   ^          |                         |
   |          +-- short press ----------+
   |             cancel, no artifact
-  +-- invalid/interrupted Take: keep current sentence for retake
+  +-- reset/invalid Take: retain or restore the intended sentence
 ```
 
-- A completed artifact raises `TakeCompleted`; the local sequence then loads the
-  next sentence exactly once. Input handlers must not advance the sequence again.
-- Cancelling during countdown returns to `Ready` and creates no pose artifact. The
-  host also releases its empty reserved Take directory.
-- Too-short, low-valid-pose, paused, passthrough-interrupted, capture-error, or
-  I/O-error Takes never advance the sentence.
-- When paired, the host owns `session_id`, `sentence_id`, prompt text, and
-  `take_id`. The headset mirrors the matching local sequence entry only for HMD
-  progress and viewpoint selection.
-
-## Viewpoint and world-frame contract
-
-- `RecordingViewpoints` contains six disabled reference `Camera` components,
-  `state_01` through `state_06`. They are editable world poses, not Quest render
-  cameras.
-- `CenterEyeAnchor` remains the only `MainCamera` and the only Quest render camera.
-- Loading a sentence selects its reference viewpoint. Starting a Take reapplies
-  that viewpoint and waits for tracked-head alignment before countdown proceeds.
-- `state_02` opens `safe/.../Object_5` and its keypad around a generated left-edge
-  hinge by `105` degrees. Switching away restores the exact authored closed pose;
-  there is no interaction or animation and repeated switches do not accumulate.
-- OVR uses `FloorLevel`; `resetTrackerOnLoad` and `AllowRecenter` are disabled.
-- During recording, `VRPlayerRig` holds the authored player root and the aligned
-  XR-origin local pose. Runtime floor-height recalibration is corrected without
-  freezing normal head rotation or hand motion.
-- Every metadata file records `world_frame_id=VRroom-world-v1`, viewpoint pose,
-  actual XR/head pose, position error, alignment status, floor Y, tracking origin,
-  and XR-origin correction count. Changing this frame requires an explicit data
-  migration and a new world-frame ID.
-
-Do not enable a reference camera in an Android build. Editor preview may render a
-reference camera, but Quest recording must always use the tracked HMD camera.
-
-## Prompt catalog contract
-
-The same six entries currently exist in two authoring surfaces:
-
-1. `RecordingSentenceSequence` on `VRroom/RecordingViewpoints`, editable in the
-   Unity Inspector.
-2. `vr-sign-host/backend/app/pointing_sentence_catalog.json`, loaded by
-   `vr-sign-host/scripts/start-local.ps1` by default.
-
-For every entry, keep these fields identical and in the same order:
-
-```text
-sentence_id, zero-based index, Chinese text, viewpoint_id
-```
-
-`sentence_id` values are continuous (`sentence_001` ...), and `viewpoint_id` must
-be explicit (`state_01` ...). The old 300-sentence catalog remains at
-`backend/app/sentence_catalog.json`; select it only by setting
-`SIGNVR_SENTENCE_CATALOG` or `sentence_catalog` in `config/station.json`. Never
-reuse an existing batch/round after changing catalog length or ordering.
+- A normal stop finishes the Take, advances the host cursor by one, and sends a
+  follow-up `select_sentence` command to Quest.
+- Quest queues selection received during `Finalizing`/`Resetting` and applies it
+  on return to `Ready`/`Completed`.
+- A countdown cancellation releases the reserved empty Take and does not advance.
+- A long press after a completed Take returns to the sentence just recorded and
+  allocates a new Take ID. Existing files are never overwritten.
+- Too-short, invalid-pose, paused, passthrough-interrupted, capture-error, or
+  I/O-error Takes do not advance.
 
 ## Controls
 
-| Action | Quest 3 | Editor simulation |
-| --- | --- | --- |
-| Start, cancel countdown, or stop current Take | Right-controller `A` short press | `Space` short press |
-| Reset current sentence/Take state | Hold right-controller `A` for 1.2 seconds | Hold `Space` for 1.2 seconds |
-| Load next sentence and its viewpoint | Right-controller `B` while idle | `Right Arrow` or `Tools/SignVR/Simulation/Next Sentence` |
-| Load previous sentence and its viewpoint | Left-controller `X` while idle | `Left Arrow` or `Tools/SignVR/Simulation/Previous Sentence` |
-| Formal host control | Pedal/operator UI over UDP | Same coordinator state machine |
+No Touch controller or Quest OS button is part of the recording protocol.
 
-The HMD bubble shows sentence progress and state. It is deliberately
-non-interactive so it cannot contaminate hand interaction data.
+| Action | Input |
+| --- | --- |
+| Start / cancel countdown / stop | Short `Space` in the focused host page |
+| Re-record previous/current sentence | Hold `Space` for 1.2 seconds |
+| Previous / next sentence | Host `Left Arrow` / `Right Arrow`, page buttons, list click, or numeric jump |
+| Recorder inside Quest | Uses the USB HID foot pedal mapped to `Space`; no in-VR sentence/scene controls |
 
-## Fixed reference props
+The foot pedal connects to the host PC and emits keyboard input into the focused
+browser. The supervisor alone selects sentence and scene. Quest and host only
+need to share the trusted LAN; the pedal does not pair with Quest.
 
-The nine pointing references `box`, `box (1)`, `box (2)`, `plate`,
-`dragon_plate`, `plate (1)`, `dragon_coin`, `golden_coin`, and
-`golden_coin (1)` are visual-only recording anchors. The scene setup explicitly
-disables all of their colliders and grab behaviours. Existing rigidbodies are
-kinematic, gravity-free, collision-free, and frozen on every axis. Do not make
-these objects movable without revising the recording protocol because their
-authored positions disambiguate the pointing target.
+The obsolete in-headset previous/next hand panel and Quest-to-host
+`sentence_offset` signal were removed. Do not reintroduce them without changing
+the recording protocol and supervisor workflow.
 
-## Artifact and upload contract
+## Visual cue timing
+
+- During `Ready`, targets and finger rays are hidden.
+- During `Countdown` and `Recording`, every target for the current sentence gets
+  a subtle cyan bounds outline. A coin/plate sentence highlights both objects;
+  a state-5 sentence highlights the selected non-empty button subset.
+- In state 6 all three breakers are outlined. Floating numbers are assigned to
+  each breaker according to that sentence's permutation.
+- Both index rays start at `Hand_IndexTip`, use `Hand_Index3 -> Hand_IndexTip`
+  as direction, and turn green when intersecting an active target Bounds.
+- Bounds, labels, and ray hits do not require target colliders. This is required
+  because recording props are deliberately collision-free.
+
+The bounds approach avoids changing shared materials. Several targets share a
+material, so mutating `sharedMaterial` would highlight unrelated objects.
+
+## Fixed props and deterministic doors
+
+Every unique target in the 31-sentence catalog is a fixed visual reference.
+Scene configuration and runtime startup both enforce the contract:
+
+- Rigidbody: Kinematic, no gravity, no collision detection, all axes frozen.
+- `Grabbable`: disabled.
+- Authored local position/rotation/scale: restored late each frame as a guard
+  against third-party interaction scripts.
+
+`state_02` opens `safe/.../Object_5` around its left edge by `105°`.
+`state_05` and `state_06` open both `closet/.../RootNode/LeftDoor` and
+`RightDoor` around generated outer-edge hinges by `+105°` and `-105°`.
+All transitions first restore exact authored closed poses, so repeated switching
+does not accumulate transform drift. There is no interaction or animation.
+
+## World frame
+
+- OVR tracking origin is `FloorLevel`.
+- `resetTrackerOnLoad` and `AllowRecenter` are disabled.
+- Selecting a sentence aligns the XR rig so the current tracked head reaches the
+  authored reference-camera eye position. Height differences do not redefine
+  target world coordinates.
+- `VRPlayerRig` and `RecordingModeController` suppress locomotion, player-root
+  drift, XR-origin recalibration, and recorder collisions while leaving tracked
+  head rotation and both hands live.
+- Metadata records `world_frame_id=VRroom-world-v1`, viewpoint pose, actual
+  XR/head pose, floor Y, alignment error, tracking origin, and correction count.
+
+Reference cameras must stay disabled in Android builds. `CenterEyeAnchor` is the
+only `MainCamera` and the only Quest render camera.
+
+## Catalog synchronization
+
+The same ordered 31 entries are authored in:
+
+1. `RecordingSentenceSequence` on `VRroom/RecordingViewpoints`.
+2. `vr-sign-host/backend/app/pointing_sentence_catalog.json`.
+
+Keep these fields synchronized:
+
+```text
+sentence_id, zero-based index, text, viewpoint_id,
+target_label, highlight_target_ids, sequence_numbers
+```
+
+Run `Tools/SignVR/Configure Pointing Recording` after changing Unity defaults.
+It rewrites the scene sequence, freezes target physics, creates missing door
+hinges, saves the scene, and runs validation. Never reuse an existing round after
+changing catalog length/order. The old 300-sentence catalog remains available as
+`vr-sign-host/backend/app/sentence_catalog.json` for the other dataset.
+
+## Artifact and network contract
 
 Quest/local output:
 
@@ -138,20 +181,7 @@ Application.persistentDataPath/Recordings/{session}/{sentence}/
   {stem}.meta.json.uploaded
 ```
 
-- Sampling rate: 30 Hz.
-- Minimum normally completed Take: 15 frames.
-- Quest valid-pose ratio: at least 0.90.
-- Metadata is written to `.tmp` and atomically renamed after the pose stream is
-  closed.
-- `editor_simulation=true` or `pose_source_simulated=true` makes an artifact
-  permanently local-only.
-- The uploader requires `capture_status=completed` and valid frame-quality
-  fields. The host independently rejects simulated, interrupted, mismatched, or
-  malformed metadata.
-- Do not change filenames, IDs, or metadata fields without retaining backward
-  compatibility and adding host API tests.
-
-Host output remains under its configured data root:
+Host output:
 
 ```text
 {data_root}/{batch_id}/{round_id}/{sentence_id}/{take_id}/
@@ -160,26 +190,29 @@ Host output remains under its configured data root:
   {take_id}.camera.webm
 ```
 
+| Port | Protocol | Purpose |
+| --- | --- | --- |
+| 8000 | HTTP / WebSocket | Operator UI, uploads, preview |
+| 5005 | UDP | Device announcement, ACK, live pose |
+| 5006 | UDP | Quest discovery and host commands |
+
+Editor-simulated artifacts contain `editor_simulation=true` and
+`pose_source_simulated=true`; they stay local and the host rejects them. A real
+completed Quest Take requires at least 15 frames and at least 90% valid pose
+frames.
+
 ## Local development
 
-Open `signvr_unity/Assets/Scenes/VRroom.unity`, then use:
+Open `signvr_unity/Assets/Scenes/VRroom.unity`, then run:
 
 ```text
 Tools/SignVR/Configure VRroom Player and Physics
 Tools/SignVR/Configure Pointing Recording
 Tools/SignVR/Validate VRroom Player and Physics
 Tools/SignVR/Validate Pointing Recording
-Tools/SignVR/Simulation/Toggle Recording
-Tools/SignVR/Simulation/Previous Sentence
-Tools/SignVR/Simulation/Next Sentence
 ```
 
-The configure command is idempotent and preserves hand-adjusted transforms of
-existing reference cameras. It creates missing cameras only. In Play Mode,
-`Space` can run the full simulated start/sample/stop/advance workflow without a
-Quest.
-
-First-time host setup:
+Host setup and run:
 
 ```powershell
 cd vr-sign-host/backend
@@ -189,17 +222,14 @@ py -3.12 -m venv .venv
 cd ../frontend
 pnpm install
 pnpm build
-```
 
-Run the workstation from `vr-sign-host/`:
-
-```powershell
+cd ..
 .\scripts\start-local.ps1
 ```
 
 Operator console: `http://127.0.0.1:8000`.
 
-## Required validation before a push
+## Required validation before push
 
 ```powershell
 cd vr-sign-host/backend
@@ -213,58 +243,26 @@ cd ../../
 git diff --check
 ```
 
-Also verify in Unity:
+Also verify:
 
-- compilation is idle with zero console errors;
-- `Tools/SignVR/Validate Pointing Recording` passes;
-- `Tools/SignVR/Validate VRroom Player and Physics` passes and all nine fixed
-  reference props have no active collider, dynamic body, or grab behaviour;
-- `VRroom` has six reference cameras and exactly one `MainCamera`;
-- switching `state_02 -> state_03 -> state_02` produces identical open-door
-  transforms, and the open view shows both coins and plates;
-- the prompt background and all text remain visible above the open safe door;
-- both main hand sources are selected and contain the expected parent-child
-  skeleton bones;
-- one Editor simulated Take reaches `Completed`, writes pose/meta files, and
-  advances by exactly one sentence;
-- the simulated artifact stays out of the upload queue.
-
-## Quest 3 acceptance gate
-
-Do not label this feature device-validated until all items pass on the actual
-recording APK and workstation network:
-
-- HMD bubble remains in the upper-left viewport without clipping in normal head
-  movement.
-- Each of six sentences selects the intended physical scene viewpoint.
-- Different wearer heights converge to the same authored world eye position;
-  metadata alignment error is within tolerance.
-- Head rotation and both tracked hands remain live while locomotion and collision
-  response remain disabled.
-- Short `A` press starts/stops; pressing during countdown cancels without a Take;
-  a hold resets without advancing. Idle `B` and `X` move next/previous exactly once.
-- Boxes, plates, and coins remain at their authored transforms for the whole Take.
-- `state_02` opens the safe around its left edge, with coins and plates visible;
-  leaving that state closes it without transform drift.
-- The hand mesh is replaced by the per-bone skeleton while real tracking and pose
-  recording continue to use the main left/right hand sources.
-- A valid Take advances exactly one sentence. A tracking failure, app pause, or
-  passthrough interruption stays on the current sentence.
-- Real pose/meta uploads and camera video land in the same host Take directory;
-  network interruption leaves a recoverable local backlog.
-- Restarting Quest and host does not overwrite an existing Take.
+- Unity compiles with zero errors.
+- `Validate Pointing Recording` reports 31 sentences, six viewpoints, all target
+  paths resolved, fixed target physics, deterministic safe/closet doors, and one
+  XR render camera.
+- State 5 has seven and only seven button subsets.
+- State 6 has six and only six breaker permutations with visible `1/2/3` labels.
+- Editor simulation shows the rounded prompt, target outline, skeleton, and two
+  index rays without overlap or blank rendering.
+- An Android build installs and launches on Quest 3; the host can pair, select a
+  sentence, start/stop a Take, and receive Pose/Meta.
 
 ## Extension rules
 
-- Add behavior through the existing coordinator events and component boundaries;
-  do not add a second recording state machine or a second XR camera rig.
-- Keep host-authoritative and standalone-local paths behaviorally equivalent.
-- When adding prompts/viewpoints, update Unity, the pointing JSON catalog,
-  validation, documentation, and device acceptance together.
-- Preserve every existing candidate Take. Retake means allocating a new Take ID,
-  never overwriting files.
-- Keep `signvr_unity/Docs/ThirdPartyAssets.md` current. The five newly required
-  pointing-scene GLBs still need provenance and redistribution review before a
-  public release.
+- Do not add another recording state machine, XR camera rig, or per-frame scene
+  search.
+- Add presentation behavior through coordinator/sequence events.
+- Preserve every existing candidate Take; retake allocates a new ID.
+- Update Unity defaults, scene, host JSON, tests, coordinate table, and this handoff
+  together when the catalog changes.
 - Keep generated data, station config, virtual environments, frontend builds,
-  Unity `Library/Temp/Logs`, and APK/build output out of Git.
+  Unity `Library/Temp/Logs`, screenshots, and APK output out of Git.

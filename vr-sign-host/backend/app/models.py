@@ -36,6 +36,9 @@ class SentenceItem(BaseModel):
     category: str
     text: str
     viewpoint_id: str | None = None
+    target_label: str = ""
+    highlight_target_ids: list[str] = Field(default_factory=list)
+    sequence_numbers: list[int] = Field(default_factory=list)
     status: Literal["completed", "current", "pending"] = "pending"
     completed: bool = False
     take_count: int = 0

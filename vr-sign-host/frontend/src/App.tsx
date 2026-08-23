@@ -32,6 +32,7 @@ import type { DeviceInfo, HostState, RecordingStatus, RoundInfo } from './types'
 
 const HOLD_DURATION_MS = 1200
 const CATEGORY_LABELS: Record<string, string> = {
+  pointing: '指代',
   social: '社交',
   collaborate: '协作',
   spatial: '空间',
@@ -116,6 +117,7 @@ export default function App() {
       if (!deferredSentenceQuery) return true
       const number = String(sentence.index + 1).padStart(3, '0')
       return sentence.text.toLocaleLowerCase().includes(deferredSentenceQuery)
+        || sentence.target_label.toLocaleLowerCase().includes(deferredSentenceQuery)
         || number.includes(deferredSentenceQuery)
         || (CATEGORY_LABELS[sentence.category] ?? sentence.category).includes(deferredSentenceQuery)
     })
@@ -162,7 +164,7 @@ export default function App() {
     socket.onmessage = (event) => {
       const message = JSON.parse(event.data) as {
         type: string
-        payload: HostState & { accepted?: boolean }
+        payload: HostState & { accepted?: boolean; message?: string }
       }
       if (['state_changed', 'take_uploaded', 'camera_uploaded'].includes(message.type)) {
         commitState(message.payload)
@@ -180,6 +182,9 @@ export default function App() {
         (message.type === 'command_ack' && message.payload.accepted)
       ) {
         setError(null)
+      }
+      if (message.type === 'command_sync_failed' && message.payload.message) {
+        setError(message.payload.message)
       }
     }
     return () => socket.close()
@@ -352,7 +357,7 @@ export default function App() {
     }
   }
 
-  const selectSentence = async (sentenceIndex: number) => {
+  const selectSentence = useCallback(async (sentenceIndex: number) => {
     if (!contextReady || state?.recording_status !== 'ready') return
     try {
       commitState(await api.selectSentence(sentenceIndex))
@@ -360,12 +365,12 @@ export default function App() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '无法切换句子')
     }
-  }
+  }, [commitState, contextReady, state?.recording_status])
 
   const jumpToSentence = () => {
     const sentenceNumber = Number.parseInt(jumpValue, 10)
     if (!state || !Number.isInteger(sentenceNumber) || sentenceNumber < 1 || sentenceNumber > state.sentences.length) {
-      setError(`请输入 1–${state?.sentences.length ?? 300} 的句子编号`)
+      setError(`请输入 1–${state?.sentences.length ?? 31} 的句子编号`)
       return
     }
     void selectSentence(sentenceNumber - 1)
@@ -378,7 +383,7 @@ export default function App() {
     )
     const target = afterCurrent ?? state.sentences.find((sentence) => !sentence.completed)
     if (!target) {
-      setError('当前轮次的 300 句已经全部完成')
+      setError(`当前轮次的 ${state.sentences.length} 句已经全部完成`)
       return
     }
     void selectSentence(target.index)
@@ -386,7 +391,17 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || event.repeat || isEditableTarget(event.target)) return
+      if (event.repeat || isEditableTarget(event.target)) return
+      if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
+        if (!state || state.recording_status !== 'ready' || !contextReady) return
+        const offset = event.code === 'ArrowLeft' ? -1 : 1
+        const target = state.current_sentence_index + offset
+        if (target < 0 || target >= state.sentences.length) return
+        event.preventDefault()
+        void selectSentence(target)
+        return
+      }
+      if (event.code !== 'Space') return
       event.preventDefault()
       keyDownAtRef.current = performance.now()
       longPressTriggeredRef.current = false
@@ -427,7 +442,15 @@ export default function App() {
       window.removeEventListener('keyup', onKeyUp)
       if (holdTimerRef.current !== null) window.clearInterval(holdTimerRef.current)
     }
-  }, [isRecording, resetRecording, startRecording, stopRecording])
+  }, [
+    contextReady,
+    isRecording,
+    resetRecording,
+    selectSentence,
+    startRecording,
+    state,
+    stopRecording,
+  ])
 
   const selectQuest = async (deviceId: string) => {
     try {
@@ -564,7 +587,7 @@ export default function App() {
 
         <main className="main-stage">
           <section className="prompt-block">
-            <div className="section-heading"><h2>当前句子</h2><span>{CATEGORY_LABELS[currentSentence?.category ?? ''] ?? currentSentence?.category} · #{String(state.current_sentence_index + 1).padStart(3, '0')}</span></div>
+            <div className="section-heading"><h2>当前句子</h2><span>{CATEGORY_LABELS[currentSentence?.category ?? ''] ?? currentSentence?.category} · #{String(state.current_sentence_index + 1).padStart(3, '0')}{currentSentence?.target_label ? ` · ${currentSentence.target_label}` : ''}</span></div>
             <p>{currentSentence?.text}</p>
           </section>
           <div className="video-grid">
@@ -625,7 +648,7 @@ export default function App() {
                 <li key={sentence.sentence_id} data-sentence-index={sentence.index} className={`${sentence.status} ${sentence.completed ? 'completed' : ''}`}>
                   <button disabled={!contextReady || state.recording_status !== 'ready'} onClick={() => void selectSentence(sentence.index)}>
                     <span className="sentence-index">{String(sentence.index + 1).padStart(3, '0')}</span>
-                    <span className="sentence-copy"><p>{sentence.text}</p><small>{CATEGORY_LABELS[sentence.category] ?? sentence.category}{sentence.take_count ? ` · ${sentence.take_count} Take` : ''}</small></span>
+                    <span className="sentence-copy"><p>{sentence.text}</p><small>{sentence.target_label || (CATEGORY_LABELS[sentence.category] ?? sentence.category)}{sentence.take_count ? ` · ${sentence.take_count} Take` : ''}</small></span>
                     {sentence.completed ? <Check size={17} /> : sentence.status === 'current' ? <Circle size={10} fill="currentColor" /> : null}
                   </button>
                 </li>
@@ -664,8 +687,10 @@ export default function App() {
           <button className="action-reset" disabled={!contextReady} onClick={() => void resetRecording()}><RotateCcw size={20} />重新录制</button>
         </div>
         <div className="pedal-hint">
+          <div className="keycap">←</div>
           <div className="keycap">SPACE</div>
-          <span>短按开始 / 结束，长按重新录制</span>
+          <div className="keycap">→</div>
+          <span>上下句 · 短按开始 / 结束 · 长按重新录制</span>
           {holdProgress > 0 && <div className="hold-ring" style={{ '--progress': `${holdProgress * 360}deg` } as React.CSSProperties}><i /></div>}
         </div>
       </footer>

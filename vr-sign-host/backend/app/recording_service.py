@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from .models import HostState, RecordingStatus, SentenceItem, TakeItem
@@ -10,11 +11,18 @@ from .protocol import command_id, unix_ms
 from .repository import RecordingRepository
 
 
+@dataclass(frozen=True)
+class RecordingServiceCheckpoint:
+    state: HostState
+    active_start_command_id: str | None
+    retake_sentence_index: int | None
+
+
 def load_sentence_catalog(path: Path | None = None) -> list[SentenceItem]:
     configured_path = path or Path(
         os.environ.get(
             "SIGNVR_SENTENCE_CATALOG",
-            Path(__file__).with_name("sentence_catalog.json"),
+            Path(__file__).with_name("pointing_sentence_catalog.json"),
         )
     )
     path = configured_path.expanduser().resolve()
@@ -25,8 +33,16 @@ def load_sentence_catalog(path: Path | None = None) -> list[SentenceItem]:
     for index, sentence in enumerate(sentences):
         if sentence.index != index or sentence.sentence_id != f"sentence_{index + 1:03d}":
             raise ValueError(f"语料编号不连续：{sentence.sentence_id}")
-    if len({sentence.text for sentence in sentences}) != len(sentences):
-        raise ValueError(f"语料包含重复文本：{path}")
+    if len({sentence.sentence_id for sentence in sentences}) != len(sentences):
+        raise ValueError(f"语料包含重复句子编号：{path}")
+    for sentence in sentences:
+        if sentence.sequence_numbers and (
+            len(sentence.sequence_numbers) != len(sentence.highlight_target_ids)
+            or sorted(sentence.sequence_numbers) != list(
+                range(1, len(sentence.sequence_numbers) + 1)
+            )
+        ):
+            raise ValueError(f"目标顺序无效：{sentence.sentence_id}")
     return sentences
 
 
@@ -50,11 +66,25 @@ class RecordingService:
         async with self._lock:
             return self._state.model_copy(deep=True)
 
-    async def restore(self, state: HostState) -> HostState:
+    async def checkpoint(self) -> RecordingServiceCheckpoint:
         async with self._lock:
-            self._state = state.model_copy(deep=True)
-            self._active_start_command_id = None
-            self._retake_sentence_index = None
+            return RecordingServiceCheckpoint(
+                state=self._state.model_copy(deep=True),
+                active_start_command_id=self._active_start_command_id,
+                retake_sentence_index=self._retake_sentence_index,
+            )
+
+    async def restore(self, checkpoint: RecordingServiceCheckpoint) -> HostState:
+        async with self._lock:
+            self._state = checkpoint.state.model_copy(deep=True)
+            self._active_start_command_id = checkpoint.active_start_command_id
+            self._retake_sentence_index = checkpoint.retake_sentence_index
+            if self._state.batch_id is not None and self._state.round_id is not None:
+                self._repository.update_round_current_sentence(
+                    self._state.batch_id,
+                    self._state.round_id,
+                    self._state.current_sentence_index,
+                )
             return self._state.model_copy(deep=True)
 
     async def set_selected_device(self, device_id: str) -> HostState:
@@ -98,6 +128,29 @@ class RecordingService:
             self._retake_sentence_index = None
             self._select_sentence_locked(sentence_index, persist=True)
             return self._state.model_copy(deep=True)
+
+    async def select_sentence_command(
+        self,
+        sentence_index: int,
+    ) -> tuple[HostState, dict, str]:
+        """Select a sentence and build the command that mirrors it to Quest."""
+        async with self._lock:
+            self._require_ready()
+            self._require_round()
+            if sentence_index < 0 or sentence_index >= len(self._state.sentences):
+                raise ValueError("Sentence index is outside the current catalog")
+            self._retake_sentence_index = None
+            self._select_sentence_locked(sentence_index, persist=True)
+            cmd_id = command_id()
+            packet = self._command_packet("select_sentence", cmd_id, None)
+            return self._state.model_copy(deep=True), packet, cmd_id
+
+    async def current_sentence_command(self) -> tuple[dict, str]:
+        """Build a Quest sync command without changing the host cursor."""
+        async with self._lock:
+            self._require_round()
+            cmd_id = command_id()
+            return self._command_packet("select_sentence", cmd_id, None), cmd_id
 
     async def start(
         self,

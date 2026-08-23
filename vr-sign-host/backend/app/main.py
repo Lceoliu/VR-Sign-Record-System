@@ -33,14 +33,64 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     repository = RecordingRepository(config.data_root, config.station_id)
     recordings = RecordingService(repository)
     udp = UdpService(config, registry, hub)
+    sentence_sync_lock = asyncio.Lock()
 
-    async def handle_signal(packet: dict) -> None:
-        if str(packet.get("signal")) != "help":
-            return
-        state = await recordings.set_help_requested(bool(packet.get("active")))
+    async def select_sentence_and_sync(sentence_index: int):
+        async with sentence_sync_lock:
+            checkpoint = await recordings.checkpoint()
+            state, packet, _ = await recordings.select_sentence_command(
+                sentence_index
+            )
+            device = await registry.selected()
+            if device is not None and start_udp:
+                try:
+                    await _send_and_require_ack(udp, device.device_id, packet)
+                except HTTPException:
+                    await recordings.restore(checkpoint)
+                    raise
         await hub.publish_event(
             {"type": "state_changed", "payload": state.model_dump(mode="json")}
         )
+        return state
+
+    async def sync_current_sentence_to_quest(device_id: str | None = None) -> None:
+        """Best-effort mirror after pairing or changing the active round."""
+        if not start_udp:
+            return
+
+        async with sentence_sync_lock:
+            state = await recordings.snapshot()
+            if state.batch_id is None or state.round_id is None:
+                return
+            if device_id is None:
+                device = await registry.selected()
+                if device is None:
+                    return
+                device_id = device.device_id
+            packet, _ = await recordings.current_sentence_command()
+            try:
+                await _send_and_require_ack(udp, device_id, packet)
+            except HTTPException as exc:
+                await hub.publish_event(
+                    {
+                        "type": "command_sync_failed",
+                        "payload": {
+                            "action": "select_sentence",
+                            "message": (
+                                "主机已经切换句子，但 Quest 未确认同步；"
+                                f"请检查设备连接后重新选择当前句。{exc.detail}"
+                            ),
+                        },
+                    }
+                )
+
+    async def handle_signal(packet: dict) -> None:
+        signal = str(packet.get("signal") or "")
+        if signal == "help":
+            state = await recordings.set_help_requested(bool(packet.get("active")))
+            await hub.publish_event(
+                {"type": "state_changed", "payload": state.model_dump(mode="json")}
+            )
 
     udp.on_signal = handle_signal
 
@@ -113,6 +163,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_current_sentence_to_quest()
         return state
 
     @app.post("/api/recording/batches/{batch_id}/rounds/{round_id}/select")
@@ -127,15 +178,15 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        await sync_current_sentence_to_quest()
         return state
 
     @app.put("/api/recording/current-sentence")
     async def select_current_sentence(body: SentenceSelectRequest):
         try:
-            state = await recordings.select_sentence(body.sentence_index)
+            state = await select_sentence_and_sync(body.sentence_index)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
         return state
 
     @app.get("/api/devices")
@@ -179,6 +230,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         selected = await registry.mark_pairing_result(device_id, True)
         await recordings.set_selected_device(device_id)
         await hub.publish_event({"type": "device_selected", "payload": selected.model_dump()})
+        await sync_current_sentence_to_quest(device_id)
         return DeviceSelectResponse(selected=selected, command_id=cmd_id)
 
     async def selected_device_id() -> str:
@@ -193,7 +245,8 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     @app.post("/api/recording/start", response_model=RecordingCommandResponse)
     async def start_recording(body: StartRecordingRequest):
         device_id = await selected_device_id()
-        previous = await recordings.snapshot()
+        checkpoint = await recordings.checkpoint()
+        previous = checkpoint.state
         if previous.recording_status.value != "ready":
             raise HTTPException(status_code=409, detail="当前状态不能开始录制")
         try:
@@ -225,7 +278,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
             try:
                 await _send_and_require_ack(udp, device_id, packet)
             except HTTPException:
-                await recordings.restore(previous)
+                await recordings.restore(checkpoint)
                 raise
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
         asyncio.create_task(_mark_started(recordings, hub, cmd_id, start_at))
@@ -236,7 +289,9 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     @app.post("/api/recording/stop", response_model=RecordingCommandResponse)
     async def stop_recording():
         device_id = await selected_device_id()
-        previous = await recordings.snapshot()
+        checkpoint = await recordings.checkpoint()
+        previous = checkpoint.state
+        sentence_sync_error: HTTPException | None = None
         try:
             state, packet, cmd_id = await recordings.stop()
         except ValueError as exc:
@@ -245,21 +300,43 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
             try:
                 await _send_and_require_ack(udp, device_id, packet)
             except HTTPException:
-                await recordings.restore(previous)
+                await recordings.restore(checkpoint)
                 raise
+            if state.current_sentence_index != previous.current_sentence_index:
+                sentence_packet, _ = await recordings.current_sentence_command()
+                try:
+                    await _send_and_require_ack(udp, device_id, sentence_packet)
+                except HTTPException as exc:
+                    # The take is already stopped and may already be persisted on
+                    # Quest. Keep the authoritative host cursor instead of making
+                    # a successful stop appear to have failed or rolling it back.
+                    sentence_sync_error = exc
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
+        if sentence_sync_error is not None:
+            await hub.publish_event(
+                {
+                    "type": "command_sync_failed",
+                    "payload": {
+                        "action": "select_sentence",
+                        "message": (
+                            "录制已结束并保存，但 Quest 未确认切换到下一句；"
+                            "请确认设备在线后用左右键重新切换。"
+                        ),
+                    },
+                }
+            )
         return RecordingCommandResponse(action="stop_take", state=state, command_id=cmd_id)
 
     @app.post("/api/recording/reset", response_model=RecordingCommandResponse)
     async def reset_recording():
         device_id = await selected_device_id()
-        previous = await recordings.snapshot()
+        checkpoint = await recordings.checkpoint()
         state, packet, cmd_id = await recordings.reset()
         if start_udp:
             try:
                 await _send_and_require_ack(udp, device_id, packet)
             except HTTPException:
-                await recordings.restore(previous)
+                await recordings.restore(checkpoint)
                 raise
         await hub.publish_event({"type": "state_changed", "payload": state.model_dump(mode="json")})
         return RecordingCommandResponse(action="reset_take", state=state, command_id=cmd_id)

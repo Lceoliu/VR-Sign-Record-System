@@ -159,8 +159,8 @@ namespace SignVR.Recording
             sentenceSequence.Configure(
                 coordinator,
                 viewpointController,
-                advanceAutomatically: true,
-                useHostAuthority: false
+                advanceAutomatically: false,
+                useHostAuthority: true
             );
 
             RecordingSpatialMetadataProvider spatialMetadata =
@@ -177,9 +177,31 @@ namespace SignVR.Recording
                 rootObject.AddComponent<RecordingModeController>();
             recordingMode.Configure(playerRig);
 
+            RecordingTargetPoseLock targetPoseLock =
+                rootObject.AddComponent<RecordingTargetPoseLock>();
+            targetPoseLock.Configure(ResolvePointingTargets(scene));
+
             RecordingHandSkeletonVisualizer handSkeleton =
                 rootObject.AddComponent<RecordingHandSkeletonVisualizer>();
-            handSkeleton.Configure(FindAllInScene<HandVisual>(scene));
+            HandVisual[] handVisuals = FindAllInScene<HandVisual>(scene);
+            handSkeleton.Configure(handVisuals);
+
+            Camera hmdCamera = hmd != null ? hmd.GetComponent<Camera>() : null;
+            RecordingTargetVisualCues targetVisualCues =
+                rootObject.AddComponent<RecordingTargetVisualCues>();
+            targetVisualCues.Configure(coordinator, hmdCamera);
+
+            RecordingPointingTargetController targetController =
+                rootObject.AddComponent<RecordingPointingTargetController>();
+            targetController.Configure(sentenceSequence, targetVisualCues);
+
+            RecordingIndexFingerRays fingerRays =
+                rootObject.AddComponent<RecordingIndexFingerRays>();
+            fingerRays.Configure(coordinator, targetVisualCues, hmdCamera);
+            fingerRays.SetHandVisuals(
+                FindHandVisual(handVisuals, Oculus.Interaction.Input.Handedness.Left),
+                FindHandVisual(handVisuals, Oculus.Interaction.Input.Handedness.Right)
+            );
 
             QuestDeviceGateway gateway =
                 rootObject.AddComponent<QuestDeviceGateway>();
@@ -198,10 +220,6 @@ namespace SignVR.Recording
                 rootObject.AddComponent<RecordingDebugInput>();
             debugInput.Configure(coordinator, null, sentenceSequence);
 
-            RecordingQuestInput questInput =
-                rootObject.AddComponent<RecordingQuestInput>();
-            questInput.Configure(coordinator, sentenceSequence);
-
             rootObject.SetActive(true);
             if (hmd != null)
             {
@@ -217,7 +235,8 @@ namespace SignVR.Recording
             Debug.Log(
                 "[RecordingRuntimeBootstrap] Installed take recording stack in " +
                 scene.path + ". Six fixed viewpoints, local sequence, prompt " +
-                "bubble, and physics isolation are active. UDP control=5006, " +
+                "bubble, target cues, index rays, and physics isolation are " +
+                "active. Sentence selection is host-only. UDP control=5006, " +
                 "pose/announce=5005."
             );
         }
@@ -358,6 +377,37 @@ namespace SignVR.Recording
         private static T FindInScene<T>(Scene scene) where T : Component
         {
             return FindAllInScene<T>(scene).FirstOrDefault();
+        }
+
+        private static HandVisual FindHandVisual(
+            HandVisual[] handVisuals,
+            Oculus.Interaction.Input.Handedness handedness)
+        {
+            return handVisuals.FirstOrDefault(
+                visual => visual != null && visual.Hand != null &&
+                          visual.Hand.Handedness == handedness
+            );
+        }
+
+        private static Transform[] ResolvePointingTargets(Scene scene)
+        {
+            return RecordingPointingSentenceCatalog.CreateSentences()
+                .SelectMany(sentence => sentence.HighlightTargetIds)
+                .Distinct(StringComparer.Ordinal)
+                .Select(id => ResolveSceneTarget(scene, id))
+                .Where(target => target != null)
+                .ToArray();
+        }
+
+        private static Transform ResolveSceneTarget(Scene scene, string id)
+        {
+            string[] path = id.Split('/');
+            Transform root = scene.GetRootGameObjects()
+                .FirstOrDefault(candidate => candidate.name == path[0])
+                ?.transform;
+            return path.Length == 1
+                ? root
+                : root?.Find(string.Join("/", path.Skip(1)));
         }
 
         private static MetaSourceDataProvider FindRecordingProvider(Scene scene)

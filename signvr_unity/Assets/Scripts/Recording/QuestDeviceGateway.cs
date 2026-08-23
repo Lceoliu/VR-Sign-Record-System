@@ -61,6 +61,8 @@ namespace SignVR.Recording
         private Coroutine announcementRoutine;
         private readonly ConcurrentQueue<ReceivedDatagram> receivedDatagrams = new();
         private readonly ConcurrentQueue<string> receiveErrors = new();
+        private CommandPacket pendingSentenceSelection;
+        private bool pendingSentenceIndexSupplied;
 
         public int ReceivedPacketCount { get; private set; }
         public string LastPacketType { get; private set; } = string.Empty;
@@ -273,6 +275,8 @@ namespace SignVR.Recording
                 LastReceiveError = error;
                 Debug.LogError("[QuestDeviceGateway] UDP receive failed: " + error);
             }
+
+            TryApplyPendingSentenceSelection();
         }
 
         private void ReceiveDatagram(IAsyncResult result)
@@ -482,21 +486,33 @@ namespace SignVR.Recording
             }
 
             bool accepted;
+            bool sentenceIndexSupplied = ContainsJsonProperty(
+                json,
+                "sentence_index"
+            );
 
             switch (packet.action)
             {
                 case "start_take":
                     accepted = StartRemoteTake(
                         packet,
-                        ContainsJsonProperty(json, "sentence_index")
+                        sentenceIndexSupplied
                     );
                     break;
                 case "stop_take":
                     accepted = coordinator.StopCurrentTake();
                     break;
                 case "reset_take":
-                    coordinator.ResetCurrentPrompt();
-                    accepted = true;
+                    accepted = ResetRemoteTake(
+                        packet,
+                        sentenceIndexSupplied
+                    );
+                    break;
+                case "select_sentence":
+                    accepted = SelectRemoteSentence(
+                        packet,
+                        sentenceIndexSupplied
+                    );
                     break;
                 case "pedal":
                     accepted = HandlePedal(packet);
@@ -521,6 +537,156 @@ namespace SignVR.Recording
                 accepted,
                 accepted ? packet.action : "command_rejected"
             );
+        }
+
+        private bool SelectRemoteSentence(
+            CommandPacket packet,
+            bool sentenceIndexSupplied)
+        {
+            if (!IsRemoteSentenceSelectionValid(
+                    packet,
+                    sentenceIndexSupplied))
+            {
+                return false;
+            }
+
+            if (CanApplySentenceSelection(coordinator.State))
+            {
+                return ApplyRemoteSentenceSelection(
+                    packet,
+                    sentenceIndexSupplied
+                );
+            }
+
+            if (coordinator.State != RecordingFlowState.Finalizing &&
+                coordinator.State != RecordingFlowState.Resetting)
+            {
+                return false;
+            }
+
+            QueueSentenceSelection(packet, sentenceIndexSupplied);
+            return true;
+        }
+
+        private bool ResetRemoteTake(
+            CommandPacket packet,
+            bool sentenceIndexSupplied)
+        {
+            if (!IsRemoteSentenceSelectionValid(
+                    packet,
+                    sentenceIndexSupplied))
+            {
+                return false;
+            }
+
+            coordinator.ResetCurrentPrompt();
+            QueueSentenceSelection(packet, sentenceIndexSupplied);
+            return true;
+        }
+
+        private bool IsRemoteSentenceSelectionValid(
+            CommandPacket packet,
+            bool sentenceIndexSupplied)
+        {
+            if (packet == null ||
+                string.IsNullOrWhiteSpace(packet.session_id) ||
+                string.IsNullOrWhiteSpace(packet.sentence_id))
+            {
+                return false;
+            }
+
+            if (viewpointController == null)
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(packet.viewpoint_id) ||
+                   (sentenceSequence != null && sentenceSequence.TryGetSentence(
+                       packet.sentence_id,
+                       out _,
+                       out _
+                   )) ||
+                   (sentenceIndexSupplied && packet.sentence_index >= 0 &&
+                    packet.sentence_index < viewpointController.ViewpointCount);
+        }
+
+        private bool ApplyRemoteSentenceSelection(
+            CommandPacket packet,
+            bool sentenceIndexSupplied)
+        {
+            if (!CanApplySentenceSelection(coordinator.State) ||
+                !IsRemoteSentenceSelectionValid(
+                    packet,
+                    sentenceIndexSupplied))
+            {
+                return false;
+            }
+
+            if (viewpointController != null &&
+                !TrySelectRemoteViewpoint(packet, sentenceIndexSupplied))
+            {
+                return false;
+            }
+
+            if (sentenceSequence != null)
+            {
+                sentenceSequence.HostAuthoritative = true;
+            }
+
+            bool promptLoaded = coordinator.LoadPrompt(
+                packet.session_id,
+                packet.sentence_id,
+                packet.prompt,
+                Mathf.Max(1, packet.take_index)
+            );
+            if (!promptLoaded)
+            {
+                return false;
+            }
+
+            sentenceSequence?.SyncHostSentence(packet.sentence_id);
+            return true;
+        }
+
+        private void QueueSentenceSelection(
+            CommandPacket packet,
+            bool sentenceIndexSupplied)
+        {
+            pendingSentenceSelection = packet;
+            pendingSentenceIndexSupplied = sentenceIndexSupplied;
+        }
+
+        private void TryApplyPendingSentenceSelection()
+        {
+            if (pendingSentenceSelection == null || coordinator == null ||
+                !CanApplySentenceSelection(coordinator.State))
+            {
+                return;
+            }
+
+            CommandPacket packet = pendingSentenceSelection;
+            bool sentenceIndexSupplied = pendingSentenceIndexSupplied;
+            pendingSentenceSelection = null;
+            pendingSentenceIndexSupplied = false;
+
+            if (ApplyRemoteSentenceSelection(packet, sentenceIndexSupplied))
+            {
+                return;
+            }
+
+            LastReceiveError =
+                "Deferred sentence selection could not be applied.";
+            Debug.LogWarning(
+                "[QuestDeviceGateway] " + LastReceiveError,
+                this
+            );
+        }
+
+        private static bool CanApplySentenceSelection(
+            RecordingFlowState state)
+        {
+            return state == RecordingFlowState.Ready ||
+                   state == RecordingFlowState.Completed;
         }
 
         /// <summary>
@@ -710,8 +876,17 @@ namespace SignVR.Recording
                 paired_station_id = pairedStationId,
                 paired = pairedHostAddress != null,
                 capabilities = previewStreamer != null && previewStreamer.isActiveAndEnabled
-                    ? new[] { "pose", "preview", "take_upload" }
-                    : new[] { "pose", "take_upload" },
+                    ? new[]
+                    {
+                        "pose",
+                        "preview",
+                        "take_upload"
+                    }
+                    : new[]
+                    {
+                        "pose",
+                        "take_upload"
+                    },
                 state = coordinator.State.ToString().ToLowerInvariant()
             };
 
@@ -781,6 +956,8 @@ namespace SignVR.Recording
             listener = null;
             sender?.Dispose();
             sender = null;
+            pendingSentenceSelection = null;
+            pendingSentenceIndexSupplied = false;
         }
     }
 }

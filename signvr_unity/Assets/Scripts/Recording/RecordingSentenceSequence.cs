@@ -18,6 +18,18 @@ namespace SignVR.Recording
         private string viewpointId = string.Empty;
 
         [SerializeField]
+        [Tooltip("Operator-facing description that distinguishes repeated prompts.")]
+        private string targetLabel = string.Empty;
+
+        [SerializeField]
+        [Tooltip("Root object names or root-relative paths highlighted for this sentence.")]
+        private string[] highlightTargetIds = Array.Empty<string>();
+
+        [SerializeField]
+        [Tooltip("Optional 1-based labels parallel to Highlight Target Ids.")]
+        private int[] sequenceNumbers = Array.Empty<int>();
+
+        [SerializeField]
         [Min(1)]
         private int startingTakeIndex = 1;
 
@@ -45,9 +57,32 @@ namespace SignVR.Recording
             startingTakeIndex = Mathf.Max(1, firstTakeIndex);
         }
 
+        public RecordingSentence(
+            string id,
+            string sentenceText,
+            string recordingViewpointId,
+            string recordingTargetLabel,
+            string[] targetIds,
+            int[] targetSequenceNumbers = null,
+            int firstTakeIndex = 1)
+        {
+            sentenceId = id ?? string.Empty;
+            text = sentenceText ?? string.Empty;
+            viewpointId = recordingViewpointId ?? string.Empty;
+            targetLabel = recordingTargetLabel ?? string.Empty;
+            highlightTargetIds = targetIds ?? Array.Empty<string>();
+            sequenceNumbers = targetSequenceNumbers ?? Array.Empty<int>();
+            startingTakeIndex = Mathf.Max(1, firstTakeIndex);
+        }
+
         public string SentenceId => sentenceId;
         public string Text => text;
         public string ViewpointId => viewpointId ?? string.Empty;
+        public string TargetLabel => targetLabel ?? string.Empty;
+        public string[] HighlightTargetIds =>
+            highlightTargetIds ?? Array.Empty<string>();
+        public int[] SequenceNumbers =>
+            sequenceNumbers ?? Array.Empty<int>();
         public int StartingTakeIndex => Mathf.Max(1, startingTakeIndex);
 
         internal string ResolveSentenceId(int index)
@@ -95,38 +130,7 @@ namespace SignVR.Recording
         [Header("Editable Sentence Sequence")]
         [SerializeField]
         private RecordingSentence[] sentences =
-        {
-            new RecordingSentence(
-                "sentence_001",
-                "选对箱子，拿起箱子，输入密码",
-                "state_01"
-            ),
-            new RecordingSentence(
-                "sentence_002",
-                "拿起金币，选对盘子，把金币放到盘子",
-                "state_02"
-            ),
-            new RecordingSentence(
-                "sentence_003",
-                "选对画框，拿下画框，找到密码",
-                "state_03"
-            ),
-            new RecordingSentence(
-                "sentence_004",
-                "输入密码，打开箱子，选对钥匙",
-                "state_04"
-            ),
-            new RecordingSentence(
-                "sentence_005",
-                "插入钥匙，打开柜子，选对按钮",
-                "state_05"
-            ),
-            new RecordingSentence(
-                "sentence_006",
-                "按下按钮，选对电闸，拉下电闸",
-                "state_06"
-            )
-        };
+            RecordingPointingSentenceCatalog.CreateSentences();
 
         private bool bound;
         private bool initialized;
@@ -211,6 +215,17 @@ namespace SignVR.Recording
                 advanceAutomatically,
                 useHostAuthority
             );
+        }
+
+        public void ConfigureSentences(RecordingSentence[] configuredSentences)
+        {
+            sentences = configuredSentences ?? Array.Empty<RecordingSentence>();
+            initialSentenceIndex = SentenceCount == 0
+                ? 0
+                : Mathf.Clamp(initialSentenceIndex, 0, SentenceCount - 1);
+            currentSentenceIndex = -1;
+            initialized = false;
+            sequenceCompleted = false;
         }
 
         public bool TryGetSentence(

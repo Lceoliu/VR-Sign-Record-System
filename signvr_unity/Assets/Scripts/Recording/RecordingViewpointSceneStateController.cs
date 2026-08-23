@@ -5,8 +5,8 @@ namespace SignVR.Recording
 {
     /// <summary>
     /// Applies deterministic, non-animated environment state for a recording
-    /// viewpoint. The safe door is restored from its authored closed pose on
-    /// every switch, then rotated around the left-edge hinge for state_02.
+    /// viewpoint. Doors are restored from their authored closed poses before
+    /// the state-specific safe or cabinet opening is applied.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class RecordingViewpointSceneStateController : MonoBehaviour
@@ -33,6 +33,42 @@ namespace SignVR.Recording
         [Range(-160f, 160f)]
         private float openAngleDegrees = -105f;
 
+        [Header("Cabinet doors")]
+        [SerializeField]
+        private Transform closetLeftDoor;
+
+        [SerializeField]
+        private Transform closetLeftHinge;
+
+        [SerializeField]
+        private Transform closetRightDoor;
+
+        [SerializeField]
+        private Transform closetRightHinge;
+
+        [SerializeField]
+        private string[] openClosetViewpointIds = { "state_05", "state_06" };
+
+        [SerializeField]
+        private Vector3 closetLeftClosedLocalPosition;
+
+        [SerializeField]
+        private Quaternion closetLeftClosedLocalRotation = Quaternion.identity;
+
+        [SerializeField]
+        private Vector3 closetRightClosedLocalPosition;
+
+        [SerializeField]
+        private Quaternion closetRightClosedLocalRotation = Quaternion.identity;
+
+        [SerializeField]
+        [Range(-160f, 160f)]
+        private float closetLeftOpenAngleDegrees = 105f;
+
+        [SerializeField]
+        [Range(-160f, 160f)]
+        private float closetRightOpenAngleDegrees = -105f;
+
         private bool bound;
 
         public Transform SafeDoorPanel => safeDoorPanel;
@@ -40,6 +76,15 @@ namespace SignVR.Recording
         public string OpenSafeViewpointId => openSafeViewpointId;
         public float OpenAngleDegrees => openAngleDegrees;
         public bool IsSafeOpen { get; private set; }
+        public Transform ClosetLeftDoor => closetLeftDoor;
+        public Transform ClosetLeftHinge => closetLeftHinge;
+        public Transform ClosetRightDoor => closetRightDoor;
+        public Transform ClosetRightHinge => closetRightHinge;
+        public string[] OpenClosetViewpointIds =>
+            openClosetViewpointIds ?? Array.Empty<string>();
+        public float ClosetLeftOpenAngleDegrees => closetLeftOpenAngleDegrees;
+        public float ClosetRightOpenAngleDegrees => closetRightOpenAngleDegrees;
+        public bool IsClosetOpen { get; private set; }
 
         public void Configure(
             RecordingViewpointController recordingViewpoints,
@@ -64,6 +109,45 @@ namespace SignVR.Recording
             if (isActiveAndEnabled)
             {
                 Bind();
+                ApplyCurrentState();
+            }
+        }
+
+        public void ConfigureCloset(
+            Transform leftDoor,
+            Transform leftHinge,
+            Transform rightDoor,
+            Transform rightHinge,
+            string[] openViewpointIds,
+            Vector3 leftClosedLocalPosition,
+            Quaternion leftClosedLocalRotation,
+            Vector3 rightClosedLocalPosition,
+            Quaternion rightClosedLocalRotation,
+            float leftOpenAngle,
+            float rightOpenAngle)
+        {
+            closetLeftDoor = leftDoor;
+            closetLeftHinge = leftHinge;
+            closetRightDoor = rightDoor;
+            closetRightHinge = rightHinge;
+            openClosetViewpointIds = openViewpointIds ?? Array.Empty<string>();
+            closetLeftClosedLocalPosition = leftClosedLocalPosition;
+            closetLeftClosedLocalRotation = leftClosedLocalRotation;
+            closetRightClosedLocalPosition = rightClosedLocalPosition;
+            closetRightClosedLocalRotation = rightClosedLocalRotation;
+            closetLeftOpenAngleDegrees = Mathf.Clamp(
+                leftOpenAngle,
+                -160f,
+                160f
+            );
+            closetRightOpenAngleDegrees = Mathf.Clamp(
+                rightOpenAngle,
+                -160f,
+                160f
+            );
+
+            if (isActiveAndEnabled)
+            {
                 ApplyCurrentState();
             }
         }
@@ -113,6 +197,12 @@ namespace SignVR.Recording
 
         public void ApplyViewpointState(string viewpointId)
         {
+            ApplySafeDoorState(viewpointId);
+            ApplyClosetDoorState(viewpointId);
+        }
+
+        private void ApplySafeDoorState(string viewpointId)
+        {
             if (safeDoorPanel == null || safeDoorHinge == null ||
                 safeDoorPanel.parent != safeDoorHinge.parent)
             {
@@ -142,17 +232,80 @@ namespace SignVR.Recording
             );
         }
 
+        private void ApplyClosetDoorState(string viewpointId)
+        {
+            if (!HasClosetConfiguration())
+            {
+                IsClosetOpen = false;
+                return;
+            }
+
+            closetLeftDoor.SetLocalPositionAndRotation(
+                closetLeftClosedLocalPosition,
+                closetLeftClosedLocalRotation
+            );
+            closetRightDoor.SetLocalPositionAndRotation(
+                closetRightClosedLocalPosition,
+                closetRightClosedLocalRotation
+            );
+
+            IsClosetOpen = ContainsOpenClosetViewpoint(viewpointId);
+            if (!IsClosetOpen)
+            {
+                return;
+            }
+
+            closetLeftDoor.RotateAround(
+                closetLeftHinge.position,
+                closetLeftHinge.up,
+                closetLeftOpenAngleDegrees
+            );
+            closetRightDoor.RotateAround(
+                closetRightHinge.position,
+                closetRightHinge.up,
+                closetRightOpenAngleDegrees
+            );
+        }
+
+        private bool HasClosetConfiguration()
+        {
+            return closetLeftDoor != null && closetLeftHinge != null &&
+                   closetRightDoor != null && closetRightHinge != null &&
+                   closetLeftDoor.parent == closetLeftHinge.parent &&
+                   closetRightDoor.parent == closetRightHinge.parent &&
+                   openClosetViewpointIds != null &&
+                   openClosetViewpointIds.Length == 2;
+        }
+
+        private bool ContainsOpenClosetViewpoint(string viewpointId)
+        {
+            for (int index = 0; index < openClosetViewpointIds.Length; index++)
+            {
+                if (string.Equals(
+                        viewpointId,
+                        openClosetViewpointIds[index],
+                        StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public bool ValidateConfiguration(bool logErrors)
         {
             bool valid = viewpointController != null && safeDoorPanel != null &&
                          safeDoorHinge != null &&
                          safeDoorPanel.parent == safeDoorHinge.parent &&
                          !string.IsNullOrWhiteSpace(openSafeViewpointId) &&
-                         Mathf.Abs(openAngleDegrees) >= 45f;
+                         Mathf.Abs(openAngleDegrees) >= 45f &&
+                         HasClosetConfiguration() &&
+                         Mathf.Abs(closetLeftOpenAngleDegrees) >= 45f &&
+                         Mathf.Abs(closetRightOpenAngleDegrees) >= 45f;
             if (!valid && logErrors)
             {
                 Debug.LogError(
-                    "[RecordingViewpointSceneStateController] Safe door state " +
+                    "[RecordingViewpointSceneStateController] Door state " +
                     "configuration is incomplete."
                 );
             }
@@ -173,6 +326,16 @@ namespace SignVR.Recording
         private void OnValidate()
         {
             openAngleDegrees = Mathf.Clamp(openAngleDegrees, -160f, 160f);
+            closetLeftOpenAngleDegrees = Mathf.Clamp(
+                closetLeftOpenAngleDegrees,
+                -160f,
+                160f
+            );
+            closetRightOpenAngleDegrees = Mathf.Clamp(
+                closetRightOpenAngleDegrees,
+                -160f,
+                160f
+            );
         }
 #endif
     }

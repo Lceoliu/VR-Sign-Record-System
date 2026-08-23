@@ -23,6 +23,9 @@ export interface SentenceItem {
   category: string
   text: string
   viewpoint_id?: string | null
+  target_label: string
+  highlight_target_ids: string[]
+  sequence_numbers: number[]
   status: 'completed' | 'current' | 'pending'
   completed: boolean
   take_count: number

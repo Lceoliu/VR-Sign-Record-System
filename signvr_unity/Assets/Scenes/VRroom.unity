@@ -197,7 +197,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: white_photo_frame
   publishEvents: 1
@@ -211,7 +211,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a2f20374d9d44558b1ab8c62d0b7f7dc, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRHandPhysicsLimiter
   syntheticHand: {fileID: 1939254176}
   handVisual: {fileID: 1939254175}
@@ -635,7 +635,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 190444712}
 --- !u!114 &190444709
@@ -648,7 +648,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -719,7 +719,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: dragon_coin
   publishEvents: 1
@@ -733,7 +733,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &213134048 stripped
@@ -865,7 +865,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 218051947}
 --- !u!114 &218051944
@@ -878,7 +878,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -949,7 +949,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: golden_coin (1)
   publishEvents: 1
@@ -963,7 +963,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!64 &225285172
@@ -1080,8 +1080,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -1102,8 +1102,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -1397,7 +1397,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 316214056}
 --- !u!114 &316214053
@@ -1410,7 +1410,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -1481,7 +1481,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: plate (1)
   publishEvents: 1
@@ -1495,7 +1495,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &343991985
@@ -1676,8 +1676,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: df9f338034892c44ebb62d97894772f1, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!4 &362137458 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 459718, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
@@ -1812,8 +1812,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -1834,8 +1834,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -1907,8 +1907,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -1929,8 +1929,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -2050,39 +2050,289 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: f1f250d4902e42f0aa914a8b90989b49, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::SignVR.Recording.RecordingSentenceSequence
   coordinator: {fileID: 0}
   viewpointController: {fileID: 0}
-  autoAdvance: 1
-  hostAuthoritative: 0
+  autoAdvance: 0
+  hostAuthoritative: 1
   loadInitialSentenceOnEnable: 1
   sessionId: editor-session
   initialSentenceIndex: 0
   sentences:
   - sentenceId: sentence_001
-    text: "\u9009\u5BF9\u7BB1\u5B50\uFF0C\u62FF\u8D77\u7BB1\u5B50\uFF0C\u8F93\u5165\u5BC6\u7801"
+    text: "\u627E\u5230\u90A3\u4E2A\u7BB1\u5B50\u4E0B\u9762\u7684\u5BC6\u7801"
     viewpointId: state_01
+    targetLabel: "\u51F3\u5B50\u4E0A\u7684\u7BB1\u5B50"
+    highlightTargetIds:
+    - box
+    sequenceNumbers:
     startingTakeIndex: 1
   - sentenceId: sentence_002
-    text: "\u62FF\u8D77\u91D1\u5E01\uFF0C\u9009\u5BF9\u76D8\u5B50\uFF0C\u628A\u91D1\u5E01\u653E\u5230\u76D8\u5B50"
-    viewpointId: state_02
+    text: "\u627E\u5230\u90A3\u4E2A\u7BB1\u5B50\u4E0B\u9762\u7684\u5BC6\u7801"
+    viewpointId: state_01
+    targetLabel: "\u5730\u9762\u7BB1\u5B50 A"
+    highlightTargetIds:
+    - box (1)
+    sequenceNumbers:
     startingTakeIndex: 1
   - sentenceId: sentence_003
-    text: "\u9009\u5BF9\u753B\u6846\uFF0C\u62FF\u4E0B\u753B\u6846\uFF0C\u627E\u5230\u5BC6\u7801"
-    viewpointId: state_03
+    text: "\u627E\u5230\u90A3\u4E2A\u7BB1\u5B50\u4E0B\u9762\u7684\u5BC6\u7801"
+    viewpointId: state_01
+    targetLabel: "\u5730\u9762\u7BB1\u5B50 B"
+    highlightTargetIds:
+    - box (2)
+    sequenceNumbers:
     startingTakeIndex: 1
   - sentenceId: sentence_004
-    text: "\u8F93\u5165\u5BC6\u7801\uFF0C\u6253\u5F00\u7BB1\u5B50\uFF0C\u9009\u5BF9\u94A5\u5319"
-    viewpointId: state_04
+    text: "\u628A\u8FD9\u4E2A\u91D1\u5E01\u653E\u5230\u90A3\u4E2A\u76D8\u5B50\u91CC\u9762"
+    viewpointId: state_02
+    targetLabel: "\u9F99\u7EB9\u91D1\u5E01 \u2192 \u9F99\u7EB9\u76D8"
+    highlightTargetIds:
+    - dragon_coin
+    - dragon_plate
+    sequenceNumbers:
     startingTakeIndex: 1
   - sentenceId: sentence_005
-    text: "\u63D2\u5165\u94A5\u5319\uFF0C\u6253\u5F00\u67DC\u5B50\uFF0C\u9009\u5BF9\u6309\u94AE"
-    viewpointId: state_05
+    text: "\u628A\u8FD9\u4E2A\u91D1\u5E01\u653E\u5230\u90A3\u4E2A\u76D8\u5B50\u91CC\u9762"
+    viewpointId: state_02
+    targetLabel: "\u9F99\u7EB9\u91D1\u5E01 \u2192 \u76D8\u5B50 A"
+    highlightTargetIds:
+    - dragon_coin
+    - plate
+    sequenceNumbers:
     startingTakeIndex: 1
   - sentenceId: sentence_006
-    text: "\u6309\u4E0B\u6309\u94AE\uFF0C\u9009\u5BF9\u7535\u95F8\uFF0C\u62C9\u4E0B\u7535\u95F8"
+    text: "\u628A\u8FD9\u4E2A\u91D1\u5E01\u653E\u5230\u90A3\u4E2A\u76D8\u5B50\u91CC\u9762"
+    viewpointId: state_02
+    targetLabel: "\u9F99\u7EB9\u91D1\u5E01 \u2192 \u76D8\u5B50 B"
+    highlightTargetIds:
+    - dragon_coin
+    - plate (1)
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_007
+    text: "\u628A\u8FD9\u4E2A\u91D1\u5E01\u653E\u5230\u90A3\u4E2A\u76D8\u5B50\u91CC\u9762"
+    viewpointId: state_02
+    targetLabel: "\u91D1\u5E01 A \u2192 \u9F99\u7EB9\u76D8"
+    highlightTargetIds:
+    - golden_coin
+    - dragon_plate
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_008
+    text: "\u628A\u8FD9\u4E2A\u91D1\u5E01\u653E\u5230\u90A3\u4E2A\u76D8\u5B50\u91CC\u9762"
+    viewpointId: state_02
+    targetLabel: "\u91D1\u5E01 A \u2192 \u76D8\u5B50 A"
+    highlightTargetIds:
+    - golden_coin
+    - plate
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_009
+    text: "\u628A\u8FD9\u4E2A\u91D1\u5E01\u653E\u5230\u90A3\u4E2A\u76D8\u5B50\u91CC\u9762"
+    viewpointId: state_02
+    targetLabel: "\u91D1\u5E01 A \u2192 \u76D8\u5B50 B"
+    highlightTargetIds:
+    - golden_coin
+    - plate (1)
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_010
+    text: "\u628A\u8FD9\u4E2A\u91D1\u5E01\u653E\u5230\u90A3\u4E2A\u76D8\u5B50\u91CC\u9762"
+    viewpointId: state_02
+    targetLabel: "\u91D1\u5E01 B \u2192 \u9F99\u7EB9\u76D8"
+    highlightTargetIds:
+    - golden_coin (1)
+    - dragon_plate
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_011
+    text: "\u628A\u8FD9\u4E2A\u91D1\u5E01\u653E\u5230\u90A3\u4E2A\u76D8\u5B50\u91CC\u9762"
+    viewpointId: state_02
+    targetLabel: "\u91D1\u5E01 B \u2192 \u76D8\u5B50 A"
+    highlightTargetIds:
+    - golden_coin (1)
+    - plate
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_012
+    text: "\u628A\u8FD9\u4E2A\u91D1\u5E01\u653E\u5230\u90A3\u4E2A\u76D8\u5B50\u91CC\u9762"
+    viewpointId: state_02
+    targetLabel: "\u91D1\u5E01 B \u2192 \u76D8\u5B50 B"
+    highlightTargetIds:
+    - golden_coin (1)
+    - plate (1)
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_013
+    text: "\u628A\u90A3\u4E2A\u753B\u6846\u62FF\u4E0B\u6765\uFF0C\u627E\u5230\u5B83\u80CC\u540E\u7684\u5BC6\u7801"
+    viewpointId: state_03
+    targetLabel: "\u753B\u6846 A"
+    highlightTargetIds:
+    - picture_frame
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_014
+    text: "\u628A\u90A3\u4E2A\u753B\u6846\u62FF\u4E0B\u6765\uFF0C\u627E\u5230\u5B83\u80CC\u540E\u7684\u5BC6\u7801"
+    viewpointId: state_03
+    targetLabel: "\u753B\u6846 B"
+    highlightTargetIds:
+    - fancy_picture_frame
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_015
+    text: "\u628A\u90A3\u4E2A\u753B\u6846\u62FF\u4E0B\u6765\uFF0C\u627E\u5230\u5B83\u80CC\u540E\u7684\u5BC6\u7801"
+    viewpointId: state_03
+    targetLabel: "\u753B\u6846 C"
+    highlightTargetIds:
+    - white_photo_frame
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_016
+    text: "\u8F93\u5165\u5BC6\u7801\uFF0C\u6253\u5F00\u7BB1\u5B50\uFF0C\u62FF\u8D77\u90A3\u628A\u94A5\u5319"
+    viewpointId: state_04
+    targetLabel: "\u94A5\u5319 A"
+    highlightTargetIds:
+    - chest/key
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_017
+    text: "\u8F93\u5165\u5BC6\u7801\uFF0C\u6253\u5F00\u7BB1\u5B50\uFF0C\u62FF\u8D77\u90A3\u628A\u94A5\u5319"
+    viewpointId: state_04
+    targetLabel: "\u94A5\u5319 B"
+    highlightTargetIds:
+    - chest/key (1)
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_018
+    text: "\u8F93\u5165\u5BC6\u7801\uFF0C\u6253\u5F00\u7BB1\u5B50\uFF0C\u62FF\u8D77\u90A3\u628A\u94A5\u5319"
+    viewpointId: state_04
+    targetLabel: "\u6469\u6258\u8F66\u94A5\u5319"
+    highlightTargetIds:
+    - chest/motorbike_key
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_019
+    text: "\u7528\u94A5\u5319\u6253\u5F00\u67DC\u5B50\uFF0C\u6309\u4E0B\u90A3\u4E9B\u6309\u94AE"
+    viewpointId: state_05
+    targetLabel: "\u6309\u94AE A"
+    highlightTargetIds:
+    - industrial_button
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_020
+    text: "\u7528\u94A5\u5319\u6253\u5F00\u67DC\u5B50\uFF0C\u6309\u4E0B\u90A3\u4E9B\u6309\u94AE"
+    viewpointId: state_05
+    targetLabel: "\u6309\u94AE B"
+    highlightTargetIds:
+    - red_button
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_021
+    text: "\u7528\u94A5\u5319\u6253\u5F00\u67DC\u5B50\uFF0C\u6309\u4E0B\u90A3\u4E9B\u6309\u94AE"
+    viewpointId: state_05
+    targetLabel: "\u6309\u94AE C"
+    highlightTargetIds:
+    - alarm_button
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_022
+    text: "\u7528\u94A5\u5319\u6253\u5F00\u67DC\u5B50\uFF0C\u6309\u4E0B\u90A3\u4E9B\u6309\u94AE"
+    viewpointId: state_05
+    targetLabel: "\u6309\u94AE A+B"
+    highlightTargetIds:
+    - industrial_button
+    - red_button
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_023
+    text: "\u7528\u94A5\u5319\u6253\u5F00\u67DC\u5B50\uFF0C\u6309\u4E0B\u90A3\u4E9B\u6309\u94AE"
+    viewpointId: state_05
+    targetLabel: "\u6309\u94AE A+C"
+    highlightTargetIds:
+    - industrial_button
+    - alarm_button
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_024
+    text: "\u7528\u94A5\u5319\u6253\u5F00\u67DC\u5B50\uFF0C\u6309\u4E0B\u90A3\u4E9B\u6309\u94AE"
+    viewpointId: state_05
+    targetLabel: "\u6309\u94AE B+C"
+    highlightTargetIds:
+    - red_button
+    - alarm_button
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_025
+    text: "\u7528\u94A5\u5319\u6253\u5F00\u67DC\u5B50\uFF0C\u6309\u4E0B\u90A3\u4E9B\u6309\u94AE"
+    viewpointId: state_05
+    targetLabel: "\u6309\u94AE A+B+C"
+    highlightTargetIds:
+    - industrial_button
+    - red_button
+    - alarm_button
+    sequenceNumbers:
+    startingTakeIndex: 1
+  - sentenceId: sentence_026
+    text: "\u6309\u987A\u5E8F\u4F9D\u6B21\u62C9\u4E0B\u5BF9\u5E94\u7535\u95F8"
     viewpointId: state_06
+    targetLabel: "\u7535\u95F8\u987A\u5E8F A\u2192B\u2192C"
+    highlightTargetIds:
+    - free_switch_handler_ue5
+    - free_switch_handler_ue5 (1)
+    - free_switch_handler_ue5 (2)
+    sequenceNumbers: 010000000200000003000000
+    startingTakeIndex: 1
+  - sentenceId: sentence_027
+    text: "\u6309\u987A\u5E8F\u4F9D\u6B21\u62C9\u4E0B\u5BF9\u5E94\u7535\u95F8"
+    viewpointId: state_06
+    targetLabel: "\u7535\u95F8\u987A\u5E8F A\u2192C\u2192B"
+    highlightTargetIds:
+    - free_switch_handler_ue5
+    - free_switch_handler_ue5 (1)
+    - free_switch_handler_ue5 (2)
+    sequenceNumbers: 010000000300000002000000
+    startingTakeIndex: 1
+  - sentenceId: sentence_028
+    text: "\u6309\u987A\u5E8F\u4F9D\u6B21\u62C9\u4E0B\u5BF9\u5E94\u7535\u95F8"
+    viewpointId: state_06
+    targetLabel: "\u7535\u95F8\u987A\u5E8F B\u2192A\u2192C"
+    highlightTargetIds:
+    - free_switch_handler_ue5
+    - free_switch_handler_ue5 (1)
+    - free_switch_handler_ue5 (2)
+    sequenceNumbers: 020000000100000003000000
+    startingTakeIndex: 1
+  - sentenceId: sentence_029
+    text: "\u6309\u987A\u5E8F\u4F9D\u6B21\u62C9\u4E0B\u5BF9\u5E94\u7535\u95F8"
+    viewpointId: state_06
+    targetLabel: "\u7535\u95F8\u987A\u5E8F B\u2192C\u2192A"
+    highlightTargetIds:
+    - free_switch_handler_ue5
+    - free_switch_handler_ue5 (1)
+    - free_switch_handler_ue5 (2)
+    sequenceNumbers: 030000000100000002000000
+    startingTakeIndex: 1
+  - sentenceId: sentence_030
+    text: "\u6309\u987A\u5E8F\u4F9D\u6B21\u62C9\u4E0B\u5BF9\u5E94\u7535\u95F8"
+    viewpointId: state_06
+    targetLabel: "\u7535\u95F8\u987A\u5E8F C\u2192A\u2192B"
+    highlightTargetIds:
+    - free_switch_handler_ue5
+    - free_switch_handler_ue5 (1)
+    - free_switch_handler_ue5 (2)
+    sequenceNumbers: 020000000300000001000000
+    startingTakeIndex: 1
+  - sentenceId: sentence_031
+    text: "\u6309\u987A\u5E8F\u4F9D\u6B21\u62C9\u4E0B\u5BF9\u5E94\u7535\u95F8"
+    viewpointId: state_06
+    targetLabel: "\u7535\u95F8\u987A\u5E8F C\u2192B\u2192A"
+    highlightTargetIds:
+    - free_switch_handler_ue5
+    - free_switch_handler_ue5 (1)
+    - free_switch_handler_ue5 (2)
+    sequenceNumbers: 030000000200000001000000
     startingTakeIndex: 1
 --- !u!114 &394437488
 MonoBehaviour:
@@ -2094,7 +2344,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 3646f55c27852064d93fa5df2bcc1cf1, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::SignVR.Recording.RecordingViewpointController
   coordinator: {fileID: 0}
   playerRig: {fileID: 1763276397}
@@ -2164,7 +2414,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d3dcbbcee5691a0408504f1f493d151b, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::SignVR.Recording.RecordingViewpointSceneStateController
   viewpointController: {fileID: 394437488}
   safeDoorPanel: {fileID: 998304027}
@@ -2173,6 +2423,19 @@ MonoBehaviour:
   closedDoorLocalPosition: {x: 0, y: 0, z: 0}
   closedDoorLocalRotation: {x: 0, y: 0, z: 0, w: 1}
   openAngleDegrees: 105
+  closetLeftDoor: {fileID: 895361445}
+  closetLeftHinge: {fileID: 1391065960}
+  closetRightDoor: {fileID: 895361444}
+  closetRightHinge: {fileID: 1523037820}
+  openClosetViewpointIds:
+  - state_05
+  - state_06
+  closetLeftClosedLocalPosition: {x: 19.0531, y: 60.972397, z: 13.543945}
+  closetLeftClosedLocalRotation: {x: 0.7071068, y: 0, z: -0, w: -0.70710677}
+  closetRightClosedLocalPosition: {x: -19.053078, y: 60.972397, z: 13.543945}
+  closetRightClosedLocalRotation: {x: 0.7071068, y: -0, z: -0, w: -0.70710677}
+  closetLeftOpenAngleDegrees: 105
+  closetRightOpenAngleDegrees: -105
 --- !u!1001 &415216299
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2286,7 +2549,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 415216306}
 --- !u!114 &415216303
@@ -2296,10 +2559,10 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 415216300}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -2355,10 +2618,10 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 1
-  m_IsKinematic: 0
+  m_UseGravity: 0
+  m_IsKinematic: 1
   m_Interpolate: 1
-  m_Constraints: 0
+  m_Constraints: 126
   m_CollisionDetection: 2
 --- !u!114 &415216306
 MonoBehaviour:
@@ -2370,7 +2633,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: key (1)
   publishEvents: 1
@@ -2384,7 +2647,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &423753191 stripped
@@ -2528,7 +2791,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!114 &443213608
@@ -2541,7 +2804,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: gold_lock_improved (1)
   publishEvents: 1
@@ -2782,7 +3045,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: industrial_button
   publishEvents: 1
@@ -2884,7 +3147,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1001 &460201109
@@ -3001,7 +3264,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: picture_frame
   publishEvents: 1
@@ -3081,7 +3344,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &472736711
@@ -3127,8 +3390,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -3149,8 +3412,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -3249,8 +3512,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -3271,8 +3534,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -3311,7 +3574,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a1e477b940c8a084ab4f2dda703b49ef, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Input.HandPhysicsCapsules
   _handVisual: {fileID: 0}
   _hand: {fileID: 1939254176}
@@ -3394,8 +3657,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1a379f34d4f4f2e408d34f14bfb753ce, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!1 &515053282 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 1383216249607264250, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -3415,8 +3678,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 1a379f34d4f4f2e408d34f14bfb753ce, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!1 &515053285 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 1048423619414608607, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -3470,8 +3733,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -3492,8 +3755,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -3622,7 +3885,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: be3ebb6547662534aaef8337c5627f3b, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Meta.XR.Movement::Meta.XR.Movement.Retargeting.MetaSourceDataProvider
   _providedSkeletonType: 1
   _validBodyTrackingDelay: 0.25
@@ -3778,7 +4041,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
   m_RenderShadows: 1
   m_RequiresDepthTextureOption: 2
@@ -3896,7 +4159,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!64 &663769470
@@ -4506,7 +4769,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalLightData
   m_UsePipelineSettings: 1
   m_AdditionalLightsShadowResolutionTier: 2
@@ -4615,7 +4878,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!64 &741430110
@@ -4672,7 +4935,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a1e477b940c8a084ab4f2dda703b49ef, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Input.HandPhysicsCapsules
   _handVisual: {fileID: 0}
   _hand: {fileID: 1939254182}
@@ -4695,7 +4958,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &789963409
@@ -4839,7 +5102,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!114 &796127730
@@ -4852,7 +5115,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 796127734}
 --- !u!114 &796127731
@@ -4865,7 +5128,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -4936,7 +5199,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: box (2)
   publishEvents: 1
@@ -4983,8 +5246,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -5005,8 +5268,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -5374,7 +5637,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4dffc2a801520fb4cbe2c11894faf431, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Input.JointsRadiusFeature
   _hand: {fileID: 515053281}
 --- !u!1 &861442314 stripped
@@ -5525,7 +5788,13 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
-    m_AddedGameObjects: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {fileID: -642876573926566801, guid: a85b365acd371634ba9a0ad4c9e7bf1f, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1391065960}
+    - targetCorrespondingSourceObject: {fileID: -642876573926566801, guid: a85b365acd371634ba9a0ad4c9e7bf1f, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1523037820}
     m_AddedComponents:
     - targetCorrespondingSourceObject: {fileID: -6689036041284674117, guid: a85b365acd371634ba9a0ad4c9e7bf1f, type: 3}
       insertIndex: -1
@@ -5582,6 +5851,21 @@ PrefabInstance:
       insertIndex: -1
       addedObject: {fileID: 1494799645}
   m_SourcePrefab: {fileID: -5645937942226959685, guid: a85b365acd371634ba9a0ad4c9e7bf1f, type: 3}
+--- !u!4 &895361443 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -642876573926566801, guid: a85b365acd371634ba9a0ad4c9e7bf1f, type: 3}
+  m_PrefabInstance: {fileID: 895361442}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &895361444 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 3520640324362740360, guid: a85b365acd371634ba9a0ad4c9e7bf1f, type: 3}
+  m_PrefabInstance: {fileID: 895361442}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &895361445 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -5705854081199984536, guid: a85b365acd371634ba9a0ad4c9e7bf1f, type: 3}
+  m_PrefabInstance: {fileID: 895361442}
+  m_PrefabAsset: {fileID: 0}
 --- !u!134 &895378273
 PhysicsMaterial:
   m_ObjectHideFlags: 0
@@ -5687,8 +5971,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -5709,8 +5993,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -5917,7 +6201,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: safe
   publishEvents: 1
@@ -5975,7 +6259,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!64 &1003446470
@@ -6116,7 +6400,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 1022656836}
 --- !u!114 &1022656833
@@ -6126,10 +6410,10 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1022656830}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -6185,10 +6469,10 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 1
-  m_IsKinematic: 0
+  m_UseGravity: 0
+  m_IsKinematic: 1
   m_Interpolate: 1
-  m_Constraints: 0
+  m_Constraints: 126
   m_CollisionDetection: 2
 --- !u!114 &1022656836
 MonoBehaviour:
@@ -6200,7 +6484,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: motorbike_key
   publishEvents: 1
@@ -6214,7 +6498,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!64 &1085121040
@@ -6254,7 +6538,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
   m_RenderShadows: 1
   m_RequiresDepthTextureOption: 2
@@ -6353,8 +6637,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -6375,8 +6659,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -6461,7 +6745,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalLightData
   m_UsePipelineSettings: 1
   m_AdditionalLightsShadowResolutionTier: 2
@@ -6570,7 +6854,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!64 &1157927569
@@ -6755,7 +7039,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: dragon_plate
   publishEvents: 1
@@ -6791,7 +7075,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!64 &1219389702
@@ -7283,7 +7567,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: door
   publishEvents: 1
@@ -7319,7 +7603,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1001 &1315380216
@@ -7435,7 +7719,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 1315380223}
 --- !u!114 &1315380220
@@ -7445,10 +7729,10 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1315380217}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -7504,10 +7788,10 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 1
-  m_IsKinematic: 0
+  m_UseGravity: 0
+  m_IsKinematic: 1
   m_Interpolate: 1
-  m_Constraints: 0
+  m_Constraints: 126
   m_CollisionDetection: 2
 --- !u!114 &1315380223
 MonoBehaviour:
@@ -7519,7 +7803,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: key
   publishEvents: 1
@@ -7533,7 +7817,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!64 &1328891522
@@ -7723,6 +8007,37 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 221115046349253408, guid: 8825229d82f606d4aa9bae1440bd3102, type: 3}
+--- !u!1 &1391065959
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1391065960}
+  m_Layer: 0
+  m_Name: RecordingClosetLeftHinge
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1391065960
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1391065959}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
+  m_LocalPosition: {x: 37.69961, y: 60.972404, z: 13.543945}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 895361443}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1402223478 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -2772658276598080877, guid: a85b365acd371634ba9a0ad4c9e7bf1f, type: 3}
@@ -7927,7 +8242,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 1453701088}
 --- !u!114 &1453701085
@@ -7940,7 +8255,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -8011,7 +8326,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: golden_coin
   publishEvents: 1
@@ -8025,7 +8340,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &1455752212
@@ -8071,8 +8386,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -8093,8 +8408,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -8133,7 +8448,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: elevator_button_-_lift
   publishEvents: 1
@@ -8147,7 +8462,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &1475771426 stripped
@@ -8187,7 +8502,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a2f20374d9d44558b1ab8c62d0b7f7dc, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRHandPhysicsLimiter
   syntheticHand: {fileID: 1939254179}
   handVisual: {fileID: 1939254178}
@@ -8275,6 +8590,37 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: 4015694698968733163, guid: 8825229d82f606d4aa9bae1440bd3102, type: 3}
+--- !u!1 &1523037819
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1523037820}
+  m_Layer: 0
+  m_Name: RecordingClosetRightHinge
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1523037820
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1523037819}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
+  m_LocalPosition: {x: -37.6996, y: 60.972404, z: 13.543945}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 895361443}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1548570034 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: -7285263157462805163, guid: a85b365acd371634ba9a0ad4c9e7bf1f, type: 3}
@@ -8490,7 +8836,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1576477919}
   serializedVersion: 2
-  m_LocalRotation: {x: -0.010607382, y: 0.67580676, z: 0.009727464, w: 0.7369383}
+  m_LocalRotation: {x: -0.09319059, y: 0.67045206, z: 0.08546012, w: 0.73109925}
   m_LocalPosition: {x: 4.3, y: 1.6, z: -0.9}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -8651,7 +8997,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 1582841167}
 --- !u!114 &1582841164
@@ -8664,7 +9010,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -8735,7 +9081,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: box
   publishEvents: 1
@@ -8749,7 +9095,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &1597232669 stripped
@@ -8884,8 +9230,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5a1bc992571301d4a9602ac95ef4c71a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -8906,8 +9252,8 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e9a7676b01585ce43908639a27765dfc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
   _interactorFilters: []
   _maxInteractors: -1
   _maxSelectingInteractors: -1
@@ -9308,7 +9654,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 1738414013}
 --- !u!114 &1738414010
@@ -9321,7 +9667,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -9392,7 +9738,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: plate
   publishEvents: 1
@@ -9406,7 +9752,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &1749892268
@@ -9651,7 +9997,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 28e81cb314794bfa9164ce5408ccda63, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPlayerRig
   xrOrigin: {fileID: 362137454}
   head: {fileID: 362137456}
@@ -9705,7 +10051,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 07858dee185f4d03956240ec02425e98, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRInteractionEvents
 --- !u!4 &1763276400
 Transform:
@@ -10003,7 +10349,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a1e477b940c8a084ab4f2dda703b49ef, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Input.HandPhysicsCapsules
   _handVisual: {fileID: 0}
   _hand: {fileID: 1939254179}
@@ -10109,7 +10455,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: red_button
   publishEvents: 1
@@ -10145,7 +10491,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &1789698244 stripped
@@ -10182,7 +10528,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
   m_RenderShadows: 1
   m_RequiresDepthTextureOption: 2
@@ -10353,7 +10699,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!114 &1801750167
@@ -10366,7 +10712,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fef7dbe067ca4495a9fa0bbc05d3af1e, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRGrabEventForwarder
   target: {fileID: 1801750171}
 --- !u!114 &1801750168
@@ -10379,7 +10725,7 @@ MonoBehaviour:
   m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 43f86b14a27b52f4f9298c33015b5c26, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Grabbable
   _transferOnSecondSelection: 0
   _addNewPointsToFront: 0
@@ -10450,7 +10796,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: box (1)
   publishEvents: 1
@@ -10464,7 +10810,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4dffc2a801520fb4cbe2c11894faf431, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Input.JointsRadiusFeature
   _hand: {fileID: 515053281}
 --- !u!1 &1814555918 stripped
@@ -10571,7 +10917,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: c7e28488d07a4b64a7ef8a27a9fe2a31, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::MetaBodyMotionStreamer
   sourceDataProvider: {fileID: 600229334}
   streamAutomatically: 1
@@ -10591,7 +10937,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d564e58c5567d4245afec566bca4f5c3, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::MetaBodyMotionRecorder
   sourceDataProvider: {fileID: 600229334}
   boundaryMonitor: {fileID: 0}
@@ -10858,7 +11204,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4ce9a7a03e5c407b9ff08c5d57486906, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRPhysicalObject
   objectId: alarm_button
   publishEvents: 1
@@ -10894,7 +11240,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e54e14b55475465289439b62496b51fb, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRWorldScaleMarker
   appliedScale: 0.1
 --- !u!1 &1936980100
@@ -10974,7 +11320,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1936980100}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.062731445, y: 0.8048813, z: -0.08649672, w: 0.5837374}
+  m_LocalRotation: {x: -0.054014172, y: 0.8060823, z: 0.07447698, w: 0.5846085}
   m_LocalPosition: {x: 4.25, y: 1.55, z: -2.5}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -11035,11 +11381,11 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: 435407831072319256, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
       propertyPath: _centerEyeCamera
-      value: 
+      value:
       objectReference: {fileID: 362137455}
     - target: {fileID: 2336446269904782542, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
       propertyPath: _centerEyeCamera
-      value: 
+      value:
       objectReference: {fileID: 362137455}
     - target: {fileID: 4148778239110795873, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
       propertyPath: m_Name
@@ -11087,23 +11433,23 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5801245061754409418, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
       propertyPath: _playerEyes
-      value: 
+      value:
       objectReference: {fileID: 362137456}
     - target: {fileID: 5801245061754409418, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
       propertyPath: _playerOrigin
-      value: 
+      value:
       objectReference: {fileID: 1763276400}
     - target: {fileID: 6267690530596161800, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
       propertyPath: _leftHand
-      value: 
+      value:
       objectReference: {fileID: 0}
     - target: {fileID: 6267690530596161800, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
       propertyPath: _rightHand
-      value: 
+      value:
       objectReference: {fileID: 0}
     - target: {fileID: 6267690530596161800, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
       propertyPath: _ovrCameraRig
-      value: 
+      value:
       objectReference: {fileID: 362137457}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -11160,8 +11506,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9af9ea683544b184083cef283557012d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!114 &1939254176 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 8769573077962662879, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -11171,8 +11517,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5c67033f580359c4581dff1ccffcca91, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!1 &1939254177 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 731472225158550469, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -11187,8 +11533,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9af9ea683544b184083cef283557012d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!114 &1939254179 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 2421979383097088540, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -11198,8 +11544,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5c67033f580359c4581dff1ccffcca91, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!1 &1939254180 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 5911510205530286598, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -11214,8 +11560,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9af9ea683544b184083cef283557012d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!114 &1939254182 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 9103704925872457560, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -11225,8 +11571,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5c67033f580359c4581dff1ccffcca91, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!1 &1939254183 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 2138532827828421494, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -11241,8 +11587,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9af9ea683544b184083cef283557012d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!114 &1939254185 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 8715367170031969496, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -11252,8 +11598,8 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5c67033f580359c4581dff1ccffcca91, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!1 &1939254186 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 1947938095747358966, guid: 0a7d2469f24041c4284c66706f84c45e, type: 3}
@@ -11269,7 +11615,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a2f20374d9d44558b1ab8c62d0b7f7dc, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRHandPhysicsLimiter
   syntheticHand: {fileID: 1939254182}
   handVisual: {fileID: 1939254181}
@@ -11291,7 +11637,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a2f20374d9d44558b1ab8c62d0b7f7dc, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::VRHandPhysicsLimiter
   syntheticHand: {fileID: 1939254185}
   handVisual: {fileID: 1939254184}
@@ -11313,7 +11659,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4dffc2a801520fb4cbe2c11894faf431, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Input.JointsRadiusFeature
   _hand: {fileID: 515053284}
 --- !u!114 &1939254190
@@ -11326,7 +11672,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4dffc2a801520fb4cbe2c11894faf431, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Input.JointsRadiusFeature
   _hand: {fileID: 515053284}
 --- !u!1 &1942339713 stripped
@@ -11437,7 +11783,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a1e477b940c8a084ab4f2dda703b49ef, type: 3}
-  m_Name: 
+  m_Name:
   m_EditorClassIdentifier: Oculus.Interaction::Oculus.Interaction.Input.HandPhysicsCapsules
   _handVisual: {fileID: 0}
   _hand: {fileID: 1939254185}
@@ -11685,15 +12031,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: c7887f85e70cccb4e8d9382b4168de2b, type: 3}
       propertyPath: m_LocalScale.x
-      value: 1.2399188
+      value: 2.29199
       objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: c7887f85e70cccb4e8d9382b4168de2b, type: 3}
       propertyPath: m_LocalScale.y
-      value: 1.2399184
+      value: 2.291989
       objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: c7887f85e70cccb4e8d9382b4168de2b, type: 3}
       propertyPath: m_LocalScale.z
-      value: 1.2399185
+      value: 2.2919893
       objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: c7887f85e70cccb4e8d9382b4168de2b, type: 3}
       propertyPath: m_LocalPosition.x

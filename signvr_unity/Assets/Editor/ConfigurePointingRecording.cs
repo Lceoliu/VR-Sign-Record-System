@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Oculus.Interaction;
 using SignVR.Recording;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -8,9 +9,9 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Authors the six fixed eye poses used by the pointing-data protocol. The
-/// Camera components are editable scene references; Quest rendering continues
-/// through CenterEyeAnchor after the XR origin is aligned to the selected pose.
+/// Authors the six fixed eye poses and 31 target-specific sentence entries used
+/// by the pointing-data protocol. Quest rendering continues through the tracked
+/// CenterEyeAnchor after the XR origin is aligned to the selected pose.
 /// </summary>
 internal static class ConfigurePointingRecording
 {
@@ -21,6 +22,16 @@ internal static class ConfigurePointingRecording
     private const string SafeDoorHingeName = "RecordingSafeDoorLeftHinge";
     private const string OpenSafeViewpointId = "state_02";
     private const float SafeDoorOpenAngle = 105f;
+    private const string ClosetDoorRootPath =
+        "daadbec63f9940779964efd3fd00cb5c.fbx/RootNode";
+    private const string ClosetLeftDoorPath = ClosetDoorRootPath + "/LeftDoor";
+    private const string ClosetRightDoorPath = ClosetDoorRootPath + "/RightDoor";
+    private const string ClosetLeftHingeName = "RecordingClosetLeftHinge";
+    private const string ClosetRightHingeName = "RecordingClosetRightHinge";
+    private const float ClosetLeftOpenAngle = 105f;
+    private const float ClosetRightOpenAngle = -105f;
+    private static readonly string[] OpenClosetViewpointIds =
+        { "state_05", "state_06" };
 
     private readonly struct ViewpointSpec
     {
@@ -80,14 +91,14 @@ internal static class ConfigurePointingRecording
             "RecordingCamera_State05_Closet",
             "Closet and button",
             new Vector3(4.25f, 1.55f, -2.5f),
-            new Vector3(5.78f, 1.2f, -3f)
+            new Vector3(5.78f, 1.85f, -3f)
         ),
         new(
             "state_06",
             "RecordingCamera_State06_Switches",
             "Electrical switches",
             new Vector3(4.3f, 1.6f, -0.9f),
-            new Vector3(6.03f, 1.65f, -0.75f)
+            new Vector3(6.03f, 2.05f, -0.75f)
         )
     };
 
@@ -214,19 +225,32 @@ internal static class ConfigurePointingRecording
 
         RecordingSentenceSequence sequence =
             UnityEngine.Object.FindAnyObjectByType<RecordingSentenceSequence>();
-        if (sequence == null || !sequence.HasCurrentSentence)
+        if (sequence == null || sequence.SentenceCount == 0)
         {
             throw new InvalidOperationException(
                 "The runtime sentence sequence is not available."
             );
         }
 
-        int target = sequence.CurrentSentenceIndex + Math.Sign(offset);
-        if (!sequence.TryLoadSentence(target))
+        int target = sequence.HasCurrentSentence
+            ? sequence.CurrentSentenceIndex + Math.Sign(offset)
+            : offset >= 0
+                ? 0
+                : sequence.SentenceCount - 1;
+        bool hostAuthoritative = sequence.HostAuthoritative;
+        sequence.HostAuthoritative = false;
+        try
         {
-            throw new InvalidOperationException(
-                $"Sentence switch to index {target + 1} was rejected."
-            );
+            if (!sequence.TryLoadSentence(target))
+            {
+                throw new InvalidOperationException(
+                    $"Sentence switch to index {target + 1} was rejected."
+                );
+            }
+        }
+        finally
+        {
+            sequence.HostAuthoritative = hostAuthoritative;
         }
     }
 
@@ -295,9 +319,16 @@ internal static class ConfigurePointingRecording
         RecordingSentenceSequence sequence =
             root.GetComponent<RecordingSentenceSequence>() ??
             Undo.AddComponent<RecordingSentenceSequence>(root);
+        sequence.ConfigureSentences(
+            RecordingPointingSentenceCatalog.CreateSentences()
+        );
+        sequence.AutoAdvance = false;
+        sequence.HostAuthoritative = true;
         EditorUtility.SetDirty(sequence);
 
         ConfigureSafeDoorState(scene, root, controller);
+        ConfigureClosetDoorState(scene, root);
+        ConfigureStaticTargetPhysics(scene);
 
         ConfigureXrWorldFrame(cameraRig);
         NormalizeCameraTags(scene, cameraRig.centerEyeAnchor.GetComponent<Camera>());
@@ -310,9 +341,9 @@ internal static class ConfigurePointingRecording
 
         ValidateScene(scene);
         Debug.Log(
-            "[SignVR] Pointing recording configured: six fixed world-space " +
-            "camera poses, deterministic safe state, FloorLevel tracking, " +
-            "and recentering disabled."
+            "[SignVR] Pointing recording configured: 31 target-specific " +
+            "sentences, six fixed camera poses, deterministic door states, " +
+            "FloorLevel tracking, and recentering disabled."
         );
     }
 
@@ -371,6 +402,114 @@ internal static class ConfigurePointingRecording
         EditorUtility.SetDirty(stateController);
     }
 
+    private static void ConfigureClosetDoorState(
+        Scene scene,
+        GameObject recordingRoot)
+    {
+        Transform closetRoot = FindRootByName(scene, "closet")?.transform;
+        Transform leftDoor = closetRoot?.Find(ClosetLeftDoorPath);
+        Transform rightDoor = closetRoot?.Find(ClosetRightDoorPath);
+        if (leftDoor == null || rightDoor == null ||
+            leftDoor.parent == null || leftDoor.parent != rightDoor.parent)
+        {
+            throw new InvalidOperationException(
+                "Closet doors are missing or do not share the authored RootNode."
+            );
+        }
+
+        Bounds leftBounds = GetWorldRendererBounds(leftDoor);
+        Bounds rightBounds = GetWorldRendererBounds(rightDoor);
+        Transform leftHinge = EnsureWorldHinge(
+            leftDoor.parent,
+            ClosetLeftHingeName,
+            new Vector3(leftDoor.position.x, leftDoor.position.y, leftBounds.max.z)
+        );
+        Transform rightHinge = EnsureWorldHinge(
+            rightDoor.parent,
+            ClosetRightHingeName,
+            new Vector3(
+                rightDoor.position.x,
+                rightDoor.position.y,
+                rightBounds.min.z
+            )
+        );
+
+        RecordingViewpointSceneStateController stateController =
+            recordingRoot.GetComponent<RecordingViewpointSceneStateController>();
+        if (stateController == null)
+        {
+            throw new InvalidOperationException(
+                "Configure the safe-door state before the closet doors."
+            );
+        }
+
+        stateController.ConfigureCloset(
+            leftDoor,
+            leftHinge,
+            rightDoor,
+            rightHinge,
+            OpenClosetViewpointIds,
+            leftDoor.localPosition,
+            leftDoor.localRotation,
+            rightDoor.localPosition,
+            rightDoor.localRotation,
+            ClosetLeftOpenAngle,
+            ClosetRightOpenAngle
+        );
+        EditorUtility.SetDirty(stateController);
+    }
+
+    private static Transform EnsureWorldHinge(
+        Transform parent,
+        string name,
+        Vector3 worldPosition)
+    {
+        Transform hinge = parent.Find(name);
+        if (hinge == null)
+        {
+            GameObject hingeObject = new(name);
+            hingeObject.transform.SetParent(parent, false);
+            Undo.RegisterCreatedObjectUndo(
+                hingeObject,
+                $"Create {name}"
+            );
+            hinge = hingeObject.transform;
+        }
+
+        Undo.RecordObject(hinge, $"Place {name}");
+        hinge.SetPositionAndRotation(worldPosition, Quaternion.identity);
+        hinge.localScale = Vector3.one;
+        EditorUtility.SetDirty(hinge);
+        return hinge;
+    }
+
+    private static void ConfigureStaticTargetPhysics(Scene scene)
+    {
+        foreach (Transform target in GetCatalogTargets(scene))
+        {
+            foreach (Rigidbody body in
+                     target.GetComponentsInChildren<Rigidbody>(true))
+            {
+                Undo.RecordObject(body, "Freeze pointing target physics");
+                body.linearVelocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+                body.useGravity = false;
+                body.isKinematic = true;
+                body.detectCollisions = false;
+                body.constraints = RigidbodyConstraints.FreezeAll;
+                EditorUtility.SetDirty(body);
+            }
+
+            foreach (Grabbable grabbable in
+                     target.GetComponentsInChildren<Grabbable>(true))
+            {
+                Undo.RecordObject(grabbable, "Disable pointing target grab");
+                grabbable.enabled = false;
+                EditorUtility.SetDirty(grabbable);
+            }
+        }
+    }
+
     private static Camera EnsureReferenceCamera(
         Transform parent,
         ViewpointSpec spec)
@@ -392,17 +531,14 @@ internal static class ConfigurePointingRecording
             cameraObject = existing.gameObject;
         }
 
-        if (created)
-        {
-            Undo.RecordObject(cameraObject.transform, "Place recording camera");
-            Vector3 direction = spec.Target - spec.Eye;
-            cameraObject.transform.SetPositionAndRotation(
-                spec.Eye,
-                Quaternion.LookRotation(direction.normalized, Vector3.up)
-            );
-            cameraObject.transform.localScale = Vector3.one;
-            EditorUtility.SetDirty(cameraObject.transform);
-        }
+        Undo.RecordObject(cameraObject.transform, "Place recording camera");
+        Vector3 direction = spec.Target - spec.Eye;
+        cameraObject.transform.SetPositionAndRotation(
+            spec.Eye,
+            Quaternion.LookRotation(direction.normalized, Vector3.up)
+        );
+        cameraObject.transform.localScale = Vector3.one;
+        EditorUtility.SetDirty(cameraObject.transform);
 
         cameraObject.tag = "Untagged";
 
@@ -482,12 +618,18 @@ internal static class ConfigurePointingRecording
 
         RecordingSentenceSequence sequence =
             FindInScene<RecordingSentenceSequence>(scene);
-        if (sequence == null || sequence.SentenceCount != Specs.Length)
+        if (sequence == null ||
+            sequence.SentenceCount != RecordingPointingSentenceCatalog.SentenceCount ||
+            sequence.AutoAdvance ||
+            !sequence.HostAuthoritative)
         {
             throw new InvalidOperationException(
-                "The editable six-sentence recording sequence is missing."
+                "The host-authoritative 31-sentence recording sequence is invalid."
             );
         }
+
+        ValidateSentenceTargets(scene, sequence);
+        ValidateStaticTargetPhysics(scene);
 
         RecordingViewpointSceneStateController stateController =
             FindInScene<RecordingViewpointSceneStateController>(scene);
@@ -523,6 +665,8 @@ internal static class ConfigurePointingRecording
                 "The deterministic safe-door state for viewpoint 2 is invalid."
             );
         }
+
+        ValidateClosetDoorState(scene, stateController);
 
         for (int index = 0; index < Specs.Length; index++)
         {
@@ -579,9 +723,105 @@ internal static class ConfigurePointingRecording
         }
 
         Debug.Log(
-            "[SignVR] Pointing recording validation passed: six viewpoints and " +
-            "one XR render camera."
+            "[SignVR] Pointing recording validation passed: 31 sentences, " +
+            "six viewpoints, deterministic doors, and one XR render camera."
         );
+    }
+
+    private static void ValidateSentenceTargets(
+        Scene scene,
+        RecordingSentenceSequence sequence)
+    {
+        RecordingSentence[] expected =
+            RecordingPointingSentenceCatalog.CreateSentences();
+        for (int index = 0; index < expected.Length; index++)
+        {
+            RecordingSentence sentence = expected[index];
+            if (!sequence.TryGetSentence(
+                    sentence.SentenceId,
+                    out int actualIndex,
+                    out RecordingSentence actual) ||
+                actualIndex != index ||
+                actual.ViewpointId != sentence.ViewpointId ||
+                actual.HighlightTargetIds.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Pointing sentence {sentence.SentenceId} is not configured."
+                );
+            }
+
+            foreach (string targetId in actual.HighlightTargetIds)
+            {
+                if (FindTarget(scene, targetId) == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Target '{targetId}' for {sentence.SentenceId} is missing."
+                    );
+                }
+            }
+
+            if (actual.SequenceNumbers.Length > 0 &&
+                (actual.SequenceNumbers.Length != actual.HighlightTargetIds.Length ||
+                 actual.SequenceNumbers.OrderBy(value => value)
+                     .Where((value, ordinal) => value != ordinal + 1)
+                     .Any()))
+            {
+                throw new InvalidOperationException(
+                    $"Target order for {sentence.SentenceId} is invalid."
+                );
+            }
+        }
+    }
+
+    private static void ValidateClosetDoorState(
+        Scene scene,
+        RecordingViewpointSceneStateController stateController)
+    {
+        Transform closet = FindRootByName(scene, "closet")?.transform;
+        Transform leftDoor = closet?.Find(ClosetLeftDoorPath);
+        Transform rightDoor = closet?.Find(ClosetRightDoorPath);
+        if (leftDoor == null || rightDoor == null ||
+            stateController.ClosetLeftDoor != leftDoor ||
+            stateController.ClosetRightDoor != rightDoor ||
+            stateController.ClosetLeftHinge == null ||
+            stateController.ClosetRightHinge == null ||
+            stateController.ClosetLeftHinge.name != ClosetLeftHingeName ||
+            stateController.ClosetRightHinge.name != ClosetRightHingeName ||
+            !OpenClosetViewpointIds.SequenceEqual(
+                stateController.OpenClosetViewpointIds
+            ) ||
+            Mathf.Abs(
+                stateController.ClosetLeftOpenAngleDegrees -
+                ClosetLeftOpenAngle
+            ) > 0.1f ||
+            Mathf.Abs(
+                stateController.ClosetRightOpenAngleDegrees -
+                ClosetRightOpenAngle
+            ) > 0.1f)
+        {
+            throw new InvalidOperationException(
+                "The deterministic open closet state for viewpoints 5 and 6 " +
+                "is invalid."
+            );
+        }
+    }
+
+    private static void ValidateStaticTargetPhysics(Scene scene)
+    {
+        foreach (Transform target in GetCatalogTargets(scene))
+        {
+            if (target.GetComponentsInChildren<Rigidbody>(true).Any(body =>
+                    !body.isKinematic || body.useGravity ||
+                    body.detectCollisions ||
+                    body.constraints != RigidbodyConstraints.FreezeAll) ||
+                target.GetComponentsInChildren<Grabbable>(true)
+                    .Any(grabbable => grabbable.enabled))
+            {
+                throw new InvalidOperationException(
+                    $"Pointing target '{GetHierarchyPath(target)}' is not frozen."
+                );
+            }
+        }
     }
 
     private static void SetBoolIfPresent(
@@ -611,6 +851,59 @@ internal static class ConfigurePointingRecording
             );
         }
         return meshFilter.sharedMesh.bounds;
+    }
+
+    private static Bounds GetWorldRendererBounds(Transform root)
+    {
+        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+        if (renderers.Length == 0)
+        {
+            throw new InvalidOperationException(
+                $"{root.name} has no renderers for world bounds."
+            );
+        }
+
+        Bounds result = renderers[0].bounds;
+        for (int index = 1; index < renderers.Length; index++)
+        {
+            result.Encapsulate(renderers[index].bounds);
+        }
+        return result;
+    }
+
+    private static Transform FindTarget(Scene scene, string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return null;
+        }
+
+        string[] path = id.Split('/');
+        Transform root = FindRootByName(scene, path[0])?.transform;
+        return path.Length == 1
+            ? root
+            : root?.Find(string.Join("/", path.Skip(1)));
+    }
+
+    private static Transform[] GetCatalogTargets(Scene scene)
+    {
+        return RecordingPointingSentenceCatalog.CreateSentences()
+            .SelectMany(sentence => sentence.HighlightTargetIds)
+            .Distinct(StringComparer.Ordinal)
+            .Select(id => FindTarget(scene, id))
+            .Where(target => target != null)
+            .ToArray();
+    }
+
+    private static string GetHierarchyPath(Transform current)
+    {
+        string result = current != null ? current.name : string.Empty;
+        while (current != null && current.parent != null)
+        {
+            current = current.parent;
+            result = current.name + "/" + result;
+        }
+        return result;
     }
 
     private static void SetIntIfPresent(
