@@ -377,11 +377,19 @@ namespace SignVR.Recording
 
                 using (request)
                 {
-                    request.timeout = 30;
+                    int poseMegabytes = Mathf.CeilToInt(
+                        poseBytes.Length / (1024f * 1024f)
+                    );
+                    request.timeout = Mathf.Clamp(
+                        60 + poseMegabytes * 3,
+                        60,
+                        300
+                    );
                     Debug.Log(
                         $"[QuestTakeUploader] Uploading {job.TakeId} " +
                         $"({poseBytes.Length} pose bytes, " +
-                        $"{metadataBytes.Length} metadata bytes) to {url}."
+                        $"{metadataBytes.Length} metadata bytes) to {url}; " +
+                        $"timeout={request.timeout}s."
                     );
                     if (!TryBeginRequest(
                             request,
