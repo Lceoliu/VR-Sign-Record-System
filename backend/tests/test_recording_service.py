@@ -208,11 +208,53 @@ def test_batch_sentence_edit_and_insert_are_shared_by_both_rounds(tmp_path):
         inserted = await service.add_sentence(0, "临时添加的一句")
         assert inserted.current_sentence_index == 1
         assert inserted.sentences[1].sentence_id == "custom_001"
-        assert len(inserted.sentences) == 301
+        assert len(inserted.sentences) == 340
 
+        repository.reserve_take("batch-a", "round_002", "custom_001")
         precise = await service.select_round("batch-a", "round_002")
         assert precise.sentences[0].text == "修改后的第一句"
         assert precise.sentences[1].text == "临时添加的一句"
         assert precise.sentences[1].sentence_id == "custom_001"
+        assert precise.sentences[1].take_count == 1
+
+    anyio.run(scenario)
+
+
+def test_sentence_reorder_preserves_each_round_current_sentence(tmp_path):
+    async def scenario() -> None:
+        repository = RecordingRepository(tmp_path)
+        service = RecordingService(repository)
+        await service.create_round("batch-a", "round_001")
+        await service.select_sentence(2)
+        await service.select_round("batch-a", "round_002")
+        await service.select_sentence(4)
+        await service.select_round("batch-a", "round_001")
+
+        sentence_ids = [item.sentence_id for item in (await service.snapshot()).sentences]
+        reordered_ids = [sentence_ids[4], *sentence_ids[:4], *sentence_ids[5:]]
+        reordered = await service.reorder_sentences(reordered_ids)
+
+        assert reordered.sentences[reordered.current_sentence_index].sentence_id == "sentence_003"
+        precise = await service.select_round("batch-a", "round_002")
+        assert precise.sentences[precise.current_sentence_index].sentence_id == "sentence_005"
+
+    anyio.run(scenario)
+
+
+def test_unrecorded_sentence_can_be_deleted_but_any_take_blocks_delete(tmp_path):
+    async def scenario() -> None:
+        repository = RecordingRepository(tmp_path)
+        service = RecordingService(repository)
+        await service.create_round("batch-a", "round_001")
+        repository.reserve_take("batch-a", "round_002", "sentence_002")
+
+        with pytest.raises(ValueError, match="已有 Take"):
+            await service.delete_sentence("sentence_002")
+
+        deleted = await service.delete_sentence("sentence_003")
+        assert len(deleted.sentences) == 338
+        assert not any(item.sentence_id == "sentence_003" for item in deleted.sentences)
+        precise = await service.select_round("batch-a", "round_002")
+        assert len(precise.sentences) == 338
 
     anyio.run(scenario)
