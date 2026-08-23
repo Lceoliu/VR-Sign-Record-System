@@ -121,6 +121,10 @@ namespace SignVR.Recording
         {
             baseUrl = hostBaseUrl.TrimEnd('/');
             deviceId = questDeviceId;
+            Debug.Log(
+                $"[QuestTakeUploader] Host configured: {baseUrl}; " +
+                $"device={deviceId}."
+            );
             nextStoredRecordingScanTime = Time.unscaledTime;
             QueueStoredRecordings();
             TryStartNextUpload();
@@ -373,6 +377,12 @@ namespace SignVR.Recording
 
                 using (request)
                 {
+                    request.timeout = 30;
+                    Debug.Log(
+                        $"[QuestTakeUploader] Uploading {job.TakeId} " +
+                        $"({poseBytes.Length} pose bytes, " +
+                        $"{metadataBytes.Length} metadata bytes) to {url}."
+                    );
                     if (!TryBeginRequest(
                             request,
                             out UnityWebRequestAsyncOperation operation,
@@ -392,8 +402,9 @@ namespace SignVR.Recording
                     if (!uploaded)
                     {
                         Debug.LogWarning(
-                            $"[QuestTakeUploader] Attempt {attempt} failed: " +
-                            request.error
+                            $"[QuestTakeUploader] Attempt {attempt} failed " +
+                            $"for {job.TakeId}: result={request.result}, " +
+                            $"response={request.responseCode}, error={request.error}."
                         );
                     }
                 }

@@ -14,9 +14,6 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $hostRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $hostRoot 'config\station.json'
-$portablePython = Join-Path $hostRoot 'runtime\python\python.exe'
-$venvPython = Join-Path $hostRoot 'backend\.venv\Scripts\python.exe'
-$python = if (Test-Path -LiteralPath $portablePython) { $portablePython } else { $venvPython }
 $httpPort = 8000
 $udpPort = 5005
 
@@ -25,14 +22,9 @@ if (Test-Path -LiteralPath $configPath) {
     $httpPort = [int]$config.http_port
     $udpPort = [int]$config.udp_port
 }
-if (-not (Test-Path -LiteralPath $python)) {
-    throw "SignVR host Python was not found: $python"
-}
-
 function Add-SignVrFirewallRule {
     param(
         [Parameter(Mandatory)] [string]$DisplayName,
-        [Parameter(Mandatory)] [string]$Program,
         [Parameter(Mandatory)] [string]$Protocol,
         [Parameter(Mandatory)] [int]$LocalPort
     )
@@ -46,7 +38,6 @@ function Add-SignVrFirewallRule {
         -DisplayName $DisplayName `
         -Direction Inbound `
         -Action Allow `
-        -Program $Program `
         -Protocol $Protocol `
         -LocalPort $LocalPort `
         -RemoteAddress LocalSubnet `
@@ -55,13 +46,11 @@ function Add-SignVrFirewallRule {
 
 Add-SignVrFirewallRule `
     -DisplayName "SignVR Host HTTP $httpPort" `
-    -Program $python `
     -Protocol TCP `
     -LocalPort $httpPort
 
 Add-SignVrFirewallRule `
     -DisplayName "SignVR Host UDP $udpPort" `
-    -Program $python `
     -Protocol UDP `
     -LocalPort $udpPort
 
@@ -86,7 +75,6 @@ if ($EnableUnityEditorSimulation) {
 
     Add-SignVrFirewallRule `
         -DisplayName 'SignVR Unity Editor UDP 5006' `
-        -Program $UnityEditorPath `
         -Protocol UDP `
         -LocalPort 5006
 }
