@@ -12,8 +12,9 @@ recording scene or XR rig is loaded.
 - `RecordingCoordinator` is the only capture state machine.
 - `RecordingSentenceSequence` contains 31 target-specific entries across six
   fixed viewpoints. The host is authoritative after pairing.
-- The upper-left HMD prompt, target outlines, breaker order labels, hand skeleton,
-  and two index-tip rays are presentation-only and never alter recorded Pose.
+- The upper-left HMD prompt, target outlines, and breaker order labels are
+  presentation-only and never alter recorded Pose. Hands and rays come directly
+  from Meta `HandVisual` and `HandRayInteractor` tracking components.
 - All catalog targets are fixed at their authored poses. State 2 opens the safe;
   states 5 and 6 open the closet; other states restore closed poses.
 - No Touch-controller or in-headset sentence navigation is installed. A host USB
@@ -74,9 +75,10 @@ cd ..
 .\scripts\start-local.ps1
 ```
 
-Open `http://127.0.0.1:8000`. Quest and workstation must be on the same trusted
-LAN. Run `scripts/setup-firewall.ps1` once from elevated PowerShell before device
-testing.
+`start-local.ps1` opens `http://127.0.0.1:8000` after the service becomes ready;
+pass `-NoBrowser` for unattended startup. Quest and workstation must be on the
+same trusted LAN. Run `scripts/setup-firewall.ps1` once from elevated PowerShell
+before device testing.
 
 ## Validate
 

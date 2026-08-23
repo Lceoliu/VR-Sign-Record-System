@@ -265,7 +265,12 @@ namespace SignVR.Recording
 
         public bool TryLoadSentence(int index)
         {
-            if (hostAuthoritative || coordinator == null)
+            return TryLoadSentence(index, allowHostPreview: false);
+        }
+
+        private bool TryLoadSentence(int index, bool allowHostPreview)
+        {
+            if ((hostAuthoritative && !allowHostPreview) || coordinator == null)
             {
                 return false;
             }
@@ -326,6 +331,13 @@ namespace SignVR.Recording
             initialized = true;
             sequenceCompleted = false;
             SentenceChanged?.Invoke(index, sentence);
+            if (hostAuthoritative)
+            {
+                Debug.Log(
+                    "[RecordingSentenceSequence] Showing the initial local " +
+                    $"prompt mirror ({resolvedId}) while waiting for the host."
+                );
+            }
             return true;
         }
 
@@ -424,7 +436,6 @@ namespace SignVR.Recording
         {
             if (
                 initialized ||
-                hostAuthoritative ||
                 !loadInitialSentenceOnEnable ||
                 coordinator == null ||
                 SentenceCount == 0
@@ -433,11 +444,12 @@ namespace SignVR.Recording
                 return;
             }
 
-            TryLoadSentence(Mathf.Clamp(
+            int initialIndex = Mathf.Clamp(
                 initialSentenceIndex,
                 0,
                 SentenceCount - 1
-            ));
+            );
+            TryLoadSentence(initialIndex, allowHostPreview: hostAuthoritative);
         }
 
         private void HandleTakeCompleted(

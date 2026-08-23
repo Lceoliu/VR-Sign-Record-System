@@ -1,3 +1,7 @@
+param(
+    [switch]$NoBrowser
+)
+
 $ErrorActionPreference = 'Stop'
 $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 
@@ -55,4 +59,28 @@ if (-not (Test-Path -LiteralPath $frontend)) {
 }
 
 Set-Location -LiteralPath $backendRoot
-& $python -m uvicorn app.main:app --host $httpHost --port $httpPort --no-access-log
+$webUrl = "http://127.0.0.1:$httpPort/"
+$browserJob = $null
+if (-not $NoBrowser) {
+    $browserJob = Start-Job -ScriptBlock {
+        param($url)
+        for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            try {
+                Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 1 |
+                    Out-Null
+                Start-Process $url
+                return
+            } catch {
+                Start-Sleep -Milliseconds 250
+            }
+        }
+    } -ArgumentList $webUrl
+}
+
+try {
+    & $python -m uvicorn app.main:app --host $httpHost --port $httpPort --no-access-log
+} finally {
+    if ($browserJob) {
+        Remove-Job -Job $browserJob -Force -ErrorAction SilentlyContinue
+    }
+}
