@@ -392,6 +392,12 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
         if (!isRecording)
         {
+            // MetaSourceDataProvider only advances its pose-validity debounce
+            // while GetSkeletonPose is sampled. The preview streamer reads
+            // BodyState directly, so without this warm-up the first recording
+            // probe is always rejected even when all body joints are valid.
+            RefreshPoseProviderWhileIdle();
+
             bool startDelayFinished =
                 now - appStartTime >= startDelaySeconds;
 
@@ -447,6 +453,29 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         if (nextSampleTime < now - interval)
         {
             nextSampleTime = now + interval;
+        }
+    }
+
+    private void RefreshPoseProviderWhileIdle()
+    {
+        NativeArray<MSDKUtility.NativeTransform> pose = default;
+        try
+        {
+            pose = sourceDataProvider.GetSkeletonPose();
+        }
+        catch (Exception exception)
+        {
+            Debug.LogWarning(
+                "[MetaBodyMotionRecorder] Could not warm body tracking: " +
+                exception.Message
+            );
+        }
+        finally
+        {
+            if (pose.IsCreated)
+            {
+                pose.Dispose();
+            }
         }
     }
 

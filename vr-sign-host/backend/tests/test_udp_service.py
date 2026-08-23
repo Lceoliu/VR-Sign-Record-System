@@ -191,6 +191,37 @@ def test_commands_use_stable_legacy_fields_for_old_quest_builds(tmp_path):
     anyio.run(scenario)
 
 
+def test_paired_announcement_does_not_restart_quest_configuration(tmp_path):
+    async def scenario() -> None:
+        registry = DeviceRegistry("station-test")
+        service = UdpService(
+            Settings(data_root=tmp_path, station_id="station-test"),
+            registry,
+            RealtimeHub(),
+        )
+        transport = FakeDatagramTransport()
+        service.transport = transport  # type: ignore[assignment]
+
+        await service.handle_packet(
+            encode_packet(
+                {
+                    "type": "announce",
+                    "device_id": "quest-test",
+                    "control_port": 5006,
+                    "paired": True,
+                    "paired_station_id": "station-test",
+                }
+            ),
+            ("192.168.1.42", 5006),
+        )
+        await asyncio.sleep(0)
+
+        assert (await registry.selected()).device_id == "quest-test"
+        assert transport.sent == []
+
+    anyio.run(scenario)
+
+
 def test_realtime_pose_queue_keeps_only_bounded_latest_frames():
     async def scenario() -> None:
         hub = RealtimeHub()

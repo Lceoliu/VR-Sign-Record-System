@@ -231,6 +231,14 @@ cd ..
 
 Operator console: `http://127.0.0.1:8000`.
 
+For Quest HTTP uploads, the host PC's active Wi-Fi profile must allow TCP
+8000 from the local subnet. Run `scripts/setup-firewall.ps1` once from an
+Administrator PowerShell after joining the `RhythMo` network. If Windows marks
+that network Public, the script intentionally adds a narrow Public-profile
+rule for the Host HTTP/UDP ports; do not work around this by disabling the
+firewall globally. UDP pose can appear in the console even while TCP uploads
+are blocked, because they use separate transports.
+
 ## Required validation before push
 
 ```powershell
@@ -257,6 +265,10 @@ Also verify:
   or blank rendering. Native hands and hand rays require Quest tracking input.
 - An Android build installs and launches on Quest 3; the host can pair, select a
   sentence, start/stop a Take, and receive Pose/Meta.
+- The Quest local recording directory contains the `.pose.jsonl` and `.meta.json`
+  files, and the Host contains the corresponding files after the firewall rule
+  is active. The uploader scans unacknowledged completed files every two seconds
+  and leaves them local until an HTTP upload succeeds.
 
 ## Extension rules
 

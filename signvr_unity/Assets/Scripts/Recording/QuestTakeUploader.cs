@@ -26,6 +26,9 @@ namespace SignVR.Recording
         private string baseUrl;
         private string deviceId;
         private bool subscribed;
+        private float nextStoredRecordingScanTime;
+
+        private const float StoredRecordingScanIntervalSeconds = 2f;
 
         [Serializable]
         private sealed class StoredMetadata
@@ -70,6 +73,20 @@ namespace SignVR.Recording
             TryBindRecorder();
         }
 
+        private void Update()
+        {
+            if (string.IsNullOrWhiteSpace(baseUrl) ||
+                Time.unscaledTime < nextStoredRecordingScanTime)
+            {
+                return;
+            }
+
+            nextStoredRecordingScanTime =
+                Time.unscaledTime + StoredRecordingScanIntervalSeconds;
+            QueueStoredRecordings();
+            TryStartNextUpload();
+        }
+
         public void Configure(MetaBodyMotionRecorder recordingRecorder)
         {
             if (recordingRecorder == null)
@@ -104,6 +121,7 @@ namespace SignVR.Recording
         {
             baseUrl = hostBaseUrl.TrimEnd('/');
             deviceId = questDeviceId;
+            nextStoredRecordingScanTime = Time.unscaledTime;
             QueueStoredRecordings();
             TryStartNextUpload();
         }
@@ -111,6 +129,10 @@ namespace SignVR.Recording
         private void HandleRecordingFinalized(
             MetaBodyMotionRecorder.RecordingArtifact artifact)
         {
+            Debug.Log(
+                $"[QuestTakeUploader] Finalized {artifact.Take.TakeId}; " +
+                "queueing its local files for upload."
+            );
             if (TryCreateStoredUploadJob(
                     artifact.MetadataPath,
                     out UploadJob job,

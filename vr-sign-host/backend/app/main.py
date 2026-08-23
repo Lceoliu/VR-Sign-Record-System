@@ -205,11 +205,6 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         device = await registry.get(device_id)
         if device is None:
             raise HTTPException(status_code=404, detail="未找到这台 Quest 设备")
-        if device.paired_station_id and device.paired_station_id != config.station_id:
-            raise HTTPException(
-                status_code=409,
-                detail=f"这台 Quest 已绑定 {device.paired_station_id}",
-            )
         quest_station_id = config.station_id
         selected, token = await registry.select(device_id)
         cmd_id = command_id()

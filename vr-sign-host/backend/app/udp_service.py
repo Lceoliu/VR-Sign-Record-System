@@ -11,7 +11,14 @@ import psutil
 
 from .config import Settings
 from .device_registry import DeviceRegistry
-from .protocol import command_id, decode_packet, discovery_packet, encode_packet, pair_packet
+from .protocol import (
+    LEGACY_COMPATIBILITY_TOKEN,
+    command_id,
+    decode_packet,
+    discovery_packet,
+    encode_packet,
+    pair_packet,
+)
 from .realtime import RealtimeHub
 
 
@@ -114,12 +121,10 @@ class UdpService:
         outbound = packet
         if packet.get("type") == "command":
             token = await self.registry.session_token(device_id)
-            if token is None:
-                raise RuntimeError("Quest command session is not paired")
             outbound = {
                 **packet,
                 "station_id": device.paired_station_id or self.settings.station_id,
-                "session_token": token,
+                "session_token": token or LEGACY_COMPATIBILITY_TOKEN,
             }
         self._send(outbound, (device.ip, device.control_port))
 
@@ -173,7 +178,7 @@ class UdpService:
         if packet_type == "announce":
             device = await self.registry.upsert_announcement(packet, addr[0])
             await self.hub.publish_event({"type": "device_updated", "payload": device.model_dump()})
-            if device.selected:
+            if device.selected and not device.paired:
                 token = await self.registry.session_token(device.device_id)
                 if token:
                     self._send(

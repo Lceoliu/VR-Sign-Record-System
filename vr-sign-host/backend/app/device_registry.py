@@ -27,13 +27,6 @@ class DeviceRegistry:
             reported_paired = packet.get("paired")
             paired_station_id = str(packet.get("paired_station_id") or "").strip() or None
             if (
-                self._selected_id == device_id
-                and paired_station_id
-                and self._local_station_id
-                and paired_station_id != self._local_station_id
-            ):
-                self._selected_id = None
-            if (
                 self._selected_id is None
                 and self._local_station_id
                 and paired_station_id == self._local_station_id

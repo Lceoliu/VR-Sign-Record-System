@@ -396,7 +396,7 @@ def test_stop_syncs_advanced_sentence_and_sync_failure_keeps_take_state(tmp_path
         assert sent_actions[-1] == "reset_take"
 
 
-def test_device_reported_by_another_station_cannot_be_selected(tmp_path):
+def test_device_reported_by_another_station_can_be_reselected(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
         import anyio
@@ -412,5 +412,5 @@ def test_device_reported_by_another_station_cannot_be_selected(tmp_path):
         )
 
         response = client.post("/api/devices/quest-other/select")
-        assert response.status_code == 409
-        assert "station-other" in response.json()["detail"]
+        assert response.status_code == 200
+        assert response.json()["selected"]["device_id"] == "quest-other"

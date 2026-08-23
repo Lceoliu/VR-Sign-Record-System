@@ -99,14 +99,12 @@ export default function App() {
   const currentRoundId = state?.round_id ?? null
   const activeRoundId = currentBatchId === openedBatchId ? currentRoundId : null
   const contextReady = Boolean(openedBatchId && activeRoundId)
-  const captureReady = contextReady && Boolean(selectedDeviceId) && cameraReady
+  const captureReady = contextReady && Boolean(selectedDeviceId)
   const startBlockedReason = !contextReady
     ? '请先打开录制批次并选择轮次'
     : !selectedDeviceId
       ? '请先连接 Quest'
-      : !cameraReady
-        ? '请先连接外置相机'
-        : undefined
+      : undefined
   const completedCount = state?.sentences.filter((sentence) => sentence.completed).length ?? 0
   const deferredSentenceQuery = useDeferredValue(sentenceQuery.trim().toLocaleLowerCase())
   const visibleSentences = useMemo(() => {
@@ -281,15 +279,11 @@ export default function App() {
       setError('请先连接 Quest')
       return
     }
-    if (!cameraReady) {
-      setError('请先连接外置相机')
-      return
-    }
     try {
       const response = await api.start(currentBatchId, currentRoundId)
       commitState(response.state)
       setRecordingBatches((current) => current.includes(currentBatchId) ? current : [...current, currentBatchId])
-      if (response.start_at_unix_ms) beginCameraRecording(response.state, response.start_at_unix_ms)
+      if (cameraReady && response.start_at_unix_ms) beginCameraRecording(response.state, response.start_at_unix_ms)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '无法开始录制')
     }
@@ -533,23 +527,17 @@ export default function App() {
             <div className="device-list">
               {devices.length === 0 && <div className="empty-row"><Headset size={20} /><span>等待 Quest 广播</span></div>}
               {devices.map((device) => {
-                const ownedByOther = Boolean(
-                  device.paired_station_id && device.paired_station_id !== state.station_id,
-                )
                 return (
                   <button
                     key={device.device_id}
                     className={`device-row ${device.device_id === selectedDevice?.device_id ? 'selected' : ''}`}
-                    disabled={ownedByOther}
                     onClick={() => void selectQuest(device.device_id)}
                   >
                     <Headset size={21} />
                     <span>
                       <strong>{device.name} · {device.device_id.slice(-6).toUpperCase()}</strong>
                       <small>
-                        {device.ip} · {ownedByOther
-                          ? `已绑定 ${device.paired_station_id}`
-                          : device.state === 'recording'
+                        {device.ip} · {device.state === 'recording'
                           ? '录制中'
                           : device.paired ? '已连接' : '可用'}
                       </small>
