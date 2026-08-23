@@ -34,6 +34,12 @@ namespace SignVR.Recording
         [SerializeField]
         private HandCaptureBoundaryMonitor boundaryMonitor;
 
+        [SerializeField]
+        private RecordingSentenceSequence sentenceSequence;
+
+        [SerializeField]
+        private RecordingViewpointController viewpointController;
+
         [Header("Discovery")]
         [SerializeField]
         [Range(1, 65535)]
@@ -71,7 +77,9 @@ namespace SignVR.Recording
             MetaBodyMotionStreamer recordingStreamer,
             QuestTakeUploader uploader,
             QuestPreviewStreamer preview,
-            HandCaptureBoundaryMonitor monitor)
+            HandCaptureBoundaryMonitor monitor,
+            RecordingSentenceSequence sequence = null,
+            RecordingViewpointController viewpoints = null)
         {
             coordinator = recordingCoordinator;
             recorder = recordingRecorder;
@@ -79,6 +87,8 @@ namespace SignVR.Recording
             takeUploader = uploader;
             previewStreamer = preview;
             boundaryMonitor = monitor;
+            sentenceSequence = sequence;
+            viewpointController = viewpoints;
         }
 
         [Serializable]
@@ -118,6 +128,7 @@ namespace SignVR.Recording
             public string session_id;
             public string sentence_id;
             public int sentence_index;
+            public string viewpoint_id;
             public string prompt;
             public string take_id;
             public int take_index;
@@ -437,6 +448,10 @@ namespace SignVR.Recording
                 motionStreamer.ConfigureDestination(packet.host_ip, packet.pose_port);
                 takeUploader.ConfigureHost(baseUrl, deviceId);
                 previewStreamer?.ConfigureHost(baseUrl, deviceId);
+                if (sentenceSequence != null)
+                {
+                    sentenceSequence.HostAuthoritative = true;
+                }
             }
 
             SendAck(
@@ -471,7 +486,10 @@ namespace SignVR.Recording
             switch (packet.action)
             {
                 case "start_take":
-                    accepted = StartRemoteTake(packet);
+                    accepted = StartRemoteTake(
+                        packet,
+                        ContainsJsonProperty(json, "sentence_index")
+                    );
                     break;
                 case "stop_take":
                     accepted = coordinator.StopCurrentTake();
@@ -528,7 +546,9 @@ namespace SignVR.Recording
             }
         }
 
-        private bool StartRemoteTake(CommandPacket packet)
+        private bool StartRemoteTake(
+            CommandPacket packet,
+            bool sentenceIndexSupplied)
         {
             if (packet == null || coordinator == null || recorder == null ||
                 string.IsNullOrWhiteSpace(packet.session_id) ||
@@ -538,6 +558,19 @@ namespace SignVR.Recording
                 !recorder.IsPoseReady)
             {
                 return false;
+            }
+
+            if (viewpointController != null)
+            {
+                if (!TrySelectRemoteViewpoint(packet, sentenceIndexSupplied))
+                {
+                    return false;
+                }
+            }
+
+            if (sentenceSequence != null)
+            {
+                sentenceSequence.HostAuthoritative = true;
             }
 
             bool promptLoaded = coordinator.LoadPrompt(
@@ -552,6 +585,11 @@ namespace SignVR.Recording
                 return false;
             }
 
+            // The host owns the recording state, but the local sequence still
+            // mirrors its sentence index so the in-headset progress label and
+            // editable viewpoint mapping remain truthful.
+            sentenceSequence?.SyncHostSentence(packet.sentence_id);
+
             var take = new RecordingTakeContext(
                 packet.session_id,
                 packet.sentence_id,
@@ -562,6 +600,100 @@ namespace SignVR.Recording
             );
 
             return coordinator.BeginRemoteTake(take, packet.countdown_seconds);
+        }
+
+        private bool TrySelectRemoteViewpoint(
+            CommandPacket packet,
+            bool sentenceIndexSupplied)
+        {
+            if (!string.IsNullOrWhiteSpace(packet.viewpoint_id))
+            {
+                return viewpointController.TrySelectViewpoint(
+                    packet.viewpoint_id.Trim()
+                );
+            }
+
+            if (sentenceSequence != null && sentenceSequence.TryGetSentence(
+                    packet.sentence_id,
+                    out int sequenceIndex,
+                    out RecordingSentence sentence
+                ))
+            {
+                return !string.IsNullOrWhiteSpace(sentence.ViewpointId)
+                    ? viewpointController.TrySelectViewpoint(
+                        sentence.ViewpointId.Trim()
+                    )
+                    : viewpointController.TrySelectViewpoint(sequenceIndex);
+            }
+
+            return sentenceIndexSupplied && packet.sentence_index >= 0 &&
+                packet.sentence_index < viewpointController.ViewpointCount &&
+                viewpointController.TrySelectViewpoint(packet.sentence_index);
+        }
+
+        private static bool ContainsJsonProperty(
+            string json,
+            string propertyName)
+        {
+            if (string.IsNullOrEmpty(json) || string.IsNullOrEmpty(propertyName))
+            {
+                return false;
+            }
+
+            for (int index = 0; index < json.Length; index++)
+            {
+                if (json[index] != '"')
+                {
+                    continue;
+                }
+
+                int valueStart = ++index;
+                bool escaped = false;
+                while (index < json.Length)
+                {
+                    char current = json[index];
+                    if (current == '\\')
+                    {
+                        escaped = true;
+                        index++;
+                    }
+                    else if (current == '"')
+                    {
+                        break;
+                    }
+
+                    index++;
+                }
+
+                if (index >= json.Length)
+                {
+                    return false;
+                }
+
+                int valueLength = index - valueStart;
+                int separatorIndex = index + 1;
+                while (separatorIndex < json.Length &&
+                    char.IsWhiteSpace(json[separatorIndex]))
+                {
+                    separatorIndex++;
+                }
+
+                if (!escaped && separatorIndex < json.Length &&
+                    json[separatorIndex] == ':' &&
+                    valueLength == propertyName.Length &&
+                    string.CompareOrdinal(
+                        json,
+                        valueStart,
+                        propertyName,
+                        0,
+                        propertyName.Length
+                    ) == 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void SendAnnouncement(IPEndPoint target)

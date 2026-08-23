@@ -30,6 +30,9 @@ internal static class ConfigureVRRoomPlayer
     private const string FloorCollisionName = "VRFloorCollision";
     private const float FloorCollisionThickness = 0.25f;
     private const float SpawnGroundClearance = 0.03f;
+    private const float DefaultSpawnEyeHeight = 1.6f;
+    private const float MinimumSpawnEyeHeight = 0.5f;
+    private const float MaximumSpawnEyeHeight = 2.5f;
 
     private static readonly HashSet<string> AuthoredWorldRootNames =
         new HashSet<string>(StringComparer.Ordinal)
@@ -197,12 +200,21 @@ internal static class ConfigureVRRoomPlayer
             );
         }
 
-        if (!TryFindRoomFloor(room, spawn.position, out RaycastHit floorHit) ||
-            Mathf.Abs(spawn.position.y -
-                      (floorHit.point.y + SpawnGroundClearance)) > 0.08f)
+        if (!TryFindRoomFloor(room, spawn.position, out RaycastHit floorHit))
         {
             throw new InvalidOperationException(
-                $"PlayerSpawnPoint is not grounded inside VRroom: {spawn.position}."
+                $"PlayerSpawnPoint is not above the VRroom floor: {spawn.position}."
+            );
+        }
+
+        float spawnEyeHeight = spawn.position.y - floorHit.point.y;
+        if (spawnEyeHeight < MinimumSpawnEyeHeight ||
+            spawnEyeHeight > MaximumSpawnEyeHeight)
+        {
+            throw new InvalidOperationException(
+                $"PlayerSpawnPoint is the eye pose and must be " +
+                $"{MinimumSpawnEyeHeight:F1}-{MaximumSpawnEyeHeight:F1}m " +
+                $"above the floor. Current height is {spawnEyeHeight:F2}m."
             );
         }
 
@@ -225,7 +237,17 @@ internal static class ConfigureVRRoomPlayer
             );
         }
 
-        ValidateControllerGrounding(spawn.position, floorCollider);
+        player.CaptureSpawnPose();
+        if (Mathf.Abs(player.SpawnPosition.y -
+                      (floorHit.point.y + SpawnGroundClearance)) > 0.08f)
+        {
+            throw new InvalidOperationException(
+                "VRPlayerRig did not derive a grounded body pose from the " +
+                "authored eye spawn."
+            );
+        }
+
+        ValidateControllerGrounding(player.SpawnPosition, floorCollider);
 
         if (!HasRoomSurfaceInView(room, spawn))
         {
@@ -341,6 +363,7 @@ internal static class ConfigureVRRoomPlayer
         NormalizeAuthoredWorld(scene);
         EnsureRoomColliders(room);
         BoxCollider floorCollider = EnsureFloorCollision(scene, room);
+        Physics.SyncTransforms();
         ConfigureProps(scene, room);
 
         GameObject playerObject = FindRootByName(scene, "VRPlayer");
@@ -356,7 +379,6 @@ internal static class ConfigureVRRoomPlayer
         VRPlayerRig player = GetOrAddComponent<VRPlayerRig>(playerObject);
 
         Transform spawnPoint = EnsureSpawnPoint(scene, room);
-        player.SetSpawnPoint(spawnPoint, false);
 
         OVRCameraRig cameraRig = EnsureCameraRig(scene, playerObject.transform);
         player.ConfigureSceneReferences(
@@ -370,11 +392,21 @@ internal static class ConfigureVRRoomPlayer
         ConfigureRecording(scene, playerObject, cameraRig);
 
         player.SetSpawnPoint(spawnPoint, false);
-        player.CaptureSpawnPose();
         Undo.RecordObject(playerObject.transform, "Align VR player to spawn");
+        Vector3 spawnForward = Vector3.ProjectOnPlane(
+            spawnPoint.forward,
+            Vector3.up
+        );
+        Quaternion bodyRotation = spawnForward.sqrMagnitude > 0.000001f
+            ? Quaternion.LookRotation(spawnForward.normalized, Vector3.up)
+            : Quaternion.identity;
         playerObject.transform.SetPositionAndRotation(
-            spawnPoint.position,
-            spawnPoint.rotation
+            new Vector3(
+                spawnPoint.position.x,
+                floorCollider.bounds.max.y + SpawnGroundClearance,
+                spawnPoint.position.z
+            ),
+            bodyRotation
         );
         EditorUtility.SetDirty(playerObject.transform);
         ConfigureBuildSettings();
@@ -665,50 +697,34 @@ internal static class ConfigureVRRoomPlayer
             marker = markerObject.transform;
         }
 
-        bool hasWalkableFloor = TryFindRoomFloor(
-            room,
-            marker.position,
-            out RaycastHit markerFloor
-        );
-        if (!created && hasWalkableFloor && HasRoomSurfaceInView(room, marker))
+        if (!created)
         {
-            marker.position = new Vector3(
-                marker.position.x,
-                markerFloor.point.y + SpawnGroundClearance,
-                marker.position.z
-            );
-            EditorUtility.SetDirty(marker);
+            return marker;
         }
-        else if (created || !IsValidSpawn(room, marker))
-        {
-            Transform reference = FindRootByName(scene, "MainCamera")?.transform;
-            Vector3 referencePosition = reference != null
-                ? reference.position
-                : CombineRendererBounds(room).center;
-            if (!TryFindRoomFloor(room, referencePosition, out RaycastHit floorHit))
-            {
-                throw new InvalidOperationException(
-                    "Could not find a walkable VRroom floor below the reference camera."
-                );
-            }
 
-            float yaw = reference != null ? reference.eulerAngles.y : 0f;
-            marker.SetPositionAndRotation(
-                floorHit.point + Vector3.up * SpawnGroundClearance,
-                Quaternion.Euler(0f, yaw, 0f)
+        Transform reference = FindRootByName(scene, "MainCamera")?.transform;
+        Vector3 referencePosition = reference != null
+            ? reference.position
+            : CombineRendererBounds(room).center;
+        if (!TryFindRoomFloor(room, referencePosition, out RaycastHit floorHit))
+        {
+            throw new InvalidOperationException(
+                "Could not find a walkable VRroom floor below the reference camera."
             );
-            EditorUtility.SetDirty(marker);
         }
+
+        float yaw = reference != null ? reference.eulerAngles.y : 0f;
+        marker.SetPositionAndRotation(
+            new Vector3(
+                floorHit.point.x,
+                floorHit.point.y + DefaultSpawnEyeHeight,
+                floorHit.point.z
+            ),
+            Quaternion.Euler(0f, yaw, 0f)
+        );
+        EditorUtility.SetDirty(marker);
 
         return marker;
-    }
-
-    private static bool IsValidSpawn(GameObject room, Transform spawn)
-    {
-        return TryFindRoomFloor(room, spawn.position, out RaycastHit hit) &&
-               Mathf.Abs(spawn.position.y -
-                         (hit.point.y + SpawnGroundClearance)) <= 0.08f &&
-               HasRoomSurfaceInView(room, spawn);
     }
 
     private static bool TryFindRoomFloor(
@@ -764,7 +780,7 @@ internal static class ConfigureVRRoomPlayer
 
     private static bool HasRoomSurfaceInView(GameObject room, Transform spawn)
     {
-        Vector3 eye = spawn.position + Vector3.up * 1.6f;
+        Vector3 eye = spawn.position;
         foreach (float yawOffset in new[] { 0f, -30f, 30f, -60f, 60f })
         {
             Vector3 direction =

@@ -15,6 +15,9 @@ namespace SignVR.Recording
         [SerializeField]
         private RecordingTeacherUI teacherUI;
 
+        [SerializeField]
+        private RecordingViewpointController viewpointController;
+
         [Header("Timing")]
         [SerializeField]
         [Min(0f)]
@@ -44,8 +47,27 @@ namespace SignVR.Recording
         private double recordingStartedAt;
         private RecordingFlowState reviewReturnState;
         private bool dependenciesBound;
+        private bool hasPendingCompletedArtifact;
+        private MetaBodyMotionRecorder.RecordingArtifact pendingCompletedArtifact;
+        private bool manualPaused;
+        private bool applicationPaused;
 
         public event Action PresentationChanged;
+
+        /// <summary>
+        /// Raised after the recorder has flushed a take and written its metadata.
+        /// Interrupted takes are included so upload and diagnostics can observe
+        /// every artifact without inferring completion from presentation updates.
+        /// </summary>
+        public event Action<MetaBodyMotionRecorder.RecordingArtifact>
+            RecordingFinalized;
+
+        /// <summary>
+        /// Raised only for a normally completed take, after the flow state has
+        /// reached Completed. Consumers may safely load the next prompt here.
+        /// </summary>
+        public event Action<MetaBodyMotionRecorder.RecordingArtifact>
+            TakeCompleted;
 
         /// <summary>
         /// Time of the last pedal press. The teacher cannot hear the pedal click,
@@ -58,7 +80,7 @@ namespace SignVR.Recording
         /// True while the headset shows passthrough. Recording is suspended so the
         /// teacher can look at the interpreter without ending the session.
         /// </summary>
-        public bool IsPaused { get; private set; }
+        public bool IsPaused => manualPaused || applicationPaused;
 
         public bool IsHelpRequested { get; private set; }
 
@@ -104,7 +126,8 @@ namespace SignVR.Recording
         /// </summary>
         public void Configure(
             MetaBodyMotionRecorder recordingRecorder,
-            RecordingTeacherUI recordingTeacherUI = null)
+            RecordingTeacherUI recordingTeacherUI = null,
+            bool loadDefaultPromptOnAwake = false)
         {
             if (recordingRecorder == null)
             {
@@ -113,8 +136,15 @@ namespace SignVR.Recording
 
             recorder = recordingRecorder;
             teacherUI = recordingTeacherUI;
+            loadInitialPromptOnAwake = loadDefaultPromptOnAwake;
             InitializeStateMachine();
             BindDependencies();
+        }
+
+        public void ConfigureViewpointController(
+            RecordingViewpointController recordingViewpointController)
+        {
+            viewpointController = recordingViewpointController;
         }
 
         private void InitializeStateMachine()
@@ -183,6 +213,8 @@ namespace SignVR.Recording
             SentenceId = sentenceId;
             PromptText = promptText ?? string.Empty;
             CurrentTake = default;
+            hasPendingCompletedArtifact = false;
+            pendingCompletedArtifact = default;
             HasLastArtifact = recorder.TryFindLatestArtifact(
                 sessionId,
                 sentenceId,
@@ -245,6 +277,20 @@ namespace SignVR.Recording
                 return false;
             }
 
+            if (State != RecordingFlowState.Ready)
+            {
+                return false;
+            }
+
+            if (viewpointController != null &&
+                !viewpointController.PrepareCurrentViewpointForTake(
+                    out string viewpointError))
+            {
+                LastError = viewpointError;
+                NotifyPresentationChanged();
+                return false;
+            }
+
             if (!stateMachine.BeginCountdown())
             {
                 return false;
@@ -253,6 +299,7 @@ namespace SignVR.Recording
             StopActiveRoutine();
             CurrentTake = take;
             CountdownRemaining = Mathf.Max(0f, delaySeconds);
+            LastError = string.Empty;
             activeRoutine = StartCoroutine(CountdownRoutine());
             return true;
         }
@@ -286,7 +333,12 @@ namespace SignVR.Recording
 
             recorder.StopRecording();
             StopActiveRoutine();
-            activeRoutine = StartCoroutine(CompleteFinalizingNextFrame());
+            if (State == RecordingFlowState.Finalizing)
+            {
+                activeRoutine = StartCoroutine(
+                    CompleteFinalizingNextFrame()
+                );
+            }
             return true;
         }
 
@@ -320,18 +372,16 @@ namespace SignVR.Recording
 
         public void SetPaused(bool paused)
         {
-            if (IsPaused == paused)
+            if (manualPaused == paused)
             {
                 return;
             }
 
-            IsPaused = paused;
+            manualPaused = paused;
 
-            // Leaving a take half-recorded is worse than losing it: stop cleanly
-            // so the partial take is still saved and traceable.
             if (paused && State == RecordingFlowState.Recording)
             {
-                StopCurrentTake();
+                recorder?.StopRecordingForPassthrough();
             }
             else if (paused && State == RecordingFlowState.Countdown)
             {
@@ -379,6 +429,8 @@ namespace SignVR.Recording
         {
             StopActiveRoutine();
             stateMachine.BeginReset();
+            hasPendingCompletedArtifact = false;
+            pendingCompletedArtifact = default;
 
             if (recorder != null && recorder.IsRecording)
             {
@@ -393,6 +445,18 @@ namespace SignVR.Recording
 
         private IEnumerator CountdownRoutine()
         {
+            while (viewpointController != null &&
+                   viewpointController.IsAlignmentPending)
+            {
+                yield return null;
+            }
+
+            if (!ValidateViewpointForTake())
+            {
+                activeRoutine = null;
+                yield break;
+            }
+
             while (CountdownRemaining > 0f)
             {
                 NotifyPresentationChanged();
@@ -403,12 +467,24 @@ namespace SignVR.Recording
                 );
             }
 
+            if (!ValidateViewpointForTake())
+            {
+                activeRoutine = null;
+                yield break;
+            }
+
             RecordingTakeContext take = CurrentTake;
 
             if (recorder == null || !recorder.TryStartRecording(take))
             {
-                LastError = "Body tracking is not ready.";
-                stateMachine.Fail();
+                LastError = recorder != null &&
+                            !string.IsNullOrWhiteSpace(recorder.LastError)
+                    ? recorder.LastError
+                    : "Body tracking is not ready.";
+                CurrentTake = default;
+                CountdownRemaining = 0f;
+                stateMachine.CancelCountdown();
+                NotifyPresentationChanged();
                 activeRoutine = null;
                 yield break;
             }
@@ -420,11 +496,39 @@ namespace SignVR.Recording
             activeRoutine = null;
         }
 
+        private bool ValidateViewpointForTake()
+        {
+            if (viewpointController == null ||
+                viewpointController.TryValidateCurrentViewpointForTake(
+                    out string error))
+            {
+                return true;
+            }
+
+            LastError = error;
+            CurrentTake = default;
+            CountdownRemaining = 0f;
+            stateMachine.CancelCountdown();
+            NotifyPresentationChanged();
+            return false;
+        }
+
         private IEnumerator CompleteFinalizingNextFrame()
         {
             yield return null;
-            stateMachine.CompleteFinalizing();
+            bool completed = stateMachine.CompleteFinalizing();
             activeRoutine = null;
+
+            if (!completed || !hasPendingCompletedArtifact)
+            {
+                yield break;
+            }
+
+            MetaBodyMotionRecorder.RecordingArtifact artifact =
+                pendingCompletedArtifact;
+            hasPendingCompletedArtifact = false;
+            pendingCompletedArtifact = default;
+            TakeCompleted?.Invoke(artifact);
         }
 
         private IEnumerator CompleteResetNextFrame()
@@ -450,7 +554,82 @@ namespace SignVR.Recording
         {
             LastArtifact = artifact;
             HasLastArtifact = true;
+            RecordingFinalized?.Invoke(artifact);
+
+            bool belongsToCurrentTake =
+                CurrentTake.IsValid &&
+                string.Equals(
+                    CurrentTake.TakeId,
+                    artifact.Take.TakeId,
+                    StringComparison.Ordinal
+                );
+            if (
+                State == RecordingFlowState.Finalizing &&
+                belongsToCurrentTake &&
+                string.Equals(
+                    artifact.CaptureStatus,
+                    "completed",
+                    StringComparison.Ordinal
+                )
+            )
+            {
+                pendingCompletedArtifact = artifact;
+                hasPendingCompletedArtifact = true;
+            }
+            else if (belongsToCurrentTake &&
+                     !string.Equals(
+                         artifact.CaptureStatus,
+                         "completed",
+                         StringComparison.Ordinal))
+            {
+                hasPendingCompletedArtifact = false;
+                pendingCompletedArtifact = default;
+                LastError = BuildRetryMessage(artifact.CaptureStatus);
+
+                if (State == RecordingFlowState.Recording)
+                {
+                    stateMachine.InterruptRecording();
+                }
+                else if (State == RecordingFlowState.Finalizing)
+                {
+                    stateMachine.AbortFinalizing();
+                }
+
+                CurrentTake = default;
+                CountdownRemaining = 0f;
+            }
+
             NotifyPresentationChanged();
+        }
+
+        private void OnApplicationPause(bool paused)
+        {
+            applicationPaused = paused;
+            if (paused && State == RecordingFlowState.Countdown)
+            {
+                StopCurrentTake();
+            }
+
+            NotifyPresentationChanged();
+        }
+
+        private static string BuildRetryMessage(string captureStatus)
+        {
+            switch (captureStatus)
+            {
+                case "invalid_pose_quality":
+                    return "录制无效，请重录当前句";
+                case "interrupted_application_pause":
+                    return "录制被暂停，请重录当前句";
+                case "interrupted_passthrough":
+                    return "透视暂停了录制，请重录当前句";
+                case "io_error":
+                    return "写盘失败，请检查空间后重录";
+                case "capture_error":
+                    return "姿态采样失败，请重录当前句";
+                default:
+                    return "录制被中断，请重录当前句";
+            }
         }
 
         private void StopActiveRoutine()

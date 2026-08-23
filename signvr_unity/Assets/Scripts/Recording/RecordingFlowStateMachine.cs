@@ -59,11 +59,27 @@ namespace SignVR.Recording
             );
         }
 
+        public bool InterruptRecording()
+        {
+            return Transition(
+                RecordingFlowState.Recording,
+                RecordingFlowState.Ready
+            );
+        }
+
         public bool CompleteFinalizing()
         {
             return Transition(
                 RecordingFlowState.Finalizing,
                 RecordingFlowState.Completed
+            );
+        }
+
+        public bool AbortFinalizing()
+        {
+            return Transition(
+                RecordingFlowState.Finalizing,
+                RecordingFlowState.Ready
             );
         }
 

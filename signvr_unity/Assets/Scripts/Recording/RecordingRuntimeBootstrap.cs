@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using Meta.XR.Movement.Retargeting;
+using Oculus.Interaction;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -43,6 +44,10 @@ namespace SignVR.Recording
             {
                 return;
             }
+
+            // The desktop operator must be able to use the host console while
+            // Unity keeps counting down, sampling, and receiving UDP commands.
+            Application.runInBackground = true;
 
             GameObject recordingSource = scene.GetRootGameObjects()
                 .FirstOrDefault(root => root.name == RecordingSourceName);
@@ -90,7 +95,21 @@ namespace SignVR.Recording
                 rootObject.AddComponent<QuestPreviewStreamer>();
             preview.ConfigureDisabled();
 
+            VRPlayerRig playerRig = FindInScene<VRPlayerRig>(scene);
+            RecordingViewpointController viewpointController =
+                FindInScene<RecordingViewpointController>(scene);
+
             Transform hmd = FindHead(scene);
+            TMP_FontAsset chineseFont = Resources.Load<TMP_FontAsset>(
+                "Fonts/SignVRChinese SDF"
+            );
+            if (chineseFont == null)
+            {
+                Debug.LogWarning(
+                    "[RecordingRuntimeBootstrap] Chinese TMP font was not " +
+                    "found; prompt glyphs may be missing."
+                );
+            }
             OVRHand leftHand;
             OVRHand rightHand;
             FindHands(scene, out leftHand, out rightHand);
@@ -98,7 +117,11 @@ namespace SignVR.Recording
             HandCaptureBoundaryMonitor boundaryMonitor = null;
             if (hmd != null && leftHand != null && rightHand != null)
             {
-                WarningUi warningUi = CreateWarningUi(hmd, scene);
+                WarningUi warningUi = CreateWarningUi(
+                    hmd,
+                    scene,
+                    chineseFont
+                );
                 boundaryMonitor =
                     rootObject.AddComponent<HandCaptureBoundaryMonitor>();
                 boundaryMonitor.Configure(
@@ -113,6 +136,51 @@ namespace SignVR.Recording
                 recorder.ConfigureBoundaryMonitor(boundaryMonitor);
             }
 
+            coordinator.Configure(recorder);
+            uploader.Configure(recorder);
+
+            if (viewpointController != null)
+            {
+                viewpointController.Configure(coordinator, playerRig);
+                coordinator.ConfigureViewpointController(viewpointController);
+            }
+            else
+            {
+                Debug.LogError(
+                    "[RecordingRuntimeBootstrap] No recording viewpoint " +
+                    "controller is authored in VRroom. Run Tools/SignVR/" +
+                    "Configure Pointing Recording."
+                );
+            }
+
+            RecordingSentenceSequence sentenceSequence =
+                FindInScene<RecordingSentenceSequence>(scene) ??
+                rootObject.AddComponent<RecordingSentenceSequence>();
+            sentenceSequence.Configure(
+                coordinator,
+                viewpointController,
+                advanceAutomatically: true,
+                useHostAuthority: false
+            );
+
+            RecordingSpatialMetadataProvider spatialMetadata =
+                rootObject.AddComponent<RecordingSpatialMetadataProvider>();
+            spatialMetadata.Configure(
+                viewpointController,
+                playerRig,
+                playerRig != null ? playerRig.FloorCollider : null,
+                "VRroom-world-v1"
+            );
+            recorder.ConfigureSpatialMetadataProvider(spatialMetadata);
+
+            RecordingModeController recordingMode =
+                rootObject.AddComponent<RecordingModeController>();
+            recordingMode.Configure(playerRig);
+
+            RecordingHandSkeletonVisualizer handSkeleton =
+                rootObject.AddComponent<RecordingHandSkeletonVisualizer>();
+            handSkeleton.Configure(FindAllInScene<HandVisual>(scene));
+
             QuestDeviceGateway gateway =
                 rootObject.AddComponent<QuestDeviceGateway>();
             gateway.Configure(
@@ -121,27 +189,43 @@ namespace SignVR.Recording
                 streamer,
                 uploader,
                 preview,
-                boundaryMonitor
+                boundaryMonitor,
+                sentenceSequence,
+                viewpointController
             );
 
             RecordingDebugInput debugInput =
                 rootObject.AddComponent<RecordingDebugInput>();
-            debugInput.Configure(coordinator);
+            debugInput.Configure(coordinator, null, sentenceSequence);
 
-            coordinator.Configure(recorder);
-            uploader.Configure(recorder);
+            RecordingQuestInput questInput =
+                rootObject.AddComponent<RecordingQuestInput>();
+            questInput.Configure(coordinator, sentenceSequence);
 
             rootObject.SetActive(true);
-            ConfigureExistingCanvas(scene, coordinator);
+            if (hmd != null)
+            {
+                RecordingPromptBubble.EnsureCreated(
+                    hmd,
+                    coordinator,
+                    sentenceSequence,
+                    chineseFont,
+                    viewpointController
+                );
+            }
+            ConfigureExistingCanvas(scene, coordinator, chineseFont);
             Debug.Log(
                 "[RecordingRuntimeBootstrap] Installed take recording stack in " +
-                scene.path + ". UDP control=5006, pose/announce=5005."
+                scene.path + ". Six fixed viewpoints, local sequence, prompt " +
+                "bubble, and physics isolation are active. UDP control=5006, " +
+                "pose/announce=5005."
             );
         }
 
         private static void ConfigureExistingCanvas(
             Scene scene,
-            RecordingCoordinator coordinator)
+            RecordingCoordinator coordinator,
+            TMP_FontAsset chineseFont)
         {
             MetaMotionRecorderUI legacyUi = FindInScene<MetaMotionRecorderUI>(scene);
             Canvas canvas = legacyUi != null
@@ -164,7 +248,15 @@ namespace SignVR.Recording
 
             if (prompt == null)
             {
-                prompt = CreatePromptText(canvas.transform);
+                prompt = CreatePromptText(canvas.transform, chineseFont);
+            }
+            else if (chineseFont != null)
+            {
+                prompt.font = chineseFont;
+            }
+            if (status != null && chineseFont != null)
+            {
+                status.font = chineseFont;
             }
 
             RecordingCoordinatorUIBridge bridge =
@@ -173,7 +265,9 @@ namespace SignVR.Recording
             bridge.Configure(coordinator, start, stop, status, prompt);
         }
 
-        private static TMP_Text CreatePromptText(Transform parent)
+        private static TMP_Text CreatePromptText(
+            Transform parent,
+            TMP_FontAsset chineseFont)
         {
             GameObject promptObject = new GameObject(
                 "RecordingPrompt",
@@ -189,6 +283,10 @@ namespace SignVR.Recording
             rect.sizeDelta = new Vector2(560f, 54f);
 
             TextMeshProUGUI text = promptObject.GetComponent<TextMeshProUGUI>();
+            if (chineseFont != null)
+            {
+                text.font = chineseFont;
+            }
             text.fontSize = 24f;
             text.alignment = TextAlignmentOptions.Center;
             text.color = Color.white;
@@ -270,7 +368,10 @@ namespace SignVR.Recording
             public TMP_Text Label { get; }
         }
 
-        private static WarningUi CreateWarningUi(Transform hmd, Scene scene)
+        private static WarningUi CreateWarningUi(
+            Transform hmd,
+            Scene scene,
+            TMP_FontAsset chineseFont)
         {
             GameObject canvasObject = new GameObject(
                 "RecordingBoundaryWarning",
@@ -302,6 +403,10 @@ namespace SignVR.Recording
             labelRect.offsetMin = Vector2.zero;
             labelRect.offsetMax = Vector2.zero;
             TextMeshProUGUI label = labelObject.GetComponent<TextMeshProUGUI>();
+            if (chineseFont != null)
+            {
+                label.font = chineseFont;
+            }
             label.fontSize = 24f;
             label.alignment = TextAlignmentOptions.Center;
             label.color = new Color(1f, 0.4f, 0.2f, 1f);

@@ -1,0 +1,44 @@
+[
+  {
+    "sentence_id": "sentence_001",
+    "index": 0,
+    "category": "pointing",
+    "viewpoint_id": "state_01",
+    "text": "选对箱子，拿起箱子，输入密码"
+  },
+  {
+    "sentence_id": "sentence_002",
+    "index": 1,
+    "category": "pointing",
+    "viewpoint_id": "state_02",
+    "text": "拿起金币，选对盘子，把金币放到盘子"
+  },
+  {
+    "sentence_id": "sentence_003",
+    "index": 2,
+    "category": "pointing",
+    "viewpoint_id": "state_03",
+    "text": "选对画框，拿下画框，找到密码"
+  },
+  {
+    "sentence_id": "sentence_004",
+    "index": 3,
+    "category": "pointing",
+    "viewpoint_id": "state_04",
+    "text": "输入密码，打开箱子，选对钥匙"
+  },
+  {
+    "sentence_id": "sentence_005",
+    "index": 4,
+    "category": "pointing",
+    "viewpoint_id": "state_05",
+    "text": "插入钥匙，打开柜子，选对按钮"
+  },
+  {
+    "sentence_id": "sentence_006",
+    "index": 5,
+    "category": "pointing",
+    "viewpoint_id": "state_06",
+    "text": "按下按钮，选对电闸，拉下电闸"
+  }
+]

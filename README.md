@@ -4,8 +4,9 @@ VR Sign Record System is a Quest 3 research prototype for recording sign-languag
 
 ## Repository structure
 
-- `signvr_unity/` — Unity/Quest application, VR scenes, hand tracking, recording, preview streaming, and take upload.
-- `vr-sign-host/` — FastAPI + React local recording workstation, device pairing, sentence/round management, preview, and local file storage.
+- `signvr_unity/` - Unity/Quest application, VR scenes, hand tracking, recording, preview streaming, and take upload.
+- `vr-sign-host/` - FastAPI + React local recording workstation, device pairing, sentence/round management, preview, and local file storage.
+- `POINTING_RECORDING.dev` - pointing-dataset architecture, extension contract, local validation, and Quest acceptance checklist.
 
 The two directories retain the histories of their original repositories. Local recordings, workstation-specific configuration, Unity build outputs, package caches, and virtual environments are excluded from version control.
 

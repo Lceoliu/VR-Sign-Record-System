@@ -35,6 +35,7 @@ class SentenceItem(BaseModel):
     index: int
     category: str
     text: str
+    viewpoint_id: str | None = None
     status: Literal["completed", "current", "pending"] = "pending"
     completed: bool = False
     take_count: int = 0

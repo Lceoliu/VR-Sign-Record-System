@@ -25,20 +25,42 @@ public sealed class VRPlayerRig : MonoBehaviour
     [SerializeField] private bool allowKeyboardFallback = true;
     [SerializeField, Min(0.1f)] private float maxTrackedStepDistance = 0.5f;
     [SerializeField, Min(0.5f)] private float fallRecoveryDistance = 1.5f;
+    [SerializeField, Min(1f)] private float spawnAlignmentTimeout = 5f;
+    [SerializeField, Min(0.005f)] private float spawnAlignmentPositionTolerance = 0.03f;
 
     [Header("Body")]
     [SerializeField, Min(0.05f)] private float bodyRadius = 0.23f;
     [SerializeField, Min(0.5f)] private float bodyHeight = 1.75f;
     [SerializeField, Min(0.05f)] private float skinWidth = 0.03f;
 
+    [Header("Recording")]
+    [SerializeField] private bool recordingMode;
+
     private CharacterController characterController;
     private float verticalVelocity;
     private bool initialized;
     private Vector3 spawnPosition;
     private Quaternion spawnRotation;
-    private int trackingCalibrationFrames;
+    private Vector3 spawnViewPosition;
+    private Quaternion spawnViewRotation;
+    private Vector3 xrOriginBaseLocalPosition;
+    private Quaternion xrOriginBaseLocalRotation;
+    private bool hasXrOriginBasePose;
+    private bool spawnAlignmentPending;
+    private float spawnAlignmentDeadline;
+    private int stableTrackedPoseFrames;
+    private int stableAlignedPoseFrames;
+    private bool spawnAlignmentApplied;
+    private Vector3 previousTrackedHeadLocalPosition;
+    private bool recordingControllerStateCaptured;
+    private bool controllerEnabledBeforeRecording;
+    private bool controllerDetectCollisionsBeforeRecording;
+    private bool hasFixedRecordingOriginPose;
+    private Vector3 fixedRecordingOriginLocalPosition;
+    private Quaternion fixedRecordingOriginLocalRotation;
+    private int recordingOriginCorrectionCount;
 
-    private const int InitialTrackingCalibrationFrames = 3;
+    private const int RequiredStableTrackedPoseFrames = 5;
 
     public static VRPlayerRig Instance { get; private set; }
     public Transform XROrigin => xrOrigin;
@@ -47,7 +69,16 @@ public sealed class VRPlayerRig : MonoBehaviour
     public Collider FloorCollider => floorCollider;
     public Vector3 SpawnPosition => spawnPosition;
     public Quaternion SpawnRotation => spawnRotation;
+    public Vector3 SpawnViewPosition => spawnViewPosition;
+    public Quaternion SpawnViewRotation => spawnViewRotation;
     public bool IsInitialized => initialized;
+    public bool IsRecordingMode => recordingMode;
+    public bool IsSpawnAlignmentPending => spawnAlignmentPending;
+    public bool LastSpawnAlignmentSucceeded { get; private set; }
+    public float SpawnAlignmentPositionError { get; private set; } =
+        float.PositiveInfinity;
+    public bool HasFixedRecordingOriginPose => hasFixedRecordingOriginPose;
+    public int RecordingOriginCorrectionCount => recordingOriginCorrectionCount;
     public event Action<Vector3> BeforeMove;
     public event Action<Vector3> AfterMove;
     public event Action<Vector3, Quaternion> Spawned;
@@ -61,10 +92,17 @@ public sealed class VRPlayerRig : MonoBehaviour
         }
 
         Instance = this;
+        bool startInRecordingMode = recordingMode;
+        recordingMode = false;
         characterController = GetComponent<CharacterController>();
         ConfigureController();
         ResolveReferences();
+        CaptureXrOriginBasePose();
         CaptureSpawnPose();
+        if (startInRecordingMode)
+        {
+            SetRecordingMode(true);
+        }
     }
 
     private IEnumerator Start()
@@ -84,6 +122,9 @@ public sealed class VRPlayerRig : MonoBehaviour
         float floorTop = floorCollider != null
             ? floorCollider.bounds.max.y
             : float.NaN;
+        bool grounded = characterController != null &&
+                        characterController.enabled &&
+                        characterController.isGrounded;
         int visibleRenderers = 0;
         if (camera != null)
         {
@@ -102,15 +143,18 @@ public sealed class VRPlayerRig : MonoBehaviour
         Debug.Log(
             $"[SignVR] Runtime view ready: scene={gameObject.scene.name}, " +
             $"player={transform.position:F3}, eye={eyePosition:F3}, " +
+            $"spawnEye={spawnViewPosition:F3}, " +
             $"forward={eyeForward:F3}, visibleRenderers={visibleRenderers}, " +
-            $"grounded={characterController != null && characterController.isGrounded}, " +
+            $"grounded={grounded}, " +
+            $"recordingMode={recordingMode}, " +
             $"floorTop={floorTop:F3}, verticalVelocity={verticalVelocity:F3}."
         );
     }
 
     private void Update()
     {
-        if (!initialized || characterController == null)
+        if (!initialized || characterController == null ||
+            !characterController.enabled || recordingMode)
         {
             return;
         }
@@ -125,10 +169,8 @@ public sealed class VRPlayerRig : MonoBehaviour
             return;
         }
 
-        if (trackingCalibrationFrames > 0)
+        if (spawnAlignmentPending)
         {
-            CalibrateTrackingSpaceToPlayer();
-            trackingCalibrationFrames--;
             return;
         }
 
@@ -153,20 +195,183 @@ public sealed class VRPlayerRig : MonoBehaviour
         AfterMove?.Invoke(motion);
     }
 
+    private void LateUpdate()
+    {
+        ReassertFixedWorldFrame();
+
+        if (!spawnAlignmentPending || head == null || xrOrigin == null)
+        {
+            return;
+        }
+
+        bool timedOut = Time.unscaledTime >= spawnAlignmentDeadline;
+        bool positionTracked = OVRPlugin.positionTracked;
+        Vector3 trackedHeadLocal = xrOrigin.InverseTransformPoint(head.position);
+        bool usablePose = IsFinite(trackedHeadLocal) &&
+                          (Application.isEditor || trackedHeadLocal.y > 0.2f);
+
+        if (!positionTracked && !Application.isEditor && !timedOut)
+        {
+            return;
+        }
+
+        if (!usablePose && !timedOut)
+        {
+            return;
+        }
+
+        if (positionTracked && usablePose)
+        {
+            if (stableTrackedPoseFrames > 0 &&
+                Vector3.Distance(
+                    trackedHeadLocal,
+                    previousTrackedHeadLocalPosition
+                ) <= 0.05f)
+            {
+                stableTrackedPoseFrames++;
+            }
+            else
+            {
+                stableTrackedPoseFrames = 1;
+            }
+
+            previousTrackedHeadLocalPosition = trackedHeadLocal;
+            if (stableTrackedPoseFrames < RequiredStableTrackedPoseFrames)
+            {
+                return;
+            }
+        }
+        else if (!Application.isEditor)
+        {
+            Debug.LogWarning(
+                "[SignVR] HMD tracking was not ready before the spawn " +
+                "alignment timeout; using the latest available eye pose."
+            );
+        }
+
+        float tolerance = Mathf.Max(0.005f, spawnAlignmentPositionTolerance);
+        float positionError = Vector3.Distance(
+            head.position,
+            spawnViewPosition
+        );
+        if (!spawnAlignmentApplied || positionError > tolerance)
+        {
+            AlignTrackedHeadToSpawnView();
+            spawnAlignmentApplied = true;
+            stableAlignedPoseFrames = 0;
+            positionError = Vector3.Distance(
+                head.position,
+                spawnViewPosition
+            );
+        }
+        else
+        {
+            stableAlignedPoseFrames++;
+        }
+
+        SpawnAlignmentPositionError = positionError;
+        bool aligned = positionError <= tolerance;
+        if (!timedOut &&
+            (!aligned || stableAlignedPoseFrames < RequiredStableTrackedPoseFrames))
+        {
+            return;
+        }
+
+        LastSpawnAlignmentSucceeded = aligned;
+        spawnAlignmentPending = false;
+        if (aligned)
+        {
+            CaptureFixedRecordingOriginPose();
+        }
+        if (!aligned)
+        {
+            Debug.LogError(
+                "[SignVR] Could not align the tracked head to the authored " +
+                $"viewpoint. Remaining error: {positionError:F3} m."
+            );
+        }
+    }
+
+    private void EnforceFixedRecordingRoot()
+    {
+        bool positionChanged =
+            (transform.position - spawnPosition).sqrMagnitude > 0.000001f;
+        bool rotationChanged =
+            Quaternion.Angle(transform.rotation, spawnRotation) > 0.01f;
+        if (positionChanged || rotationChanged)
+        {
+            transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+        }
+    }
+
+    /// <summary>
+    /// Keeps the authored room frame stable even if the XR runtime updates its
+    /// floor-height calibration after a viewpoint has already been applied.
+    /// Tracked head and hand motion remain free inside this fixed root frame.
+    /// </summary>
+    public void ReassertFixedWorldFrame()
+    {
+        if (!recordingMode || !initialized)
+        {
+            return;
+        }
+
+        EnforceFixedRecordingRoot();
+
+        // The OVR runtime can rewrite the tracking-space origin when floor
+        // calibration or recentering changes. Restore only the origin pose;
+        // CenterEyeAnchor and hand anchors remain free to move inside it.
+        if (spawnAlignmentPending ||
+            !hasFixedRecordingOriginPose ||
+            xrOrigin == null)
+        {
+            return;
+        }
+
+        bool positionChanged =
+            (xrOrigin.localPosition - fixedRecordingOriginLocalPosition)
+            .sqrMagnitude > 0.000001f;
+        bool rotationChanged =
+            Quaternion.Angle(
+                xrOrigin.localRotation,
+                fixedRecordingOriginLocalRotation
+            ) > 0.01f;
+        if (positionChanged || rotationChanged)
+        {
+            xrOrigin.SetLocalPositionAndRotation(
+                fixedRecordingOriginLocalPosition,
+                fixedRecordingOriginLocalRotation
+            );
+            recordingOriginCorrectionCount++;
+        }
+    }
+
     /// <summary>Captures the authored spawn marker, or the current player pose.</summary>
     public void CaptureSpawnPose()
     {
         if (spawnPoint != null)
         {
-            spawnPosition = spawnPoint.position;
-            spawnRotation = spawnPoint.rotation;
+            spawnViewPosition = spawnPoint.position;
+            spawnViewRotation = spawnPoint.rotation;
         }
         else
         {
-            spawnPosition = transform.position;
-            spawnRotation = transform.rotation;
+            spawnViewPosition = head != null
+                ? head.position
+                : transform.position + Vector3.up * bodyHeight;
+            spawnViewRotation = head != null
+                ? head.rotation
+                : transform.rotation;
         }
 
+        Vector3 planarForward = Vector3.ProjectOnPlane(
+            spawnViewRotation * Vector3.forward,
+            Vector3.up
+        );
+        spawnRotation = planarForward.sqrMagnitude > 0.000001f
+            ? Quaternion.LookRotation(planarForward.normalized, Vector3.up)
+            : transform.rotation;
+        spawnPosition = spawnViewPosition;
         GroundSpawnPosition();
 
         initialized = true;
@@ -188,12 +393,22 @@ public sealed class VRPlayerRig : MonoBehaviour
             characterController.enabled = false;
         }
         transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+        RestoreXrOriginBasePose();
         if (characterController != null)
         {
             characterController.enabled = controllerWasEnabled;
         }
         verticalVelocity = 0f;
-        trackingCalibrationFrames = InitialTrackingCalibrationFrames;
+        spawnAlignmentPending = true;
+        spawnAlignmentDeadline = Time.unscaledTime + spawnAlignmentTimeout;
+        stableTrackedPoseFrames = 0;
+        stableAlignedPoseFrames = 0;
+        spawnAlignmentApplied = false;
+        hasFixedRecordingOriginPose = false;
+        recordingOriginCorrectionCount = 0;
+        LastSpawnAlignmentSucceeded = false;
+        SpawnAlignmentPositionError = float.PositiveInfinity;
+        previousTrackedHeadLocalPosition = Vector3.zero;
         Spawned?.Invoke(spawnPosition, spawnRotation);
     }
 
@@ -213,6 +428,53 @@ public sealed class VRPlayerRig : MonoBehaviour
     }
 
     /// <summary>
+    /// Freezes player-root locomotion and collision response while leaving XR
+    /// tracking and pending head-to-viewpoint alignment active.
+    /// </summary>
+    public void SetRecordingMode(bool enabled)
+    {
+        if (recordingMode == enabled)
+        {
+            return;
+        }
+
+        characterController ??= GetComponent<CharacterController>();
+        recordingMode = enabled;
+        verticalVelocity = 0f;
+
+        if (!enabled)
+        {
+            hasFixedRecordingOriginPose = false;
+        }
+
+        if (characterController == null)
+        {
+            return;
+        }
+
+        if (enabled)
+        {
+            controllerEnabledBeforeRecording = characterController.enabled;
+            controllerDetectCollisionsBeforeRecording =
+                characterController.detectCollisions;
+            recordingControllerStateCaptured = true;
+            characterController.detectCollisions = false;
+            characterController.enabled = false;
+            return;
+        }
+
+        if (!recordingControllerStateCaptured)
+        {
+            return;
+        }
+
+        characterController.detectCollisions =
+            controllerDetectCollisionsBeforeRecording;
+        characterController.enabled = controllerEnabledBeforeRecording;
+        recordingControllerStateCaptured = false;
+    }
+
+    /// <summary>
     /// Sets scene-authored references and writes the controller defaults so the
     /// scene is usable before the first runtime frame as well as after Awake.
     /// </summary>
@@ -224,6 +486,7 @@ public sealed class VRPlayerRig : MonoBehaviour
         xrOrigin = origin;
         head = eyes;
         floorCollider = walkableFloor;
+        CaptureXrOriginBasePose();
         characterController = GetComponent<CharacterController>();
         if (characterController != null)
         {
@@ -255,7 +518,7 @@ public sealed class VRPlayerRig : MonoBehaviour
         characterController.minMoveDistance = 0f;
         characterController.slopeLimit = 45f;
         characterController.stepOffset = 0.3f;
-        characterController.detectCollisions = true;
+        characterController.detectCollisions = !recordingMode;
     }
 
     private void UpdateControllerShape()
@@ -356,6 +619,74 @@ public sealed class VRPlayerRig : MonoBehaviour
         xrOrigin.position -= transform.TransformVector(horizontalOffset);
     }
 
+    private void AlignTrackedHeadToSpawnView()
+    {
+        if (head == null || xrOrigin == null ||
+            !IsFinite(head.position) || !IsFinite(spawnViewPosition))
+        {
+            return;
+        }
+
+        Vector3 currentForward = Vector3.ProjectOnPlane(
+            head.forward,
+            Vector3.up
+        );
+        Vector3 targetForward = Vector3.ProjectOnPlane(
+            spawnViewRotation * Vector3.forward,
+            Vector3.up
+        );
+        if (currentForward.sqrMagnitude > 0.000001f &&
+            targetForward.sqrMagnitude > 0.000001f)
+        {
+            float yaw = Vector3.SignedAngle(
+                currentForward,
+                targetForward,
+                Vector3.up
+            );
+            xrOrigin.RotateAround(head.position, Vector3.up, yaw);
+        }
+
+        xrOrigin.position += spawnViewPosition - head.position;
+    }
+
+    private void CaptureXrOriginBasePose()
+    {
+        if (xrOrigin == null || hasXrOriginBasePose)
+        {
+            return;
+        }
+
+        xrOriginBaseLocalPosition = xrOrigin.localPosition;
+        xrOriginBaseLocalRotation = xrOrigin.localRotation;
+        hasXrOriginBasePose = true;
+    }
+
+    private void RestoreXrOriginBasePose()
+    {
+        if (xrOrigin == null || !hasXrOriginBasePose)
+        {
+            return;
+        }
+
+        xrOrigin.SetLocalPositionAndRotation(
+            xrOriginBaseLocalPosition,
+            xrOriginBaseLocalRotation
+        );
+    }
+
+    private void CaptureFixedRecordingOriginPose()
+    {
+        if (xrOrigin == null)
+        {
+            hasFixedRecordingOriginPose = false;
+            return;
+        }
+
+        fixedRecordingOriginLocalPosition = xrOrigin.localPosition;
+        fixedRecordingOriginLocalRotation = xrOrigin.localRotation;
+        hasFixedRecordingOriginPose = true;
+    }
+
     private void GroundSpawnPosition()
     {
         if (floorCollider == null || !floorCollider.enabled ||
@@ -364,6 +695,7 @@ public sealed class VRPlayerRig : MonoBehaviour
             return;
         }
 
+        Physics.SyncTransforms();
         Bounds bounds = floorCollider.bounds;
         Vector3 rayOrigin = new Vector3(
             spawnPosition.x,

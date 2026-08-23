@@ -103,12 +103,15 @@ namespace SignVR.Recording
             }
         }
 
-        private void OnValidate()
+#if UNITY_EDITOR
+        protected override void OnValidate()
         {
+            base.OnValidate();
             progress = Mathf.Clamp01(progress);
             thickness = Mathf.Max(1f, thickness);
             segments = Mathf.Clamp(segments, 12, 128);
             SetVerticesDirty();
         }
+#endif
     }
 }

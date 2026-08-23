@@ -1,23 +1,30 @@
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 namespace SignVR.Recording
 {
-    public sealed class RecordingDebugInput : MonoBehaviour
+    /// <summary>
+    /// Single-button headset control: tap A to start/stop and hold A to reset
+    /// the current sentence. Host pedal commands continue to use the same
+    /// coordinator methods, so both control paths produce identical states.
+    /// </summary>
+    [DisallowMultipleComponent]
+    public sealed class RecordingQuestInput : MonoBehaviour
     {
         [SerializeField]
         private RecordingCoordinator coordinator;
 
         [SerializeField]
-        private RecordingReplayController replayController;
-
-        [SerializeField]
         private RecordingSentenceSequence sentenceSequence;
 
         [SerializeField]
-        [Min(0.1f)]
-        [Tooltip("Development simulation only. The Python host will own the production hold threshold.")]
-        private float simulatedHoldSeconds = 1.2f;
+        private OVRInput.Button toggleButton = OVRInput.Button.One;
+
+        [SerializeField]
+        private OVRInput.Controller controller = OVRInput.Controller.RTouch;
+
+        [SerializeField]
+        [Min(0.5f)]
+        private float resetHoldSeconds = 1.2f;
 
         private bool isPressed;
         private bool resetTriggered;
@@ -25,71 +32,36 @@ namespace SignVR.Recording
 
         public void Configure(
             RecordingCoordinator recordingCoordinator,
-            RecordingReplayController replay = null,
             RecordingSentenceSequence sequence = null)
         {
             coordinator = recordingCoordinator;
-            replayController = replay;
             sentenceSequence = sequence;
-        }
-
-        private void Awake()
-        {
-#if !UNITY_EDITOR && !DEVELOPMENT_BUILD
-            enabled = false;
-#endif
-            if (replayController == null)
-            {
-                replayController = GetComponent<RecordingReplayController>();
-            }
         }
 
         private void Update()
         {
-            if (coordinator == null || Keyboard.current == null)
+            if (coordinator == null)
             {
                 return;
             }
 
-            if (Keyboard.current.rKey.wasPressedThisFrame)
-            {
-                if (replayController == null)
-                {
-                    Debug.LogWarning(
-                        "[RecordingDebugInput] Replay is not configured for this scene."
-                    );
-                    return;
-                }
-
-                if (replayController.IsReviewing || replayController.IsLoading)
-                {
-                    replayController.StopReview();
-                }
-                else
-                {
-                    replayController.PlayLastTake();
-                }
-                return;
-            }
-
-            var key = Keyboard.current.spaceKey;
-
-            if (key.wasPressedThisFrame)
+            if (OVRInput.GetDown(toggleButton, controller))
             {
                 isPressed = true;
                 resetTriggered = false;
                 pressedAt = Time.unscaledTimeAsDouble;
+                coordinator.PulsePedal();
             }
 
-            if (isPressed && key.isPressed && !resetTriggered)
+            if (isPressed &&
+                OVRInput.Get(toggleButton, controller) &&
+                !resetTriggered)
             {
                 float progress = (float)(
                     (Time.unscaledTimeAsDouble - pressedAt) /
-                    simulatedHoldSeconds
+                    Mathf.Max(0.5f, resetHoldSeconds)
                 );
-
                 coordinator.SetResetHoldProgress(progress);
-
                 if (progress >= 1f)
                 {
                     resetTriggered = true;
@@ -97,13 +69,12 @@ namespace SignVR.Recording
                 }
             }
 
-            if (!key.wasReleasedThisFrame)
+            if (!OVRInput.GetUp(toggleButton, controller))
             {
                 return;
             }
 
             isPressed = false;
-
             if (resetTriggered)
             {
                 return;
@@ -124,15 +95,14 @@ namespace SignVR.Recording
                     coordinator.StopCurrentTake();
                     break;
                 case RecordingFlowState.Recording:
-                    coordinator.StopCurrentTake();
-                    break;
                 case RecordingFlowState.Reviewing:
                     coordinator.StopCurrentTake();
                     break;
                 case RecordingFlowState.Completed:
-                    // TakeCompleted owns sequence advancement. Starting the
-                    // already-loaded prompt is safe, while the final sentence
-                    // remains guarded by IsSequenceCompleted.
+                    // TakeCompleted owns sequence advancement. If the next
+                    // prompt is already loaded, a short-lived Completed state
+                    // may still accept the start action; the final sentence
+                    // is explicitly guarded.
                     if (sentenceSequence == null ||
                         sentenceSequence.IsSequenceCompleted)
                     {
@@ -145,10 +115,16 @@ namespace SignVR.Recording
 
         private void OnDisable()
         {
-            if (coordinator != null)
-            {
-                coordinator.CancelResetHold();
-            }
+            isPressed = false;
+            resetTriggered = false;
+            coordinator?.CancelResetHold();
         }
+
+#if UNITY_EDITOR
+        private void OnValidate()
+        {
+            resetHoldSeconds = Mathf.Max(0.5f, resetHoldSeconds);
+        }
+#endif
     }
 }

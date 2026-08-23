@@ -39,6 +39,10 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
     private SignVR.Recording.HandCaptureQualitySummary handCaptureQuality = new();
 
+    [SerializeField]
+    [Tooltip("Captures the selected world viewpoint and XR reference frame for each Take.")]
+    private RecordingSpatialMetadataProvider spatialMetadataProvider;
+
     [Header("Recording")]
     [SerializeField]
     private bool recordAutomatically = true;
@@ -55,6 +59,22 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
     [Range(1, 120)]
     private int sampleRate = 30;
 
+    [Header("Take Quality")]
+    [SerializeField]
+    [Min(1)]
+    [Tooltip("A normally completed Take must contain at least this many sampled frames.")]
+    private int minimumCompletedFrameCount = 15;
+
+    [SerializeField]
+    [Range(0f, 1f)]
+    [Tooltip("On device, this fraction of sampled frames must contain a valid, non-empty pose.")]
+    private float minimumValidPoseRatio = 0.9f;
+
+    [Header("Editor Simulation")]
+    [SerializeField]
+    [Tooltip("Editor only: allow recording workflow tests before a valid Meta body pose is available.")]
+    private bool allowEditorSimulationWithoutPose = true;
+
     private StreamWriter writer;
     private bool isRecording;
     private bool hasRecorded;
@@ -65,19 +85,25 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
     private double stopTime;
 
     private long sampleIndex;
+    private long validPoseFrameCount;
+    private int expectedJointCount;
     private string outputPath;
     private string metadataPath;
     private DateTime recordingStartedUtc;
     private RecordingTakeContext currentTake;
+    private RecordingSpatialSnapshot currentSpatialSnapshot;
+    private bool currentTakeUsesSimulatedPose;
 
     public bool IsRecording => isRecording;
     public long SampleCount => sampleIndex;
     public string CurrentOutputPath => outputPath;
     public string CurrentMetadataPath => metadataPath;
     public RecordingTakeContext CurrentTake => currentTake;
+    public string LastError { get; private set; } = string.Empty;
     public bool IsPoseReady =>
         sourceDataProvider != null &&
-        sourceDataProvider.IsPoseValid();
+        (sourceDataProvider.IsPoseValid() ||
+         CanSimulateInvalidPoseInEditor);
 
     public MetaSourceDataProvider SourceDataProvider => sourceDataProvider;
 
@@ -102,6 +128,12 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         boundaryMonitor = monitor;
     }
 
+    public void ConfigureSpatialMetadataProvider(
+        RecordingSpatialMetadataProvider provider)
+    {
+        spatialMetadataProvider = provider;
+    }
+
     public event Action<RecordingArtifact> RecordingFinalized;
 
     public bool TryFindLatestArtifact(
@@ -117,89 +149,104 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             RecordingTakeContext.SanitizeFileSegment(sessionId),
             RecordingTakeContext.SanitizeFileSegment(sentenceId)
         );
-        if (!Directory.Exists(directory))
+        try
         {
-            return false;
-        }
-
-        TakeMetadata latest = null;
-        string latestMetadataPath = null;
-        string latestPosePath = null;
-        DateTime latestWriteTimeUtc = DateTime.MinValue;
-
-        foreach (string candidatePath in Directory.GetFiles(
-                     directory,
-                     "*.meta.json",
-                     SearchOption.TopDirectoryOnly))
-        {
-            if (!TryReadMetadata(candidatePath, out TakeMetadata candidate))
+            if (!Directory.Exists(directory))
             {
-                continue;
+                return false;
             }
 
-            if (
-                candidate.session_id != sessionId ||
-                candidate.sentence_id != sentenceId ||
-                candidate.take_index < 1 ||
-                string.IsNullOrWhiteSpace(candidate.take_id) ||
-                string.IsNullOrWhiteSpace(candidate.pose_file)
+            TakeMetadata latest = null;
+            string latestMetadataPath = null;
+            string latestPosePath = null;
+            DateTime latestWriteTimeUtc = DateTime.MinValue;
+
+            foreach (string candidatePath in Directory.GetFiles(
+                         directory,
+                         "*.meta.json",
+                         SearchOption.TopDirectoryOnly))
+            {
+                if (!TryReadMetadata(candidatePath, out TakeMetadata candidate))
+                {
+                    continue;
+                }
+
+                if (
+                    candidate.session_id != sessionId ||
+                    candidate.sentence_id != sentenceId ||
+                    candidate.take_index < 1 ||
+                    string.IsNullOrWhiteSpace(candidate.take_id) ||
+                    string.IsNullOrWhiteSpace(candidate.pose_file)
+                )
+                {
+                    continue;
+                }
+
+                string candidatePosePath = Path.Combine(
+                    directory,
+                    candidate.pose_file
+                );
+                if (!File.Exists(candidatePosePath))
+                {
+                    continue;
+                }
+
+                DateTime writeTimeUtc = File.GetLastWriteTimeUtc(candidatePath);
+                bool isNewer =
+                    latest == null ||
+                    candidate.take_index > latest.take_index ||
+                    candidate.take_index == latest.take_index &&
+                    writeTimeUtc > latestWriteTimeUtc;
+                if (!isNewer)
+                {
+                    continue;
+                }
+
+                latest = candidate;
+                latestMetadataPath = candidatePath;
+                latestPosePath = candidatePosePath;
+                latestWriteTimeUtc = writeTimeUtc;
+            }
+
+            if (latest == null)
+            {
+                return false;
+            }
+
+            DateTime createdAtUtc = DateTime.TryParse(
+                latest.utc_started,
+                out DateTime parsedStartedAt
             )
-            {
-                continue;
-            }
-
-            string candidatePosePath = Path.Combine(
-                directory,
-                candidate.pose_file
+                ? parsedStartedAt.ToUniversalTime()
+                : latestWriteTimeUtc;
+            var take = new RecordingTakeContext(
+                latest.session_id,
+                latest.sentence_id,
+                latest.sentence_text,
+                latest.take_index,
+                latest.take_id,
+                createdAtUtc
             );
-            if (!File.Exists(candidatePosePath))
-            {
-                continue;
-            }
-
-            DateTime writeTimeUtc = File.GetLastWriteTimeUtc(candidatePath);
-            bool isNewer =
-                latest == null ||
-                candidate.take_index > latest.take_index ||
-                candidate.take_index == latest.take_index &&
-                writeTimeUtc > latestWriteTimeUtc;
-            if (!isNewer)
-            {
-                continue;
-            }
-
-            latest = candidate;
-            latestMetadataPath = candidatePath;
-            latestPosePath = candidatePosePath;
-            latestWriteTimeUtc = writeTimeUtc;
+            artifact = new RecordingArtifact(
+                take,
+                latestPosePath,
+                latestMetadataPath,
+                latest.capture_status
+            );
+            return true;
         }
-
-        if (latest == null)
+        catch (Exception exception) when (
+            exception is IOException ||
+            exception is UnauthorizedAccessException ||
+            exception is NotSupportedException ||
+            exception is ArgumentException)
         {
+            Debug.LogWarning(
+                "[MetaBodyMotionRecorder] Cannot scan stored Takes in " +
+                $"{directory}: {exception.Message}"
+            );
             return false;
         }
-
-        DateTime createdAtUtc = DateTime.TryParse(
-            latest.utc_started,
-            out DateTime parsedStartedAt
-        )
-            ? parsedStartedAt.ToUniversalTime()
-            : latestWriteTimeUtc;
-        var take = new RecordingTakeContext(
-            latest.session_id,
-            latest.sentence_id,
-            latest.sentence_text,
-            latest.take_index,
-            latest.take_id,
-            createdAtUtc
-        );
-        artifact = new RecordingArtifact(
-            take,
-            latestPosePath,
-            latestMetadataPath,
-            latest.capture_status
-        );
-        return true;
     }
 
     [Serializable]
@@ -269,10 +316,16 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         public string utc_started;
         public string utc_stopped;
         public long pose_frame_count;
+        public long valid_pose_frame_count;
+        public float valid_pose_ratio;
+        public int expected_joint_count;
         public string pose_file;
         public string app_version;
         public string device_model;
         public SignVR.Recording.HandCaptureQualitySummary hand_capture_quality;
+        public RecordingSpatialSnapshot spatial_context;
+        public bool editor_simulation;
+        public bool pose_source_simulated;
     }
 
     private static bool TryReadMetadata(
@@ -309,6 +362,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
     private void Awake()
     {
         appStartTime = Time.realtimeSinceStartupAsDouble;
+        ResolveSpatialMetadataProvider();
 
         if (sourceDataProvider == null)
         {
@@ -323,6 +377,14 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
     {
         if (sourceDataProvider == null)
         {
+            if (isRecording)
+            {
+                LastError = "姿态数据源已断开，请重录当前句";
+                StopRecordingInternal(
+                    "capture_error",
+                    "pose_source_unavailable"
+                );
+            }
             return;
         }
 
@@ -337,7 +399,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
                 recordAutomatically &&
                 !hasRecorded &&
                 startDelayFinished &&
-                sourceDataProvider.IsPoseValid()
+                IsPoseReady
             )
             {
                 StartRecording();
@@ -360,7 +422,23 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             return;
         }
 
-        CaptureFrame(now);
+        try
+        {
+            CaptureFrame(now);
+        }
+        catch (Exception exception)
+        {
+            LastError = "姿态采样失败，请重录当前句";
+            Debug.LogError(
+                "[MetaBodyMotionRecorder] Failed to capture a pose frame: " +
+                exception
+            );
+            StopRecordingInternal(
+                "capture_error",
+                "pose_frame_capture_failed"
+            );
+            return;
+        }
 
         double interval = 1.0 / Math.Max(sampleRate, 1);
         nextSampleTime += interval;
@@ -387,13 +465,59 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
     public bool TryStartRecording(RecordingTakeContext take)
     {
-        if (isRecording || sourceDataProvider == null || !take.IsValid)
+        LastError = string.Empty;
+        if (isRecording)
         {
+            LastError = "已有录制正在进行";
             return false;
         }
 
-        if (!sourceDataProvider.IsPoseValid())
+        if (sourceDataProvider == null)
         {
+            LastError = "姿态数据源尚未就绪";
+            return false;
+        }
+
+        if (!take.IsValid)
+        {
+            LastError = "录制任务参数无效";
+            return false;
+        }
+
+        bool poseValid;
+        int probeJointCount = 0;
+        NativeArray<MSDKUtility.NativeTransform> poseProbe = default;
+        try
+        {
+            poseProbe = sourceDataProvider.GetSkeletonPose();
+            poseValid = sourceDataProvider.IsPoseValid();
+            probeJointCount = poseProbe.IsCreated ? poseProbe.Length : 0;
+        }
+        catch (Exception exception)
+        {
+            LastError = "身体追踪刷新失败";
+            Debug.LogError(
+                "[MetaBodyMotionRecorder] Cannot refresh body tracking: " +
+                exception
+            );
+            return false;
+        }
+        finally
+        {
+            if (poseProbe.IsCreated)
+            {
+                poseProbe.Dispose();
+            }
+        }
+        bool useEditorSimulation =
+            !poseValid && CanSimulateInvalidPoseInEditor;
+        if (poseValid && probeJointCount <= 0)
+        {
+            poseValid = false;
+        }
+        if (!poseValid && !useEditorSimulation)
+        {
+            LastError = "身体追踪尚未就绪";
             Debug.LogWarning(
                 "[MetaBodyMotionRecorder] " +
                 "Body pose is not valid yet."
@@ -401,7 +525,34 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             return false;
         }
 
+        if (useEditorSimulation)
+        {
+            Debug.LogWarning(
+                "[MetaBodyMotionRecorder] Starting an Editor simulation " +
+                "Take without a valid body pose. Frames will contain zero " +
+                "joints and pose_valid=false."
+            );
+        }
+
         handCaptureQuality = new SignVR.Recording.HandCaptureQualitySummary();
+
+        ResolveSpatialMetadataProvider();
+        RecordingSpatialSnapshot spatialSnapshot = null;
+        string spatialError = string.Empty;
+        if (spatialMetadataProvider == null ||
+            !spatialMetadataProvider.TryCaptureValidatedSnapshot(
+                out spatialSnapshot,
+                out spatialError))
+        {
+            LastError = string.IsNullOrWhiteSpace(spatialError)
+                ? "固定视角尚未对齐"
+                : spatialError;
+            Debug.LogError(
+                "[MetaBodyMotionRecorder] Cannot start the Take: " +
+                LastError
+            );
+            return false;
+        }
 
         string directory = Path.Combine(
             Application.persistentDataPath,
@@ -411,29 +562,57 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         );
         Debug.Log($"Motion saved to: {directory}");
 
-        Directory.CreateDirectory(directory);
+        try
+        {
+            Directory.CreateDirectory(directory);
 
-        outputPath = Path.Combine(
-            directory,
-            take.FileStem + ".pose.jsonl"
-        );
-        metadataPath = Path.Combine(
-            directory,
-            take.FileStem + ".meta.json"
-        );
+            outputPath = Path.Combine(
+                directory,
+                take.FileStem + ".pose.jsonl"
+            );
+            metadataPath = Path.Combine(
+                directory,
+                take.FileStem + ".meta.json"
+            );
 
-        writer = new StreamWriter(
-            new FileStream(
-                outputPath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.Read,
-                65536
-            ),
-            new UTF8Encoding(false),
-            65536,
-            false
-        );
+            writer = new StreamWriter(
+                new FileStream(
+                    outputPath,
+                    FileMode.CreateNew,
+                    FileAccess.Write,
+                    FileShare.Read,
+                    65536
+                ),
+                new UTF8Encoding(false),
+                65536,
+                false
+            );
+        }
+        catch (Exception exception) when (
+            exception is IOException ||
+            exception is UnauthorizedAccessException ||
+            exception is NotSupportedException ||
+            exception is ArgumentException)
+        {
+            try
+            {
+                writer?.Dispose();
+            }
+            catch (Exception disposeException)
+            {
+                Debug.LogWarning(
+                    "[MetaBodyMotionRecorder] Failed to close the partial " +
+                    "Take file: " + disposeException.Message
+                );
+            }
+            writer = null;
+            LastError = "无法创建录制文件，请检查存储空间";
+            Debug.LogError(
+                "[MetaBodyMotionRecorder] Cannot create Take files: " +
+                exception
+            );
+            return false;
+        }
 
         recordingStartTime =
             Time.realtimeSinceStartupAsDouble;
@@ -445,10 +624,14 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             : double.PositiveInfinity;
 
         sampleIndex = 0;
+        validPoseFrameCount = 0;
         isRecording = true;
         hasRecorded = true;
         currentTake = take;
         recordingStartedUtc = DateTime.UtcNow;
+        currentTakeUsesSimulatedPose = useEditorSimulation;
+        expectedJointCount = useEditorSimulation ? 0 : probeJointCount;
+        currentSpatialSnapshot = spatialSnapshot;
 
         Debug.Log(
             "[MetaBodyMotionRecorder] Recording started: " +
@@ -460,17 +643,24 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
     private void CaptureFrame(double now)
     {
-        bool poseValid =
-            sourceDataProvider.IsPoseValid();
-
-        NativeArray<MSDKUtility.NativeTransform> pose =
-            sourceDataProvider.GetSkeletonPose();
+        NativeArray<MSDKUtility.NativeTransform> pose = default;
+        bool poseValid = false;
+        if (!currentTakeUsesSimulatedPose)
+        {
+            pose = sourceDataProvider.GetSkeletonPose();
+            poseValid = sourceDataProvider.IsPoseValid();
+        }
 
         try
         {
-            int jointCount = pose.IsCreated
+            int jointCount = poseValid && pose.IsCreated
                 ? pose.Length
                 : 0;
+
+            bool validPoseFrame = poseValid &&
+                                  jointCount > 0 &&
+                                  (expectedJointCount <= 0 ||
+                                   jointCount == expectedJointCount);
 
             var positions =
                 new Vector3Record[jointCount];
@@ -504,7 +694,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
                 recording_time =
                     now - recordingStartTime,
 
-                pose_valid = poseValid,
+                pose_valid = validPoseFrame,
                 joint_count = jointCount,
 
                 positions = positions,
@@ -525,6 +715,10 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
                 JsonUtility.ToJson(frame, false)
             );
 
+            if (validPoseFrame)
+            {
+                validPoseFrameCount++;
+            }
             sampleIndex++;
 
             if (sampleIndex % sampleRate == 0)
@@ -565,31 +759,129 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
         isRecording = false;
 
-        writer?.Flush();
-        writer?.Dispose();
-        writer = null;
+        string finalCaptureStatus = captureStatus;
+        string finalResetReason = resetReason;
+        EvaluateCompletedTakeQuality(
+            ref finalCaptureStatus,
+            ref finalResetReason
+        );
 
-        WriteTakeMetadata(captureStatus, resetReason);
+        try
+        {
+            writer?.Flush();
+        }
+        catch (Exception exception)
+        {
+            finalCaptureStatus = "io_error";
+            finalResetReason = "pose_stream_flush_failed";
+            LastError = "录制文件写入失败，请检查存储空间";
+            Debug.LogError(
+                "[MetaBodyMotionRecorder] Cannot flush the pose stream: " +
+                exception
+            );
+        }
+        finally
+        {
+            try
+            {
+                writer?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                finalCaptureStatus = "io_error";
+                finalResetReason = "pose_stream_close_failed";
+                LastError = "录制文件写入失败，请检查存储空间";
+                Debug.LogError(
+                    "[MetaBodyMotionRecorder] Cannot close the pose stream: " +
+                    exception
+                );
+            }
+            writer = null;
+        }
+
+        try
+        {
+            WriteTakeMetadata(finalCaptureStatus, finalResetReason);
+        }
+        catch (Exception exception)
+        {
+            finalCaptureStatus = "io_error";
+            finalResetReason = "metadata_write_failed";
+            LastError = "录制元数据写入失败，请检查存储空间";
+            Debug.LogError(
+                "[MetaBodyMotionRecorder] Cannot write Take metadata: " +
+                exception
+            );
+        }
 
         RecordingFinalized?.Invoke(
             new RecordingArtifact(
                 currentTake,
                 outputPath,
                 metadataPath,
-                captureStatus
+                finalCaptureStatus
             )
         );
 
         Debug.Log(
             "[MetaBodyMotionRecorder] Recording stopped. " +
-            $"Samples: {sampleIndex}. File: {outputPath}"
+            $"Status: {finalCaptureStatus}. Samples: {sampleIndex}. " +
+            $"File: {outputPath}"
         );
+    }
+
+    public void StopRecordingForPassthrough()
+    {
+        StopRecordingInternal(
+            "interrupted_passthrough",
+            "passthrough_pause"
+        );
+    }
+
+    private void EvaluateCompletedTakeQuality(
+        ref string captureStatus,
+        ref string resetReason)
+    {
+        if (!string.Equals(
+                captureStatus,
+                "completed",
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (sampleIndex < Mathf.Max(1, minimumCompletedFrameCount))
+        {
+            captureStatus = "invalid_pose_quality";
+            resetReason = "insufficient_pose_frames";
+            LastError = "录制时间过短，请重录当前句";
+            return;
+        }
+
+        float validRatio = sampleIndex > 0
+            ? (float)validPoseFrameCount / sampleIndex
+            : 0f;
+        if (!currentTakeUsesSimulatedPose &&
+            validRatio < Mathf.Clamp01(minimumValidPoseRatio))
+        {
+            captureStatus = "invalid_pose_quality";
+            resetReason = "insufficient_valid_pose_ratio";
+            LastError = "姿态追踪质量不足，请重录当前句";
+        }
     }
 
     private void WriteTakeMetadata(
         string captureStatus,
         string resetReason)
     {
+        handCaptureQuality.Finalize(
+            boundaryMonitor == null || boundaryMonitor.GuidanceEnabled
+        );
+
+        float validPoseRatio = sampleIndex > 0
+            ? (float)validPoseFrameCount / sampleIndex
+            : 0f;
+        spatialMetadataProvider?.RefreshFinalState(currentSpatialSnapshot);
         var metadata = new TakeMetadata
         {
             session_id = currentTake.SessionId,
@@ -603,21 +895,50 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             utc_started = recordingStartedUtc.ToString("O"),
             utc_stopped = DateTime.UtcNow.ToString("O"),
             pose_frame_count = sampleIndex,
+            valid_pose_frame_count = validPoseFrameCount,
+            valid_pose_ratio = validPoseRatio,
+            expected_joint_count = expectedJointCount,
             pose_file = Path.GetFileName(outputPath),
             app_version = Application.version,
             device_model = SystemInfo.deviceModel,
-            hand_capture_quality = handCaptureQuality
+            hand_capture_quality = handCaptureQuality,
+            spatial_context = currentSpatialSnapshot ??
+                              RecordingSpatialSnapshot.CreateUnavailable(
+                                  "VRroom-world-v1"
+                              ),
+            editor_simulation = Application.isEditor,
+            pose_source_simulated = currentTakeUsesSimulatedPose
         };
 
-        handCaptureQuality.Finalize(
-            boundaryMonitor == null || boundaryMonitor.GuidanceEnabled
-        );
+        string temporaryMetadataPath = metadataPath + ".tmp";
+        try
+        {
+            File.WriteAllText(
+                temporaryMetadataPath,
+                JsonUtility.ToJson(metadata, true),
+                new UTF8Encoding(false)
+            );
+            File.Move(temporaryMetadataPath, metadataPath);
+        }
+        catch
+        {
+            try
+            {
+                if (File.Exists(temporaryMetadataPath))
+                {
+                    File.Delete(temporaryMetadataPath);
+                }
+            }
+            catch (Exception cleanupException)
+            {
+                Debug.LogWarning(
+                    "[MetaBodyMotionRecorder] Could not remove the " +
+                    "temporary metadata file: " + cleanupException.Message
+                );
+            }
 
-        File.WriteAllText(
-            metadataPath,
-            JsonUtility.ToJson(metadata, true),
-            new UTF8Encoding(false)
-        );
+            throw;
+        }
     }
 
     private void OnApplicationPause(bool paused)
@@ -645,5 +966,41 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             "interrupted_component_destroy",
             "component_destroy"
         );
+    }
+
+    private bool CanSimulateInvalidPoseInEditor
+    {
+        get
+        {
+#if UNITY_EDITOR
+            return allowEditorSimulationWithoutPose;
+#else
+            return false;
+#endif
+        }
+    }
+
+    private void ResolveSpatialMetadataProvider()
+    {
+        if (spatialMetadataProvider != null)
+        {
+            return;
+        }
+
+        spatialMetadataProvider =
+            GetComponent<RecordingSpatialMetadataProvider>() ??
+            FindAnyObjectByType<RecordingSpatialMetadataProvider>(
+                FindObjectsInactive.Include
+            );
+    }
+
+    private void OnValidate()
+    {
+        sampleRate = Mathf.Clamp(sampleRate, 1, 120);
+        minimumCompletedFrameCount = Mathf.Max(
+            1,
+            minimumCompletedFrameCount
+        );
+        minimumValidPoseRatio = Mathf.Clamp01(minimumValidPoseRatio);
     }
 }

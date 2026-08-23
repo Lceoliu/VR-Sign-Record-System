@@ -110,7 +110,7 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
 
         stop = client.post("/api/recording/stop")
         assert stop.status_code == 200
-        assert stop.json()["state"]["current_sentence_index"] == 1
+        assert stop.json()["state"]["current_sentence_index"] == 0
 
         jpeg = b"\xff\xd8fake-jpeg\xff\xd9"
         preview = client.post(
@@ -170,7 +170,9 @@ def test_nested_round_recording_upload_and_completion(tmp_path):
         assert (take_directory / f"{take_id}.camera.webm").is_file()
 
         current = client.get("/api/state").json()
-        assert current["current_sentence_index"] == 1
+        # The stop above cancelled the host countdown, so a late upload does
+        # not make the cancelled command advance the active sentence.
+        assert current["current_sentence_index"] == 0
         assert current["sentences"][0]["completed"] is True
         assert current["sentences"][0]["take_count"] == 1
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 
 from .models import HostState, RecordingStatus, SentenceItem, TakeItem
@@ -9,15 +10,23 @@ from .protocol import command_id, unix_ms
 from .repository import RecordingRepository
 
 
-def load_sentence_catalog() -> list[SentenceItem]:
-    path = Path(__file__).with_name("sentence_catalog.json")
+def load_sentence_catalog(path: Path | None = None) -> list[SentenceItem]:
+    configured_path = path or Path(
+        os.environ.get(
+            "SIGNVR_SENTENCE_CATALOG",
+            Path(__file__).with_name("sentence_catalog.json"),
+        )
+    )
+    path = configured_path.expanduser().resolve()
     payload = json.loads(path.read_text(encoding="utf-8"))
     sentences = [SentenceItem.model_validate(item) for item in payload]
-    if len(sentences) != 300:
-        raise ValueError(f"语料应为 300 句，实际为 {len(sentences)} 句")
+    if not sentences:
+        raise ValueError(f"语料不能为空：{path}")
     for index, sentence in enumerate(sentences):
         if sentence.index != index or sentence.sentence_id != f"sentence_{index + 1:03d}":
             raise ValueError(f"语料编号不连续：{sentence.sentence_id}")
+    if len({sentence.text for sentence in sentences}) != len(sentences):
+        raise ValueError(f"语料包含重复文本：{path}")
     return sentences
 
 
@@ -133,6 +142,7 @@ class RecordingService:
                 RecordingStatus.RECORDING,
             ):
                 raise ValueError("当前没有正在进行的录制")
+            was_countdown = self._state.recording_status is RecordingStatus.COUNTDOWN
             self._state.recording_status = RecordingStatus.STOPPING
             if self._state.current_take:
                 self._state.current_take.status = "candidate"
@@ -142,6 +152,32 @@ class RecordingService:
             self._state.recording_status = RecordingStatus.READY
             self._state.started_at_unix_ms = None
             self._active_start_command_id = None
+
+            if was_countdown:
+                # Quest cancels a countdown without creating an artifact. Keep
+                # both endpoints on the same sentence and release the reserved
+                # empty directory so it does not appear as a candidate Take.
+                take = self._state.current_take
+                if (
+                    take is not None
+                    and self._state.batch_id is not None
+                    and self._state.round_id is not None
+                ):
+                    self._repository.release_reserved_take(
+                        self._state.batch_id,
+                        self._state.round_id,
+                        self._state.sentences[self._state.current_sentence_index].sentence_id,
+                        take.take_id,
+                    )
+                self._state.current_take = None
+                self._retake_sentence_index = None
+                self._state.takes = self._repository.list_takes(
+                    self._state.batch_id,
+                    self._state.round_id,
+                    self._state.sentences[self._state.current_sentence_index].sentence_id,
+                )
+                return self._state.model_copy(deep=True), packet, cmd_id
+
             self._retake_sentence_index = self._state.current_sentence_index
             next_index = min(
                 self._state.current_sentence_index + 1,
@@ -291,6 +327,7 @@ class RecordingService:
             "round_id": self._state.round_id,
             "sentence_id": sentence.sentence_id,
             "sentence_index": sentence.index,
+            "viewpoint_id": sentence.viewpoint_id,
             "prompt": sentence.text,
             "take_id": take.take_id if take else None,
             "take_index": take.take_index if take else None,

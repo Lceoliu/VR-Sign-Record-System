@@ -191,6 +191,34 @@ class RecordingRepository:
                 continue
             return take_id, take_index, destination
 
+    def release_reserved_take(
+        self,
+        batch_id: str,
+        round_id: str,
+        sentence_id: str,
+        take_id: str,
+    ) -> bool:
+        """Release an empty Take directory created for a cancelled countdown.
+
+        A countdown reserves an ID before the Quest receives the command.  It
+        is safe to remove only an empty directory; any partially written Take
+        is left intact for recovery instead of being deleted accidentally.
+        """
+        round_directory = self._round_directory(batch_id, round_id)
+        target = (
+            round_directory
+            / safe_segment(sentence_id)
+            / safe_segment(take_id)
+        )
+        if not target.is_dir():
+            return False
+
+        try:
+            target.rmdir()
+        except OSError:
+            return False
+        return True
+
     def take_directory(self, session_id: str, sentence_id: str, take_id: str) -> Path:
         batch_id, round_id = self.resolve_session(session_id)
         if round_id is None:

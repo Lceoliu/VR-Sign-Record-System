@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -336,6 +337,59 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         pose_file: UploadFile = File(...),
         meta_file: UploadFile = File(...),
     ) -> dict:
+        # New Unity Takes carry an explicit quality contract. Keep accepting
+        # legacy metadata without those fields, but never persist a Take that
+        # explicitly identifies itself as simulated or interrupted.
+        try:
+            metadata_bytes = await meta_file.read()
+            await meta_file.seek(0)
+            metadata = json.loads(metadata_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=400, detail="元数据不是有效 JSON") from exc
+
+        if not isinstance(metadata, dict):
+            raise HTTPException(status_code=400, detail="元数据必须是 JSON 对象")
+
+        if metadata.get("editor_simulation") or metadata.get("pose_source_simulated"):
+            raise HTTPException(status_code=400, detail="编辑器模拟 Take 不能上传")
+
+        capture_status = metadata.get("capture_status")
+        if capture_status is not None and capture_status != "completed":
+            raise HTTPException(status_code=400, detail="未完成或质量不合格的 Take 不能上传")
+
+        quality_fields = {
+            "pose_frame_count",
+            "valid_pose_frame_count",
+            "valid_pose_ratio",
+        }
+        if quality_fields.intersection(metadata):
+            try:
+                frame_count = int(metadata["pose_frame_count"])
+                valid_frame_count = int(metadata["valid_pose_frame_count"])
+                valid_ratio = float(metadata["valid_pose_ratio"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail="姿态质量元数据不完整") from exc
+            if (
+                frame_count <= 0
+                or valid_frame_count <= 0
+                or valid_frame_count > frame_count
+                or not 0.0 < valid_ratio <= 1.0
+            ):
+                raise HTTPException(status_code=400, detail="姿态质量未通过门槛")
+
+        metadata_session_id = metadata.get("session_id")
+        metadata_sentence_id = metadata.get("sentence_id")
+        metadata_take_id = metadata.get("take_id")
+        if (
+            metadata_session_id is not None
+            and metadata_session_id != session_id
+            or metadata_sentence_id is not None
+            and metadata_sentence_id != sentence_id
+            or metadata_take_id is not None
+            and metadata_take_id != take_id
+        ):
+            raise HTTPException(status_code=400, detail="元数据与上传字段不一致")
+
         try:
             directory = repository.take_directory(session_id, sentence_id, take_id)
             safe_take_id = safe_segment(take_id)

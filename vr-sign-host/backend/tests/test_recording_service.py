@@ -73,3 +73,30 @@ def test_long_press_after_stop_returns_to_just_recorded_sentence(tmp_path):
         assert second_take_index == 2
 
     anyio.run(scenario)
+
+
+def test_stop_during_countdown_keeps_sentence_and_releases_take(tmp_path):
+    async def scenario() -> None:
+        repository = RecordingRepository(tmp_path)
+        service = RecordingService(repository)
+        await service.create_round("batch-a", "round_001")
+        take_id, take_index, _ = repository.reserve_take(
+            "batch-a", "round_001", "sentence_001"
+        )
+        started, _, _, _ = await service.start(
+            "batch-a", "round_001", take_id, take_index
+        )
+        assert started.current_sentence_index == 0
+        assert started.current_take is not None
+
+        stopped, packet, _ = await service.stop()
+
+        assert packet["action"] == "stop_take"
+        assert stopped.recording_status is RecordingStatus.READY
+        assert stopped.current_sentence_index == 0
+        assert stopped.current_take is None
+        assert repository.list_takes(
+            "batch-a", "round_001", "sentence_001"
+        ) == []
+
+    anyio.run(scenario)

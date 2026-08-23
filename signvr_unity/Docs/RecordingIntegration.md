@@ -23,9 +23,23 @@ integrated into the main project under `Assets/Scripts/Recording`.
   upload adds `{stem}.uploaded`.
 - The existing `motion_viewer.py` remains compatible with the UDP v1
   skeleton/frame/status stream.
-- `VRroom` has no operator canvas; its production start/stop/reset path is the
-  paired host gateway (the coordinator methods remain public for a future
-  in-headset control surface).
+- `VRroom` has a non-interactive prompt bubble in the HMD. A short press of the
+  Quest right-controller `A` button starts/stops a Take and a 1.2-second hold
+  resets it; Editor simulation uses `Space`. The paired host gateway remains
+  available for workstation and pedal control.
+- Six editable prompts are paired with six authored world-space viewpoints.
+  A normally completed Take advances both; interrupted Takes do not.
+- `scripts/start-local.ps1` selects
+  `backend/app/pointing_sentence_catalog.json`, which contains the same six
+  prompts and their explicit `state_01` through `state_06` viewpoint IDs. The
+  original 300-sentence catalog remains available for the other dataset.
+- New Quest Takes are queued and accepted only when metadata says
+  `capture_status=completed`, the pose quality fields are present and valid,
+  and neither `editor_simulation` nor `pose_source_simulated` is set. The host
+  still accepts legacy metadata that predates the quality fields for migration;
+  the Quest uploader intentionally leaves those legacy files local until they
+  are re-recorded with the quality contract. Simulated Editor artifacts always
+  stay local.
 - Local-network HTTP is enabled in Player Settings because the workstation
   service uses `http://<host>:8000` on the trusted recording LAN.
 

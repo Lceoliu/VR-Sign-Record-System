@@ -14,9 +14,9 @@ public static class SignVRRecordingUxSetup
 {
     private const string RecordingScenePath = "Assets/Scenes/Recording.unity";
     private const string SourceFontPath =
-        "Assets/Fonts/NotoSansSC-VariableFont_wght.ttf";
+        "Assets/Resources/Fonts/NotoSansSC-VariableFont_wght.ttf";
     private const string FontAssetPath =
-        "Assets/Fonts/SignVRChinese SDF.asset";
+        "Assets/Resources/Fonts/SignVRChinese SDF.asset";
     private const string PokeButtonPrefabPath =
         "Packages/com.meta.xr.sdk.interaction/Runtime/Sample/Prefabs/OculusInteractionSamplePokeButton.prefab";
     private const string ConsoleMaterialPath =

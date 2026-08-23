@@ -22,6 +22,7 @@ export interface SentenceItem {
   index: number
   category: string
   text: string
+  viewpoint_id?: string | null
   status: 'completed' | 'current' | 'pending'
   completed: boolean
   take_count: number
