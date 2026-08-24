@@ -47,6 +47,8 @@ class UdpService:
         self._realtime_worker: asyncio.Task[None] | None = None
         self._discovery_worker: asyncio.Task[None] | None = None
         self._control_tasks: set[asyncio.Task[None]] = set()
+        self._pair_refreshing_devices: set[str] = set()
+        self._pair_refreshed_devices: set[str] = set()
         self.on_signal: Callable[[dict[str, Any]], Awaitable[None]] | None = None
 
     async def start(self) -> None:
@@ -178,20 +180,16 @@ class UdpService:
         if packet_type == "announce":
             device = await self.registry.upsert_announcement(packet, addr[0])
             await self.hub.publish_event({"type": "device_updated", "payload": device.model_dump()})
-            if device.selected and not device.paired:
-                token = await self.registry.session_token(device.device_id)
-                if token:
-                    self._send(
-                        pair_packet(
-                            cmd_id=command_id(),
-                            host_ip=self.host_ip_for(device.ip),
-                            http_port=self.settings.http_port,
-                            pose_port=self.settings.udp_port,
-                            station_id=device.paired_station_id or self.settings.station_id,
-                            session_token=token,
-                        ),
-                        (device.ip, device.control_port),
-                    )
+            if (
+                device.selected
+                and device.device_id not in self._pair_refreshing_devices
+                and device.device_id not in self._pair_refreshed_devices
+            ):
+                # Refresh once for every Host process, even when Quest reports
+                # itself as paired. A migrated Host can keep the same station ID
+                # while having a different IP address.
+                self._pair_refreshing_devices.add(device.device_id)
+                self._spawn_control_task(self._refresh_pairing(device.device_id))
             return
         if packet_type == "ack":
             device_id = str(packet.get("device_id") or "")
@@ -219,6 +217,30 @@ class UdpService:
         task = asyncio.create_task(operation)
         self._control_tasks.add(task)
         task.add_done_callback(self._control_task_finished)
+
+    async def _refresh_pairing(self, device_id: str) -> None:
+        try:
+            device = await self.registry.get(device_id)
+            token = await self.registry.session_token(device_id)
+            if device is None or not token:
+                return
+            packet = pair_packet(
+                cmd_id=command_id(),
+                host_ip=self.host_ip_for(device.ip),
+                http_port=self.settings.http_port,
+                pose_port=self.settings.udp_port,
+                station_id=device.paired_station_id or self.settings.station_id,
+                session_token=token,
+            )
+            ack = await self.send_to_device_and_wait(device_id, packet)
+            if bool(ack.get("accepted")):
+                await self.registry.mark_pairing_result(device_id, True)
+                self._pair_refreshed_devices.add(device_id)
+        except (KeyError, OSError, TimeoutError):
+            # The next Quest announcement retries the refresh.
+            return
+        finally:
+            self._pair_refreshing_devices.discard(device_id)
 
     def _control_task_finished(self, task: asyncio.Task[None]) -> None:
         self._control_tasks.discard(task)

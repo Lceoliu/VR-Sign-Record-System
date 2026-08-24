@@ -191,7 +191,7 @@ def test_commands_use_stable_legacy_fields_for_old_quest_builds(tmp_path):
     anyio.run(scenario)
 
 
-def test_paired_announcement_does_not_restart_quest_configuration(tmp_path):
+def test_first_paired_announcement_refreshes_host_endpoint_once(tmp_path):
     async def scenario() -> None:
         registry = DeviceRegistry("station-test")
         service = UdpService(
@@ -217,7 +217,39 @@ def test_paired_announcement_does_not_restart_quest_configuration(tmp_path):
         await asyncio.sleep(0)
 
         assert (await registry.selected()).device_id == "quest-test"
-        assert transport.sent == []
+        assert len(transport.sent) == 1
+        refresh = decode_packet(transport.sent[0][0])
+        assert refresh["type"] == "pair"
+        assert refresh["host_ip"] == service.host_ip_for("192.168.1.42")
+
+        await service.handle_packet(
+            encode_packet(
+                {
+                    "type": "ack",
+                    "command_id": refresh["command_id"],
+                    "device_id": "quest-test",
+                    "accepted": True,
+                    "state": "ready",
+                }
+            ),
+            ("192.168.1.42", 5006),
+        )
+        await asyncio.sleep(0)
+
+        await service.handle_packet(
+            encode_packet(
+                {
+                    "type": "announce",
+                    "device_id": "quest-test",
+                    "control_port": 5006,
+                    "paired": True,
+                    "paired_station_id": "station-test",
+                }
+            ),
+            ("192.168.1.42", 5006),
+        )
+        await asyncio.sleep(0)
+        assert len(transport.sent) == 1
 
     anyio.run(scenario)
 
