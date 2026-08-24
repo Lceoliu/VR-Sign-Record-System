@@ -467,7 +467,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-console-release="pointing-2026-08-24.1">
       <header className="topbar">
         <div className="brand"><Headset size={25} /><h1>SignVR 指代数据录制台</h1></div>
         <div className="topbar-meta">
