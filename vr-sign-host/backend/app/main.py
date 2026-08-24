@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -24,6 +25,12 @@ from .realtime import RealtimeHub
 from .recording_service import RecordingService
 from .repository import RecordingRepository, safe_segment
 from .udp_service import UdpService
+
+
+# Windows can inherit a text/plain .js mapping from the registry. Browsers
+# reject Vite's ES modules unless they are served with a JavaScript MIME type.
+mimetypes.add_type("application/javascript", ".js", strict=True)
+mimetypes.add_type("application/javascript", ".mjs", strict=True)
 
 
 def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> FastAPI:

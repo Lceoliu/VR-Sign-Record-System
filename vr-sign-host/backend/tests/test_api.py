@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 
 from fastapi.testclient import TestClient
 
@@ -86,6 +87,20 @@ def test_health_and_fixed_sentence_catalog(tmp_path):
     ]
     assert state["sentences"][25]["sequence_numbers"] == [1, 2, 3]
     assert state["sentences"][30]["sequence_numbers"] == [3, 2, 1]
+
+
+def test_frontend_es_module_uses_javascript_mime_type(tmp_path):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/")
+        script_path = re.search(r'src="([^"]+\.js)"', page.text)
+
+        assert page.status_code == 200
+        assert script_path is not None
+        script = client.get(script_path.group(1))
+
+    assert script.status_code == 200
+    assert script.headers["content-type"].startswith("application/javascript")
 
 
 def test_recording_commands_require_selected_device(tmp_path):
