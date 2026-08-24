@@ -20,7 +20,13 @@ if (Test-Path -LiteralPath $configPath) {
     $httpPort = [int]$config.http_port
     $udpPort = [int]$config.udp_port
     if ($config.data_root) {
-        $dataRoot = [string]$config.data_root
+        $dataRootValue = [string]$config.data_root
+        $dataRootPath = if ([IO.Path]::IsPathRooted($dataRootValue)) {
+            $dataRootValue
+        } else {
+            Join-Path $hostRoot $dataRootValue
+        }
+        $dataRoot = [IO.Path]::GetFullPath($dataRootPath)
     }
 }
 

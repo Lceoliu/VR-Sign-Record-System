@@ -17,7 +17,15 @@ $python = if (Test-Path -LiteralPath $portablePython) { $portablePython } else {
 if (Test-Path -LiteralPath $configPath) {
     $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
     $env:SIGNVR_STATION_ID = [string]$config.station_id
-    $env:SIGNVR_DATA_ROOT = [string]$config.data_root
+    if ($config.data_root) {
+        $dataRootValue = [string]$config.data_root
+        $dataRootPath = if ([IO.Path]::IsPathRooted($dataRootValue)) {
+            $dataRootValue
+        } else {
+            Join-Path $hostRoot $dataRootValue
+        }
+        $env:SIGNVR_DATA_ROOT = [IO.Path]::GetFullPath($dataRootPath)
+    }
     $env:SIGNVR_HTTP_HOST = [string]$config.http_host
     $env:SIGNVR_HTTP_PORT = [string]$config.http_port
     $env:SIGNVR_UDP_HOST = [string]$config.udp_host

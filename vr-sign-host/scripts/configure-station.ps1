@@ -24,14 +24,18 @@ $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 $hostRoot = Split-Path -Parent $PSScriptRoot
 $configRoot = Join-Path $hostRoot 'config'
 $configPath = Join-Path $configRoot 'station.json'
-$resolvedDataRoot = [IO.Path]::GetFullPath($DataRoot)
+$dataRootIsAbsolute = [IO.Path]::IsPathRooted($DataRoot)
+$resolvedDataRoot = [IO.Path]::GetFullPath(
+    $(if ($dataRootIsAbsolute) { $DataRoot } else { Join-Path $hostRoot $DataRoot })
+)
+$configuredDataRoot = if ($dataRootIsAbsolute) { $resolvedDataRoot } else { $DataRoot }
 
 New-Item -ItemType Directory -Force -Path $configRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $resolvedDataRoot | Out-Null
 
 $config = [ordered]@{
     station_id = $StationId
-    data_root = $resolvedDataRoot
+    data_root = $configuredDataRoot
     http_host = '0.0.0.0'
     http_port = $HttpPort
     udp_host = '0.0.0.0'

@@ -19,9 +19,15 @@ class Settings:
 
     @classmethod
     def from_environment(cls) -> "Settings":
-        default_root = Path(__file__).resolve().parents[2] / "data"
+        host_root = Path(__file__).resolve().parents[2]
+        configured_root = Path(os.environ.get("SIGNVR_DATA_ROOT", "data"))
+        data_root = (
+            configured_root
+            if configured_root.is_absolute()
+            else host_root / configured_root
+        ).resolve()
         return cls(
-            data_root=Path(os.environ.get("SIGNVR_DATA_ROOT", default_root)),
+            data_root=data_root,
             station_id=os.environ.get("SIGNVR_STATION_ID", "development").strip(),
             http_host=os.environ.get("SIGNVR_HTTP_HOST", "0.0.0.0"),
             http_port=int(os.environ.get("SIGNVR_HTTP_PORT", "8011")),

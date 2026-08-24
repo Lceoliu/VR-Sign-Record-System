@@ -18,28 +18,27 @@ cd ..
 首次安装：
 
 ```powershell
-cd D:\SignVR\vr-sign-host\backend
+cd .\backend
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
 
-cd D:\SignVR\vr-sign-host\frontend
+cd ..\frontend
 pnpm install
 pnpm build
+cd ..
 ```
 
 首次作为录制工作站使用时，先设置工作站身份和独立数据目录：
 
 ```powershell
-cd D:\SignVR\vr-sign-host
-.\scripts\configure-station.ps1 -StationId Station-01 -DataRoot D:\SignVRData\Station-01
+.\scripts\configure-station.ps1 -StationId Station-01 -DataRoot data\Station-01
 ```
 
-第二台主机使用不同的身份和目录，例如 `Station-02` 与 `D:\SignVRData\Station-02`。不要复制 `config\station.json` 到另一台主机。
+第二台主机使用不同的身份和目录，例如 `Station-02` 与 `data\Station-02`。相对数据目录始终以 Host 包根目录为基准，不依赖盘符。不要复制 `config\station.json` 到另一台主机。
 
 之后运行：
 
 ```powershell
-cd D:\SignVR\vr-sign-host
 .\scripts\start-local.ps1
 ```
 
@@ -48,7 +47,6 @@ cd D:\SignVR\vr-sign-host
 首次使用真机前，请在“以管理员身份运行”的 PowerShell 中配置只允许本地子网访问的端口规则：
 
 ```powershell
-cd D:\SignVR\vr-sign-host
 .\scripts\setup-firewall.ps1
 ```
 
