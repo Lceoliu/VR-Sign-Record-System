@@ -10,7 +10,7 @@ $configPath = Join-Path $hostRoot 'config\station.json'
 $runtimePython = Join-Path $hostRoot 'runtime\python\python.exe'
 $startScript = Join-Path $PSScriptRoot 'start-local.ps1'
 $firewallScript = Join-Path $PSScriptRoot 'setup-firewall.ps1'
-$httpPort = 8000
+$httpPort = 8011
 $udpPort = 5005
 $dataRoot = Join-Path $hostRoot 'data'
 

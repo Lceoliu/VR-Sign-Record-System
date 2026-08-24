@@ -7,7 +7,7 @@ param(
     [string]$DataRoot,
 
     [ValidateRange(1, 65535)]
-    [int]$HttpPort = 8000,
+    [int]$HttpPort = 8011,
 
     [ValidateRange(1, 65535)]
     [int]$UdpPort = 5005,

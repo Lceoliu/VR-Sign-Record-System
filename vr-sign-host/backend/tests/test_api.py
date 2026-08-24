@@ -12,7 +12,7 @@ def build_app(tmp_path, *, start_udp: bool = False):
     settings = Settings(
         data_root=tmp_path,
         station_id="station-test",
-        http_port=8000,
+        http_port=8011,
         udp_port=5005,
         quest_control_port=5006,
     )

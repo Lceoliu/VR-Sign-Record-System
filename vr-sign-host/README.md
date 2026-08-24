@@ -43,7 +43,7 @@ cd D:\SignVR\vr-sign-host
 .\scripts\start-local.ps1
 ```
 
-浏览器打开 `http://127.0.0.1:8000`。服务以前台方式运行，按 `Ctrl+C` 停止。
+浏览器打开 `http://127.0.0.1:8011`。服务以前台方式运行，按 `Ctrl+C` 停止。
 
 首次使用真机前，请在“以管理员身份运行”的 PowerShell 中配置只允许本地子网访问的端口规则：
 
@@ -64,11 +64,11 @@ cd D:\SignVR\vr-sign-host
 
 | 端口 | 协议 | 用途 |
 |---|---|---|
-| 8000 | TCP/HTTP/WebSocket | React、控制 API、Pose/Meta/视频上传、Quest JPEG 预览 |
+| 8011 | TCP/HTTP/WebSocket | React、控制 API、Pose/Meta/视频上传、Quest JPEG 预览 |
 | 5005 | UDP | Quest 设备公告、命令 ACK、现有实时 Pose 数据 |
 | 5006 | UDP | Quest 控制端口，接收发现、配对和录制命令 |
 
-Quest 和主机必须位于同一可信局域网。Windows 主机需要允许 Python 的 TCP 8000 和 UDP 5005 入站；UDP 5006 位于 Quest 端，仅在 Unity Editor 本机模拟时需要 Windows 入站规则。Unity 项目允许明文 HTTP，仅用于这个受信任的本地录制网络。
+Quest 和主机必须位于同一可信局域网。Windows 主机需要允许 Python 的 TCP 8011 和 UDP 5005 入站；UDP 5006 位于 Quest 端，仅在 Unity Editor 本机模拟时需要 Windows 入站规则。Unity 项目允许明文 HTTP，仅用于这个受信任的本地录制网络。
 
 ## 数据目录
 

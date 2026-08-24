@@ -132,7 +132,7 @@ def test_command_wait_resolves_matching_ack(tmp_path):
         packet = pair_packet(
             cmd_id="pair-command",
             host_ip="192.168.1.10",
-            http_port=8000,
+            http_port=8011,
             pose_port=5005,
             station_id="station-test",
             session_token="token",

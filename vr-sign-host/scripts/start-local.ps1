@@ -48,7 +48,7 @@ if (-not (Test-Path -LiteralPath $env:SIGNVR_SENTENCE_CATALOG)) {
 }
 
 $httpHost = if ($env:SIGNVR_HTTP_HOST) { $env:SIGNVR_HTTP_HOST } else { '0.0.0.0' }
-$httpPort = if ($env:SIGNVR_HTTP_PORT) { [int]$env:SIGNVR_HTTP_PORT } else { 8000 }
+$httpPort = if ($env:SIGNVR_HTTP_PORT) { [int]$env:SIGNVR_HTTP_PORT } else { 8011 }
 
 try {
     $activeProfiles = Get-NetConnectionProfile |

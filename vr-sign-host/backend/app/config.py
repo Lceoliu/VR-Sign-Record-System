@@ -10,7 +10,7 @@ class Settings:
     data_root: Path
     station_id: str = "development"
     http_host: str = "0.0.0.0"
-    http_port: int = 8000
+    http_port: int = 8011
     udp_host: str = "0.0.0.0"
     udp_port: int = 5005
     quest_control_port: int = 5006
@@ -24,7 +24,7 @@ class Settings:
             data_root=Path(os.environ.get("SIGNVR_DATA_ROOT", default_root)),
             station_id=os.environ.get("SIGNVR_STATION_ID", "development").strip(),
             http_host=os.environ.get("SIGNVR_HTTP_HOST", "0.0.0.0"),
-            http_port=int(os.environ.get("SIGNVR_HTTP_PORT", "8000")),
+            http_port=int(os.environ.get("SIGNVR_HTTP_PORT", "8011")),
             udp_host=os.environ.get("SIGNVR_UDP_HOST", "0.0.0.0"),
             udp_port=int(os.environ.get("SIGNVR_UDP_PORT", "5005")),
             quest_control_port=int(os.environ.get("SIGNVR_QUEST_CONTROL_PORT", "5006")),
