@@ -58,21 +58,6 @@ if (-not (Test-Path -LiteralPath $env:SIGNVR_SENTENCE_CATALOG)) {
 $httpHost = if ($env:SIGNVR_HTTP_HOST) { $env:SIGNVR_HTTP_HOST } else { '0.0.0.0' }
 $httpPort = if ($env:SIGNVR_HTTP_PORT) { [int]$env:SIGNVR_HTTP_PORT } else { 8011 }
 
-try {
-    $activeProfiles = Get-NetConnectionProfile |
-        Where-Object { $_.IPv4Connectivity -ne 'Disconnected' } |
-        Select-Object -ExpandProperty NetworkCategory -Unique
-    if ($activeProfiles -contains 'Public') {
-        Write-Warning (
-            "The active network is Public. Quest HTTP uploads require the " +
-            "local-subnet firewall rule for TCP $httpPort. Run " +
-            "scripts/setup-firewall.ps1 as Administrator."
-        )
-    }
-} catch {
-    Write-Warning "Could not inspect the active Windows network profile: $($_.Exception.Message)"
-}
-
 if (-not (Test-Path -LiteralPath $python)) {
     throw 'Backend virtual environment is missing. Follow README.md first-install steps.'
 }
@@ -101,6 +86,7 @@ if (-not $NoBrowser) {
 }
 
 try {
+    Write-Host "Starting SignVR backend on port $httpPort..."
     & $python -m uvicorn app.main:app --host $httpHost --port $httpPort --no-access-log
 } finally {
     if ($browserJob) {

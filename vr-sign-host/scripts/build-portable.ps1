@@ -123,6 +123,52 @@ if ($LASTEXITCODE -ne 0) {
     throw "Portable runtime validation failed with exit code $LASTEXITCODE."
 }
 
+# Import validation recreates bytecode caches; they are not needed at runtime
+# and make Windows paths unnecessarily deep when the package is cached locally.
+Get-ChildItem -LiteralPath $packageRoot -Directory -Recurse -Force |
+    Where-Object { $_.Name -eq '__pycache__' } |
+    Remove-Item -Recurse -Force
+
+# The launcher uses this content hash as the local cache directory name. A new
+# package therefore gets a fresh cache without relying on its NAS drive letter.
+$payloadRoots = @(
+    (Join-Path $packageRoot 'backend\app'),
+    (Join-Path $packageRoot 'frontend\dist'),
+    (Join-Path $packageRoot 'runtime\python')
+)
+$payloadFiles = foreach ($payloadRoot in $payloadRoots) {
+    Get-ChildItem -LiteralPath $payloadRoot -Recurse -File
+}
+$payloadFiles += Get-Item -LiteralPath (
+    Join-Path $packageRoot 'scripts\start-local.ps1'
+)
+$fingerprintLines = foreach ($payloadFile in (
+    $payloadFiles | Sort-Object -Property FullName
+)) {
+    $relativePath = $payloadFile.FullName.Substring(
+        $packageRoot.Length + 1
+    ).Replace('\', '/')
+    $fileHash = Get-FileHash -LiteralPath $payloadFile.FullName `
+        -Algorithm SHA256
+    "$relativePath`t$($fileHash.Hash.ToLowerInvariant())"
+}
+$fingerprintBytes = [Text.Encoding]::UTF8.GetBytes(
+    $fingerprintLines -join "`n"
+)
+$fingerprintAlgorithm = [Security.Cryptography.SHA256]::Create()
+try {
+    $fingerprint = [BitConverter]::ToString(
+        $fingerprintAlgorithm.ComputeHash($fingerprintBytes)
+    ).Replace('-', '').ToLowerInvariant()
+} finally {
+    $fingerprintAlgorithm.Dispose()
+}
+[IO.File]::WriteAllText(
+    (Join-Path $packageRoot 'portable-runtime.version'),
+    "$fingerprint`r`n",
+    [Text.UTF8Encoding]::new($false)
+)
+
 Compress-Archive -LiteralPath $packageRoot -DestinationPath $zipPath `
     -CompressionLevel Optimal
 $hash = Get-FileHash -LiteralPath $zipPath -Algorithm SHA256
