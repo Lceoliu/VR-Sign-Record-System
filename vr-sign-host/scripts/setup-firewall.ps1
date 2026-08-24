@@ -1,10 +1,35 @@
 param(
     [switch]$EnableUnityEditorSimulation,
-    [string]$UnityEditorPath
+    [string]$UnityEditorPath,
+
+    [ValidateRange(0, 65535)]
+    [int]$RequestedHttpPort = 0,
+
+    [ValidateRange(0, 65535)]
+    [int]$RequestedUdpPort = 0,
+
+    [string]$ErrorLogPath
 )
 
 $ErrorActionPreference = 'Stop'
 $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+
+trap {
+    $message = $_ | Out-String
+    if ($ErrorLogPath) {
+        try {
+            [IO.File]::WriteAllText(
+                $ErrorLogPath,
+                $message,
+                [Text.UTF8Encoding]::new($false)
+            )
+        } catch {
+            # Preserve the original firewall error if logging also fails.
+        }
+    }
+    [Console]::Error.WriteLine($message)
+    exit 1
+}
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -14,13 +39,17 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $hostRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $hostRoot 'config\station.json'
-$httpPort = 8011
-$udpPort = 5005
+$httpPort = if ($RequestedHttpPort -gt 0) { $RequestedHttpPort } else { 8011 }
+$udpPort = if ($RequestedUdpPort -gt 0) { $RequestedUdpPort } else { 5005 }
 
 if (Test-Path -LiteralPath $configPath) {
     $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $httpPort = [int]$config.http_port
-    $udpPort = [int]$config.udp_port
+    if ($RequestedHttpPort -eq 0) {
+        $httpPort = [int]$config.http_port
+    }
+    if ($RequestedUdpPort -eq 0) {
+        $udpPort = [int]$config.udp_port
+    }
 }
 function Add-SignVrFirewallRule {
     param(

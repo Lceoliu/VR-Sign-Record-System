@@ -91,20 +91,47 @@ $firewallReady =
 
 if (-not $firewallReady) {
     Write-Host 'Windows will ask for administrator permission once to allow Quest access.'
-    $arguments = @(
-        '-NoLogo',
-        '-NoProfile',
-        '-ExecutionPolicy', 'Bypass',
-        '-File', ('"' + $firewallScript + '"')
+    $firewallBootstrapRoot = Join-Path $env:LOCALAPPDATA 'SignVR\Firewall'
+    $localFirewallScript = Join-Path $firewallBootstrapRoot 'setup-firewall.ps1'
+    $firewallErrorLog = Join-Path $firewallBootstrapRoot 'setup-firewall-error.log'
+    New-Item -ItemType Directory -Force -Path $firewallBootstrapRoot |
+        Out-Null
+    Copy-Item -LiteralPath $firewallScript -Destination $localFirewallScript `
+        -Force
+    if (Test-Path -LiteralPath $firewallErrorLog) {
+        Remove-Item -LiteralPath $firewallErrorLog -Force
+    }
+
+    $escapedScript = $localFirewallScript.Replace("'", "''")
+    $escapedLog = $firewallErrorLog.Replace("'", "''")
+    $elevatedCommand = (
+        "& '$escapedScript' " +
+        "-RequestedHttpPort $httpPort " +
+        "-RequestedUdpPort $udpPort " +
+        "-ErrorLogPath '$escapedLog'"
     )
+    $encodedCommand = [Convert]::ToBase64String(
+        [Text.Encoding]::Unicode.GetBytes($elevatedCommand)
+    )
+    $arguments = (
+        '-NoLogo -NoProfile -ExecutionPolicy Bypass ' +
+        "-EncodedCommand $encodedCommand"
+    )
+    $elevatedPowerShell = Join-Path $PSHOME 'powershell.exe'
     try {
-        $elevated = Start-Process powershell.exe -Verb RunAs -Wait -PassThru `
+        $elevated = Start-Process $elevatedPowerShell `
+            -Verb RunAs -Wait -PassThru `
             -ArgumentList $arguments
     } catch {
         throw 'Firewall setup was cancelled. Quest cannot connect until it is allowed.'
     }
     if ($elevated.ExitCode -ne 0) {
-        throw "Firewall setup failed with exit code $($elevated.ExitCode)."
+        $detail = if (Test-Path -LiteralPath $firewallErrorLog) {
+            (Get-Content -LiteralPath $firewallErrorLog -Raw -Encoding UTF8).Trim()
+        } else {
+            "Elevated PowerShell exit code: $($elevated.ExitCode)"
+        }
+        throw "Firewall setup failed. $detail"
     }
 }
 
