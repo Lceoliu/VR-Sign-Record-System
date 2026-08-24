@@ -63,10 +63,10 @@ cd ..
 | 端口 | 协议 | 用途 |
 |---|---|---|
 | 8011 | TCP/HTTP/WebSocket | React、控制 API、Pose/Meta/视频上传、Quest JPEG 预览 |
-| 5005 | UDP | Quest 设备公告、命令 ACK、现有实时 Pose 数据 |
+| 5011 | UDP | Quest 设备公告、命令 ACK、现有实时 Pose 数据 |
 | 5006 | UDP | Quest 控制端口，接收发现、配对和录制命令 |
 
-Quest 和主机必须位于同一可信局域网。Windows 主机需要允许 Python 的 TCP 8011 和 UDP 5005 入站；UDP 5006 位于 Quest 端，仅在 Unity Editor 本机模拟时需要 Windows 入站规则。Unity 项目允许明文 HTTP，仅用于这个受信任的本地录制网络。
+Quest 和主机必须位于同一可信局域网。Windows 主机需要允许 Python 的 TCP 8011 和 UDP 5011 入站；UDP 5006 位于 Quest 端，仅在 Unity Editor 本机模拟时需要 Windows 入站规则。Unity 项目允许明文 HTTP，仅用于这个受信任的本地录制网络。
 
 ## 数据目录
 

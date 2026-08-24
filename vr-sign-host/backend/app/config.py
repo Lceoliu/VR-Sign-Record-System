@@ -12,7 +12,7 @@ class Settings:
     http_host: str = "0.0.0.0"
     http_port: int = 8011
     udp_host: str = "0.0.0.0"
-    udp_port: int = 5005
+    udp_port: int = 5011
     quest_control_port: int = 5006
     frontend_origin: str = "http://localhost:5174"
     discovery_broadcast: str = "255.255.255.255"
@@ -32,7 +32,7 @@ class Settings:
             http_host=os.environ.get("SIGNVR_HTTP_HOST", "0.0.0.0"),
             http_port=int(os.environ.get("SIGNVR_HTTP_PORT", "8011")),
             udp_host=os.environ.get("SIGNVR_UDP_HOST", "0.0.0.0"),
-            udp_port=int(os.environ.get("SIGNVR_UDP_PORT", "5005")),
+            udp_port=int(os.environ.get("SIGNVR_UDP_PORT", "5011")),
             quest_control_port=int(os.environ.get("SIGNVR_QUEST_CONTROL_PORT", "5006")),
             frontend_origin=os.environ.get("SIGNVR_FRONTEND_ORIGIN", "http://localhost:5174"),
             discovery_broadcast=os.environ.get("SIGNVR_DISCOVERY_BROADCAST", "255.255.255.255"),

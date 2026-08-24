@@ -40,7 +40,7 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 $hostRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $hostRoot 'config\station.json'
 $httpPort = if ($RequestedHttpPort -gt 0) { $RequestedHttpPort } else { 8011 }
-$udpPort = if ($RequestedUdpPort -gt 0) { $RequestedUdpPort } else { 5005 }
+$udpPort = if ($RequestedUdpPort -gt 0) { $RequestedUdpPort } else { 5011 }
 
 if (Test-Path -LiteralPath $configPath) {
     $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -77,12 +77,6 @@ Add-SignVrFirewallRule `
     -DisplayName "SignVR Host HTTP $httpPort" `
     -Protocol TCP `
     -LocalPort $httpPort
-
-if ($httpPort -ne 8000) {
-    Get-NetFirewallRule -DisplayName 'SignVR Host HTTP 8000' `
-        -ErrorAction SilentlyContinue |
-        Remove-NetFirewallRule
-}
 
 Add-SignVrFirewallRule `
     -DisplayName "SignVR Host UDP $udpPort" `

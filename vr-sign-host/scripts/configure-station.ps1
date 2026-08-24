@@ -10,7 +10,7 @@ param(
     [int]$HttpPort = 8011,
 
     [ValidateRange(1, 65535)]
-    [int]$UdpPort = 5005,
+    [int]$UdpPort = 5011,
 
     [ValidateRange(1, 65535)]
     [int]$QuestControlPort = 5006,

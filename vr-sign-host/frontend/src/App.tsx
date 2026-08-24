@@ -469,7 +469,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand"><Headset size={25} /><h1>VR 手语录制台</h1></div>
+        <div className="brand"><Headset size={25} /><h1>SignVR 指代数据录制台</h1></div>
         <div className="topbar-meta">
           <span className="online"><i />本地服务在线</span>
           <span>工作站 {state.station_id}</span>

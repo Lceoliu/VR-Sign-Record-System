@@ -14,7 +14,7 @@ $stationId = 'development'
 $httpHost = '0.0.0.0'
 $httpPort = 8011
 $udpHost = '0.0.0.0'
-$udpPort = 5005
+$udpPort = 5011
 $questControlPort = 5006
 $discoveryBroadcast = '255.255.255.255'
 $sentenceCatalog = $null
@@ -105,6 +105,22 @@ if ($portOwner) {
         "TCP port $httpPort is already used by process " +
         "$($portOwner.OwningProcess). Close that program and run this file again."
     )
+}
+
+if ($httpPort -ne 8000) {
+    try {
+        $legacyHealth = Invoke-RestMethod `
+            -Uri 'http://127.0.0.1:8000/api/health' -TimeoutSec 2
+        if ($legacyHealth.status -eq 'ok') {
+            Write-Warning (
+                'A legacy SignVR Host is still running at ' +
+                'http://127.0.0.1:8000/. This pointing-data package uses ' +
+                "$webUrl; do not use the old browser tab."
+            )
+        }
+    } catch {
+        # The legacy Host is optional and can continue running independently.
+    }
 }
 
 function Test-SignVrFirewallRule {
@@ -269,6 +285,7 @@ Write-Host ''
 Write-Host 'SignVR Recording Host'
 Write-Host "  Console: $webUrl"
 Write-Host "  Data:    $dataRoot"
+Write-Host "  Pose UDP: $udpPort"
 if ($addresses) {
     Write-Host "  LAN IP:  $($addresses -join ', ')"
 }
