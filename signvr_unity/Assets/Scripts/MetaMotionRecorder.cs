@@ -75,7 +75,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
     [Tooltip("Editor only: allow recording workflow tests before a valid Meta body pose is available.")]
     private bool allowEditorSimulationWithoutPose = true;
 
-    private StreamWriter writer;
+    private AsyncPoseFileWriter writer;
     private bool isRecording;
     private bool hasRecorded;
 
@@ -604,18 +604,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
                 take.FileStem + ".meta.json"
             );
 
-            writer = new StreamWriter(
-                new FileStream(
-                    outputPath,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.Read,
-                    65536
-                ),
-                new UTF8Encoding(false),
-                65536,
-                false
-            );
+            writer = new AsyncPoseFileWriter(outputPath, 65536);
         }
         catch (Exception exception) when (
             exception is IOException ||
@@ -625,7 +614,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         {
             try
             {
-                writer?.Dispose();
+                writer?.CloseAndWait();
             }
             catch (Exception disposeException)
             {
@@ -740,9 +729,13 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
                 handCaptureQuality.Accumulate(frame.hand_capture);
             }
 
-            writer.WriteLine(
-                JsonUtility.ToJson(frame, false)
-            );
+            string jsonLine = JsonUtility.ToJson(frame, false);
+            if (!writer.TryWriteLine(jsonLine))
+            {
+                throw new IOException(
+                    "The asynchronous pose writer cannot accept more frames."
+                );
+            }
 
             if (validPoseFrame)
             {
@@ -750,10 +743,6 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             }
             sampleIndex++;
 
-            if (sampleIndex % sampleRate == 0)
-            {
-                writer.Flush();
-            }
         }
         finally
         {
@@ -797,7 +786,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
 
         try
         {
-            writer?.Flush();
+            writer?.CloseAndWait();
         }
         catch (Exception exception)
         {
@@ -811,20 +800,6 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         }
         finally
         {
-            try
-            {
-                writer?.Dispose();
-            }
-            catch (Exception exception)
-            {
-                finalCaptureStatus = "io_error";
-                finalResetReason = "pose_stream_close_failed";
-                LastError = "录制文件写入失败，请检查存储空间";
-                Debug.LogError(
-                    "[MetaBodyMotionRecorder] Cannot close the pose stream: " +
-                    exception
-                );
-            }
             writer = null;
         }
 

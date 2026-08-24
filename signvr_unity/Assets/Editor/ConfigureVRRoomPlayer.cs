@@ -537,6 +537,14 @@ internal static class ConfigureVRRoomPlayer
             OVRPlugin.BodyTrackingFidelity2.High;
         EditorUtility.SetDirty(runtimeSettings);
 
+        OVRProjectConfig projectConfig = OVRProjectConfig.CachedProjectConfig;
+        if (projectConfig != null)
+        {
+            projectConfig.handTrackingFrequency =
+                OVRProjectConfig.HandTrackingFrequency.HIGH;
+            OVRProjectConfig.CommitProjectConfig(projectConfig);
+        }
+
         EditorUtility.SetDirty(provider);
         EditorUtility.SetDirty(recorder);
         EditorUtility.SetDirty(streamer);

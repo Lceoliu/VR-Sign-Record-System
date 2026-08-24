@@ -1227,7 +1227,9 @@ public static class SignVRRecordingUxSetup
         // reinitialization during immersive/passthrough transitions.
         ovrManager.isInsightPassthroughEnabled = true;
         ovrManager.wideMotionModeHandPosesEnabled = true;
-        ovrManager.enableDynamicResolution = false;
+        ovrManager.enableDynamicResolution = true;
+        ovrManager.quest3MinDynamicResolutionScale = 0.65f;
+        ovrManager.quest3MaxDynamicResolutionScale = 0.8f;
         var managerSerialized = new SerializedObject(ovrManager);
         managerSerialized.FindProperty(
             "requestBodyTrackingPermissionOnStartup"
@@ -1245,6 +1247,8 @@ public static class SignVRRecordingUxSetup
 
         projectConfig.bodyTrackingSupport =
             OVRProjectConfig.FeatureSupport.Required;
+        projectConfig.handTrackingFrequency =
+            OVRProjectConfig.HandTrackingFrequency.HIGH;
         OVRProjectConfig.CommitProjectConfig(projectConfig);
     }
 

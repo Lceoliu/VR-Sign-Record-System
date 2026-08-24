@@ -64,6 +64,7 @@ namespace SignVR.Recording
             // The desktop operator must be able to use the host console while
             // Unity keeps counting down, sampling, and receiving UDP commands.
             Application.runInBackground = true;
+            ConfigureQuestPerformance(scene);
 
             GameObject recordingSource = scene.GetRootGameObjects()
                 .FirstOrDefault(root => root.name == RecordingSourceName);
@@ -251,6 +252,27 @@ namespace SignVR.Recording
                 "active. Sentence selection is host-only. UDP control=5012, " +
                 "pose/announce=5011."
             );
+        }
+
+        private static void ConfigureQuestPerformance(Scene scene)
+        {
+            Application.targetFrameRate = 72;
+            QualitySettings.vSyncCount = 0;
+
+            OVRManager manager = FindInScene<OVRManager>(scene);
+            if (manager == null)
+            {
+                return;
+            }
+
+            // Keep tracking cadence stable under GPU load. The original Meta
+            // default can supersample Quest 3 as high as 1.6x, which is far too
+            // expensive for this texture-heavy recording scene.
+            manager.quest3MinDynamicResolutionScale = 0.65f;
+            manager.quest3MaxDynamicResolutionScale = 0.8f;
+            manager.minDynamicResolutionScale = 0.65f;
+            manager.maxDynamicResolutionScale = 0.8f;
+            manager.enableDynamicResolution = true;
         }
 
         private static void DisableLegacyRecorderCanvas(Scene scene)

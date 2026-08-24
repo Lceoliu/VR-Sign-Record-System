@@ -66,6 +66,9 @@ public sealed class MetaBodyMotionStreamer : MonoBehaviour
     private int lastValidJointCount;
     private float lastConfidence;
     private string lastError = string.Empty;
+    private readonly FramePacket reusableFramePacket = new();
+    private float[] reusablePositions = Array.Empty<float>();
+    private bool[] reusableValidity = Array.Empty<bool>();
 
     public bool IsStreaming => udpClient != null;
     public long PacketsSent => packetsSent;
@@ -264,6 +267,8 @@ public sealed class MetaBodyMotionStreamer : MonoBehaviour
             };
 
             udpClient.Connect(remoteEndPoint);
+            udpClient.Client.SendBufferSize = 1024 * 1024;
+            udpClient.Client.Blocking = false;
 
             double now = Time.realtimeSinceStartupAsDouble;
             nextFrameTime = now;
@@ -419,8 +424,15 @@ public sealed class MetaBodyMotionStreamer : MonoBehaviour
             return;
         }
 
-        var positions = new float[joints.Length * 3];
-        var valid = new bool[joints.Length];
+        int positionCount = joints.Length * 3;
+        if (reusablePositions.Length != positionCount)
+        {
+            reusablePositions = new float[positionCount];
+        }
+        if (reusableValidity.Length != joints.Length)
+        {
+            reusableValidity = new bool[joints.Length];
+        }
 
         for (int i = 0; i < joints.Length; i++)
         {
@@ -430,23 +442,20 @@ public sealed class MetaBodyMotionStreamer : MonoBehaviour
 
             // Oculus tracking space is right-handed. Flip Z so the client
             // receives the same left-handed coordinates used by Unity.
-            positions[offset] = position.x;
-            positions[offset + 1] = position.y;
-            positions[offset + 2] = -position.z;
-            valid[i] = joint.PositionValid;
+            reusablePositions[offset] = position.x;
+            reusablePositions[offset + 1] = position.y;
+            reusablePositions[offset + 2] = -position.z;
+            reusableValidity[i] = joint.PositionValid;
         }
 
-        var packet = new FramePacket
-        {
-            sequence = sequence++,
-            timestamp = bodyState.Time,
-            confidence = bodyState.Confidence,
-            joint_count = joints.Length,
-            positions = positions,
-            valid = valid
-        };
+        reusableFramePacket.sequence = sequence++;
+        reusableFramePacket.timestamp = bodyState.Time;
+        reusableFramePacket.confidence = bodyState.Confidence;
+        reusableFramePacket.joint_count = joints.Length;
+        reusableFramePacket.positions = reusablePositions;
+        reusableFramePacket.valid = reusableValidity;
 
-        if (SendJson(packet))
+        if (SendJson(reusableFramePacket))
         {
             framesSent++;
         }
