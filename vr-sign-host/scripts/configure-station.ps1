@@ -13,7 +13,11 @@ param(
     [int]$UdpPort = 5011,
 
     [ValidateRange(1, 65535)]
-    [int]$QuestControlPort = 5006,
+    [int]$QuestControlPort = 5012,
+
+    [string[]]$AllowedDeviceIds = @(),
+
+    [string]$PairingKey = 'signvr-pointing-2026-01',
 
     [string]$DiscoveryBroadcast = '255.255.255.255'
 )
@@ -42,6 +46,8 @@ $config = [ordered]@{
     udp_port = $UdpPort
     quest_control_port = $QuestControlPort
     discovery_broadcast = $DiscoveryBroadcast
+    allowed_device_ids = @($AllowedDeviceIds)
+    pairing_key = $PairingKey
 }
 
 $json = $config | ConvertTo-Json

@@ -103,9 +103,9 @@ if ($EnableUnityEditorSimulation) {
     $blockingRules | Disable-NetFirewallRule
 
     Add-SignVrFirewallRule `
-        -DisplayName 'SignVR Unity Editor UDP 5006' `
+        -DisplayName 'SignVR Pointing Quest Control UDP 5012' `
         -Protocol UDP `
-        -LocalPort 5006
+        -LocalPort 5012
 }
 
 Write-Host 'SignVR local-network firewall rules are configured.'

@@ -59,6 +59,8 @@ Copy-Item -LiteralPath (Join-Path $backendRoot 'requirements-runtime-lock.txt') 
     -Destination (Join-Path $packageRoot 'backend\requirements-runtime-lock.txt')
 Copy-Item -LiteralPath (Join-Path $hostRoot 'config\station.example.json') `
     -Destination (Join-Path $packageRoot 'config\station.example.json')
+Copy-Item -LiteralPath (Join-Path $hostRoot 'config\pointing-station.json') `
+    -Destination (Join-Path $packageRoot 'config\station.json')
 Copy-Item -LiteralPath (Join-Path $hostRoot 'Start-SignVR-Host.bat') `
     -Destination (Join-Path $packageRoot 'Start-SignVR-Host.bat')
 Copy-Item -LiteralPath (Join-Path $hostRoot 'PORTABLE-README.md') `

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -13,9 +13,11 @@ class Settings:
     http_port: int = 8011
     udp_host: str = "0.0.0.0"
     udp_port: int = 5011
-    quest_control_port: int = 5006
+    quest_control_port: int = 5012
     frontend_origin: str = "http://localhost:5174"
     discovery_broadcast: str = "255.255.255.255"
+    allowed_device_ids: frozenset[str] = field(default_factory=frozenset)
+    pairing_key: str = "signvr-pointing-2026-01"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -26,6 +28,11 @@ class Settings:
             if configured_root.is_absolute()
             else host_root / configured_root
         ).resolve()
+        allowed_device_ids = frozenset(
+            value.strip().casefold()
+            for value in os.environ.get("SIGNVR_ALLOWED_DEVICE_IDS", "").split(",")
+            if value.strip()
+        )
         return cls(
             data_root=data_root,
             station_id=os.environ.get("SIGNVR_STATION_ID", "development").strip(),
@@ -33,7 +40,12 @@ class Settings:
             http_port=int(os.environ.get("SIGNVR_HTTP_PORT", "8011")),
             udp_host=os.environ.get("SIGNVR_UDP_HOST", "0.0.0.0"),
             udp_port=int(os.environ.get("SIGNVR_UDP_PORT", "5011")),
-            quest_control_port=int(os.environ.get("SIGNVR_QUEST_CONTROL_PORT", "5006")),
+            quest_control_port=int(os.environ.get("SIGNVR_QUEST_CONTROL_PORT", "5012")),
             frontend_origin=os.environ.get("SIGNVR_FRONTEND_ORIGIN", "http://localhost:5174"),
             discovery_broadcast=os.environ.get("SIGNVR_DISCOVERY_BROADCAST", "255.255.255.255"),
+            allowed_device_ids=allowed_device_ids,
+            pairing_key=os.environ.get(
+                "SIGNVR_PAIRING_KEY",
+                "signvr-pointing-2026-01",
+            ).strip(),
         )

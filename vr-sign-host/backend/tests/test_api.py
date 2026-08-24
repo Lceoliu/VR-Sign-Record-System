@@ -429,3 +429,28 @@ def test_device_reported_by_another_station_can_be_reselected(tmp_path):
         response = client.post("/api/devices/quest-other/select")
         assert response.status_code == 200
         assert response.json()["selected"]["device_id"] == "quest-other"
+
+
+def test_unselected_device_cannot_upload_preview_or_take(tmp_path):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        preview = client.post(
+            "/api/devices/quest-other/preview-frame",
+            headers={"content-type": "image/jpeg"},
+            content=b"jpeg",
+        )
+        upload = client.post(
+            "/api/devices/quest-other/takes/upload",
+            data={
+                "session_id": "session_other",
+                "sentence_id": "sentence_001",
+                "take_id": "take_001",
+            },
+            files={
+                "pose_file": ("pose.jsonl", io.BytesIO(b"{}\n")),
+                "meta_file": ("meta.json", io.BytesIO(b"{}")),
+            },
+        )
+
+    assert preview.status_code == 409
+    assert upload.status_code == 409

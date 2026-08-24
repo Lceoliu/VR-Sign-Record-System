@@ -12,6 +12,9 @@ namespace SignVR.Recording
     public sealed class QuestDeviceGateway : MonoBehaviour
     {
         private const int ProtocolVersion = 3;
+        private const int ControlPort = 5012;
+        private const int HostAnnouncementPort = 5011;
+        private const string PointingPairingKey = "signvr-pointing-2026-01";
         private const string DeviceIdPlayerPrefsKey = "SignVR.DeviceId";
         private const string PairedStationPlayerPrefsKey = "SignVR.PairedStationId";
 
@@ -41,14 +44,6 @@ namespace SignVR.Recording
         private RecordingViewpointController viewpointController;
 
         [Header("Discovery")]
-        [SerializeField]
-        [Range(1, 65535)]
-        private int controlPort = 5006;
-
-        [SerializeField]
-        [Range(1, 65535)]
-        private int hostAnnouncementPort = 5005;
-
         [SerializeField]
         [Min(1f)]
         private float announcementIntervalSeconds = 3f;
@@ -120,6 +115,8 @@ namespace SignVR.Recording
             public int http_port;
             public int pose_port;
             public string station_id;
+            public string device_id;
+            public string pairing_key;
         }
 
         [Serializable]
@@ -129,6 +126,7 @@ namespace SignVR.Recording
             public int version;
             public string command_id;
             public string action;
+            public string station_id;
             public string session_id;
             public string sentence_id;
             public int sentence_index;
@@ -243,7 +241,7 @@ namespace SignVR.Recording
 
             SendPacket(
                 packet,
-                new IPEndPoint(pairedHostAddress, hostAnnouncementPort)
+                new IPEndPoint(pairedHostAddress, HostAnnouncementPort)
             );
         }
 
@@ -259,7 +257,7 @@ namespace SignVR.Recording
                 LastReceiveError = exception.Message;
                 Debug.LogError(
                     "[QuestDeviceGateway] Could not bind UDP control port " +
-                    $"{controlPort}: {exception.Message}"
+                    $"{ControlPort}: {exception.Message}"
                 );
                 enabled = false;
             }
@@ -329,8 +327,8 @@ namespace SignVR.Recording
             while (true)
             {
                 IPEndPoint target = pairedHostAddress == null
-                    ? new IPEndPoint(IPAddress.Broadcast, hostAnnouncementPort)
-                    : new IPEndPoint(pairedHostAddress, hostAnnouncementPort);
+                    ? new IPEndPoint(IPAddress.Broadcast, HostAnnouncementPort)
+                    : new IPEndPoint(pairedHostAddress, HostAnnouncementPort);
 
                 SendAnnouncement(target);
                 yield return wait;
@@ -411,8 +409,19 @@ namespace SignVR.Recording
                 packet.host_ip,
                 out IPAddress hostAddress
             );
+            bool deviceTargetValid = string.Equals(
+                packet.device_id,
+                deviceId,
+                StringComparison.OrdinalIgnoreCase
+            );
+            bool pairingKeyValid = string.Equals(
+                packet.pairing_key,
+                PointingPairingKey,
+                StringComparison.Ordinal
+            );
             bool stationValid = !string.IsNullOrWhiteSpace(packet.station_id);
             bool accepted = packet.version == ProtocolVersion &&
+                deviceTargetValid && pairingKeyValid &&
                 hostAddressValid && stationValid &&
                 packet.http_port > 0 && packet.pose_port > 0;
 
@@ -420,6 +429,14 @@ namespace SignVR.Recording
             if (packet.version != ProtocolVersion)
             {
                 message = "protocol_version_mismatch";
+            }
+            else if (!deviceTargetValid)
+            {
+                message = "device_id_mismatch";
+            }
+            else if (!pairingKeyValid)
+            {
+                message = "pairing_key_mismatch";
             }
             else if (!hostAddressValid)
             {
@@ -484,6 +501,25 @@ namespace SignVR.Recording
                     packet.command_id,
                     false,
                     "protocol_version_mismatch"
+                );
+                return;
+            }
+
+            bool hostMatches = pairedHostAddress != null &&
+                remoteEndPoint.Address.Equals(pairedHostAddress);
+            bool stationMatches = !string.IsNullOrWhiteSpace(pairedStationId) &&
+                string.Equals(
+                    packet.station_id,
+                    pairedStationId,
+                    StringComparison.Ordinal
+                );
+            if (!hostMatches || !stationMatches)
+            {
+                SendAck(
+                    remoteEndPoint,
+                    packet.command_id,
+                    false,
+                    hostMatches ? "station_id_mismatch" : "host_not_paired"
                 );
                 return;
             }
@@ -942,7 +978,7 @@ namespace SignVR.Recording
                     : SystemInfo.deviceName,
                 model = SystemInfo.deviceModel,
                 app_version = Application.version,
-                control_port = controlPort,
+                control_port = ControlPort,
                 paired_station_id = pairedStationId,
                 paired = pairedHostAddress != null,
                 capabilities = previewStreamer != null && previewStreamer.isActiveAndEnabled
@@ -1006,7 +1042,7 @@ namespace SignVR.Recording
 
         private void StartListener()
         {
-            listener = new UdpClient(new IPEndPoint(IPAddress.Any, controlPort));
+            listener = new UdpClient(new IPEndPoint(IPAddress.Any, ControlPort));
             listener.BeginReceive(ReceiveDatagram, listener);
             sender = new UdpClient(AddressFamily.InterNetwork)
             {

@@ -23,3 +23,23 @@ def test_default_ports_allow_the_legacy_host_to_keep_running(monkeypatch):
 
     assert settings.http_port == 8011
     assert settings.udp_port == 5011
+    assert settings.quest_control_port == 5012
+
+
+def test_device_allowlist_is_normalized(monkeypatch):
+    monkeypatch.setenv(
+        "SIGNVR_ALLOWED_DEVICE_IDS",
+        " Quest-A,quest-b,,QUEST-A ",
+    )
+
+    settings = Settings.from_environment()
+
+    assert settings.allowed_device_ids == frozenset({"quest-a", "quest-b"})
+
+
+def test_pairing_key_can_be_configured(monkeypatch):
+    monkeypatch.setenv("SIGNVR_PAIRING_KEY", " station-secret ")
+
+    settings = Settings.from_environment()
+
+    assert settings.pairing_key == "station-secret"

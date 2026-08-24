@@ -248,8 +248,8 @@ namespace SignVR.Recording
                 "[RecordingRuntimeBootstrap] Installed take recording stack in " +
                 scene.path + ". Six fixed viewpoints, local sequence, prompt " +
                 "bubble, target cues, native hand rays, and physics isolation are " +
-                "active. Sentence selection is host-only. UDP control=5006, " +
-                "pose/announce=5005."
+                "active. Sentence selection is host-only. UDP control=5012, " +
+                "pose/announce=5011."
             );
         }
 

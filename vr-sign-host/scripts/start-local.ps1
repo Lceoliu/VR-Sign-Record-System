@@ -32,6 +32,16 @@ if (Test-Path -LiteralPath $configPath) {
     $env:SIGNVR_UDP_PORT = [string]$config.udp_port
     $env:SIGNVR_QUEST_CONTROL_PORT = [string]$config.quest_control_port
     $env:SIGNVR_DISCOVERY_BROADCAST = [string]$config.discovery_broadcast
+    if ($null -ne $config.allowed_device_ids) {
+        $env:SIGNVR_ALLOWED_DEVICE_IDS = @(
+            $config.allowed_device_ids |
+                ForEach-Object { ([string]$_).Trim() } |
+                Where-Object { $_ }
+        ) -join ','
+    }
+    if ($config.pairing_key) {
+        $env:SIGNVR_PAIRING_KEY = [string]$config.pairing_key
+    }
     if ($config.sentence_catalog) {
         $catalogValue = [string]$config.sentence_catalog
         $catalogPath = if ([IO.Path]::IsPathRooted($catalogValue)) {

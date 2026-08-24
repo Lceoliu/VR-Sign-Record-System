@@ -56,17 +56,19 @@ cd ..
 .\scripts\setup-firewall.ps1 -EnableUnityEditorSimulation
 ```
 
-第二种模式会禁用该 Unity Editor 可执行文件现有的入站 Block 规则，再新增仅限 `LocalSubnet`、UDP 5006 的允许规则；Quest 真机联调不需要这一步。
+第二种模式会禁用该 Unity Editor 可执行文件现有的入站 Block 规则，再新增仅限 `LocalSubnet`、UDP 5012 的允许规则；Quest 真机联调不需要这一步。
 
 ## 端口
 
 | 端口 | 协议 | 用途 |
 |---|---|---|
 | 8011 | TCP/HTTP/WebSocket | React、控制 API、Pose/Meta/视频上传、Quest JPEG 预览 |
-| 5011 | UDP | Quest 设备公告、命令 ACK、现有实时 Pose 数据 |
-| 5006 | UDP | Quest 控制端口，接收发现、配对和录制命令 |
+| 5011 | UDP | 本组 Quest 设备公告、命令 ACK、实时 Pose 数据 |
+| 5012 | UDP | 本组 Quest 控制端口，接收发现、配对和录制命令 |
 
-Quest 和主机必须位于同一可信局域网。Windows 主机需要允许 Python 的 TCP 8011 和 UDP 5011 入站；UDP 5006 位于 Quest 端，仅在 Unity Editor 本机模拟时需要 Windows 入站规则。Unity 项目允许明文 HTTP，仅用于这个受信任的本地录制网络。
+Quest 和主机必须位于同一可信局域网。本组 APK 使用 UDP 5011/5012，和旧录制组的 5005/5006 完全分开。Windows 主机需要允许 Python 的 TCP 8011 和 UDP 5011 入站；UDP 5012 位于 Quest 端，仅在 Unity Editor 本机模拟时需要 Windows 入站规则。Unity 项目允许明文 HTTP，仅用于这个受信任的本地录制网络。
+
+便携指代录制包还通过 `config/station.json` 的唯一 `station_id`、`pairing_key` 和 `allowed_device_ids` 隔离同一局域网中的其他录制组。未列入允许列表的 Quest 不会进入设备列表，APK 也会拒绝其他工作站的配对和录制命令。
 
 ## 数据目录
 
