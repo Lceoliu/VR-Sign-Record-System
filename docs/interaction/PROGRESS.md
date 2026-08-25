@@ -1,16 +1,16 @@
 # Interaction Development Progress
 
 Updated: 2026-08-25
-Overall state: W3 final hardening and second parallel implementation batch active
+Overall state: Host complete; W5/W6/W7 Unity implementation batch active
 
 | Work ID | Scope | Dependencies | Worker task | State | Integration |
 | --- | --- | --- | --- | --- | --- |
 | W1 | Interaction Core: contracts, Run Plan, condition allocator, passwords, six-phase state machine, EditMode tests | Contract V1 | `W1 Interaction Core` · `01a03916-2d8c-7162-bb51-2513ed2fdbff` · worktree `d4ff` | Complete | Reviewed and integrated as `0e4dae3`; Unity EditMode 23/23 passed |
 | W2 | Wang 31-sentence resolver, integrity validation, build-time staging tool, tests | Contract V1 | `W2 Instruction Content Staging` · `01a03916-2d87-7ac0-865f-0638e51856a5` · worktree `2664` | Complete | Reviewed and integrated as `655d9c4` |
-| W3 | Host Interaction API, repository, webcam Study mode, backend/frontend tests | Contract V1 | `W3 Host Interaction Mode` · `01a03916-2d85-7842-9c70-b1b7abcb1184` · worktree `b57e` | In progress | Not reviewed |
+| W3 | Host Interaction API, repository, webcam Study mode, backend/frontend tests | Contract V1 | `W3 Host Interaction Mode` · `01a03916-2d85-7842-9c70-b1b7abcb1184` · worktree `b57e` | Complete | Reviewed and integrated as `4f9629d`; backend 62/62 and frontend 11/11 passed |
 | W4 | Dual build entry and clean Interaction scene bootstrap | Contract V1 | `W4 Dual Build and Clean Scene` · `01a03917-bd12-7740-81c3-d3d5dd00d49f` · worktree `c99f` | Complete | Reviewed, integrated, scene generated; Unity EditMode 2/2 passed |
 | W5 | Independent ghost player, bubble, Replay, immediate-hit pointing | W1,W2,W4 | `W5 Instruction Presentation` · `01a03949-d3cc-7810-afe1-89cbc2a5eefc` · worktree `7d6d` | In progress | Not reviewed |
-| W6 | Local capture and Quest–Host client | W1,W3,W4 | `W6 Quest Capture and Host Client` · `01a03950-0130-73f2-bc09-62fd206a7348` · worktree `13c9` | In progress | Contract-first implementation while W3 finishes hardening |
+| W6 | Local capture and Quest–Host client | W1,W3,W4 | `W6 Quest Capture and Host Client` · `01a03950-0130-73f2-bc09-62fd206a7348` · worktree `13c9` | In progress | Contract-first implementation against the now-integrated W3 API |
 | W7 | Six simplified interaction adapters | W1,W4 | `W7 Six Phase Interaction Adapters` · `01a03949-d3c9-77b1-837b-ddbf9d097eba` · worktree `69ef` | In progress | Not reviewed |
 | W8 | Local Unity/Host integration and batched Quest validation package | W2..W7 | Orchestrator | Blocked | Not started |
 
@@ -23,6 +23,7 @@ Overall state: W3 final hardening and second parallel implementation batch activ
 - Full EditMode baseline after W1 integration: 641 passed, 8 failed, 5 skipped. All eight failures are in pre-existing/package `UnitySkills.Tests.Core`; no SignVR Interaction test failed.
 - Quest validation: intentionally deferred and batched.
 - Existing user OpenXR settings change: preserved, excluded from orchestration commits.
+- Host gate: W3 is integrated. In the main worktree, all 62 backend tests and 11 frontend tests pass; frontend lint and production build also pass. Webcam upload failures retain one Blob per Run in page memory with guarded retry and local-download recovery until Host confirmation.
 
 ## Integration log
 
@@ -36,3 +37,4 @@ Overall state: W3 final hardening and second parallel implementation batch activ
 - 2026-08-25: W4's Interaction Android path completed two local APK builds. An interactive-build persistence edge case was fixed by saving only after all build-state restoration steps succeed; the repeat build proved all four tracked baseline hashes unchanged and the default Recorder identity restored on disk.
 - 2026-08-25: W5 and W7 dispatched from integrated baseline `335befa` into independent Codex worktrees. Their prompts prohibit Git and scene-YAML edits and allocate non-overlapping presentation versus phase-adapter ownership.
 - 2026-08-25: W6 dispatched contract-first from the integrated Unity baseline. It owns Quest Run control, local atomic capture and the Host client, with explicit event seams for later W5/W7 integration and no Host/scene overlap.
+- 2026-08-25: W3 completed Orchestrator review and integration. Review-driven hardening added atomic terminal transitions and active-Run registration, fail-closed storage/Quest/camera readiness, camera-unplug detection, HTTP terminal-state polling when WebSocket delivery is lost, stale-response watermarks, and retained/retryable/downloadable webcam Blobs. Main-worktree regression passed backend 62/62, frontend 11/11, lint, and production build.
