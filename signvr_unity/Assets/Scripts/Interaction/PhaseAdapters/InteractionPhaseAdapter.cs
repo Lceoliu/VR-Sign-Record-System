@@ -92,7 +92,15 @@ namespace SignVR.Interaction.PhaseAdapters
 
         public virtual void Enable()
         {
-            SetAvailability(isActiveAndEnabled);
+            bool currentTaskAuthorityAllowsInput =
+                object.ReferenceEquals(coordinator, null) ||
+                (coordinator != null &&
+                 coordinator.CurrentPhaseId.HasValue &&
+                 coordinator.CurrentPhaseId.Value == PhaseId &&
+                 coordinator.IsEnabled);
+            SetAvailability(
+                isActiveAndEnabled && currentTaskAuthorityAllowsInput
+            );
         }
 
         public virtual void Disable()

@@ -167,6 +167,13 @@ namespace SignVR.Interaction.PhaseAdapters
             return adapter.AcceptTarget(targetId);
         }
 
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        internal void RefreshAvailabilityWithoutRuntimeSubscription()
+        {
+            ApplyAvailability(IsInputAvailable);
+        }
+#endif
+
         // Void entry points remain visible to Meta/UnityEvent wrappers.
         public void Poke()
         {

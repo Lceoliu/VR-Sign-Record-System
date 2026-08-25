@@ -142,6 +142,7 @@ namespace SignVR.Editor.Interaction
         public static void MarkTestOwnedSceneForAutomation(Scene scene)
         {
             RequireTestScenePath(scene);
+            RequireActiveSceneForCreation(scene);
             int markerCount = scene.GetRootGameObjects().Count(item =>
                 string.Equals(
                     item.name,
@@ -155,14 +156,33 @@ namespace SignVR.Editor.Interaction
                 );
             }
 
-            var marker = new GameObject(TestSceneMarkerName);
-            SceneManager.MoveGameObjectToScene(marker, scene);
+            GameObject marker = null;
+            try
+            {
+                marker = new GameObject(TestSceneMarkerName);
+                if (marker.scene != scene)
+                {
+                    throw new InvalidOperationException(
+                        "The test-owned marker was not created in the " +
+                        "active temporary scene."
+                    );
+                }
+            }
+            catch
+            {
+                if (marker != null)
+                {
+                    Object.DestroyImmediate(marker);
+                }
+                throw;
+            }
         }
 
         public static void SetupAndValidateTestOwnedSceneWithoutSaving(
             Scene scene)
         {
             RequireTestOwnedScene(scene);
+            RequireActiveSceneForCreation(scene);
             SetupSceneTransactional(scene);
             ValidateSceneContents(scene);
         }
@@ -170,6 +190,7 @@ namespace SignVR.Editor.Interaction
         public static void SetupTestOwnedSceneForAutomation(Scene scene)
         {
             RequireTestOwnedScene(scene);
+            RequireActiveSceneForCreation(scene);
             SetupSceneTransactional(scene);
         }
 
@@ -187,6 +208,7 @@ namespace SignVR.Editor.Interaction
         public static void StripW7OwnedWiringForTests(Scene scene)
         {
             RequireTestOwnedScene(scene);
+            RequireActiveSceneForCreation(scene);
             GameObject[] sceneObjects = Enumerate(scene).ToArray();
 
             foreach (GameObject sceneObject in sceneObjects)
@@ -273,6 +295,7 @@ namespace SignVR.Editor.Interaction
         public static void SetupLoadedScene(Scene scene)
         {
             RequireInteractionScene(scene);
+            RequireActiveSceneForCreation(scene);
             SetupSceneTransactional(scene);
         }
 
@@ -2017,12 +2040,40 @@ namespace SignVR.Editor.Interaction
             );
             if (scene.IsValid() && scene.isLoaded)
             {
+                ActivateSceneForSetup(scene);
                 return scene;
             }
-            return EditorSceneManager.OpenScene(
+            scene = EditorSceneManager.OpenScene(
                 InteractionLabContract.ScenePath,
                 OpenSceneMode.Single
             );
+            ActivateSceneForSetup(scene);
+            return scene;
+        }
+
+        private static void ActivateSceneForSetup(Scene scene)
+        {
+            if (!scene.IsValid() || !scene.isLoaded ||
+                !SceneManager.SetActiveScene(scene) ||
+                SceneManager.GetActiveScene() != scene)
+            {
+                throw new InvalidOperationException(
+                    "W7 setup could not activate its target scene; no " +
+                    "scene object was created."
+                );
+            }
+        }
+
+        private static void RequireActiveSceneForCreation(Scene scene)
+        {
+            if (!scene.IsValid() || !scene.isLoaded ||
+                SceneManager.GetActiveScene() != scene)
+            {
+                throw new InvalidOperationException(
+                    "W7 scene mutation requires its target scene to be " +
+                    "loaded and active before object creation."
+                );
+            }
         }
 
         private static void RequireInteractionScene(Scene scene)

@@ -183,15 +183,54 @@ namespace SignVR.Interaction.PhaseAdapters
             PhaseInput input)
         {
             EnsureSession();
-            return session.AcceptInput(phaseId, input);
+            ValidationResult result = session.AcceptInput(phaseId, input);
+            if (!sessionSubscribed)
+            {
+                // Runtime receives the same synchronous update through
+                // HandleSessionResult. Direct/EditMode seams intentionally do
+                // not create CLR subscriptions, but adapter availability must
+                // still reflect the authoritative task lock.
+                UpdateAdapterAvailability();
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+                RefreshTargetBindingsWithoutRuntimeSubscription();
+#endif
+            }
+            return result;
         }
 
         public ValidationResult GiveUpCurrentPhase(
             PhaseExecutionSnapshot snapshot)
         {
             EnsureSession();
-            return session.GiveUpCurrentPhase(snapshot);
+            ValidationResult result = session.GiveUpCurrentPhase(snapshot);
+            if (!sessionSubscribed)
+            {
+                UpdateAdapterAvailability();
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+                RefreshTargetBindingsWithoutRuntimeSubscription();
+#endif
+            }
+            return result;
         }
+
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        private void RefreshTargetBindingsWithoutRuntimeSubscription()
+        {
+            InteractionTargetBinding[] bindings =
+                Resources.FindObjectsOfTypeAll<InteractionTargetBinding>();
+            for (int index = 0; index < bindings.Length; index++)
+            {
+                InteractionTargetBinding binding = bindings[index];
+                if (binding == null || binding.gameObject.scene != gameObject.scene ||
+                    binding.Adapter == null ||
+                    binding.Adapter.Coordinator != this)
+                {
+                    continue;
+                }
+                binding.RefreshAvailabilityWithoutRuntimeSubscription();
+            }
+        }
+#endif
 
         private void EnsureSession()
         {

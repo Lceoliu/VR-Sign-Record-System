@@ -177,7 +177,6 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
             Component phaseOne = fixture.Adapters[0];
             Component phaseTwo = fixture.Adapters[1];
-            InvokePublic(phaseTwo, "Enable");
 
             string[] subscriberTypes =
             {
@@ -190,6 +189,10 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             for (int index = 0; index < subscriberTypes.Length; index++)
             {
                 string typeName = subscriberTypes[index];
+                if (typeName == "InteractionPlacementBinding")
+                {
+                    ActivatePhase(fixture, 2);
+                }
                 GameObject target = Track(new GameObject(typeName));
                 target.transform.SetParent(fixture.Root.transform, false);
                 BoxCollider collider = target.AddComponent<BoxCollider>();
@@ -344,7 +347,6 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Component phaseOne = fixture.Adapters[0];
             Component phaseTwo = fixture.Adapters[1];
             InvokePublic(phaseOne, "Enable");
-            InvokePublic(phaseTwo, "Enable");
 
             GameObject unconfiguredObject = Track(
                 new GameObject("UnconfiguredPlacement")
@@ -390,8 +392,23 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                          "InteractionPlacementBinding"
                      })
             {
+                if (typeName == "InteractionPlacementBinding")
+                {
+                    ActivatePhase(fixture, 2);
+                }
                 Component publisherA = typeName ==
                     "InteractionPlacementBinding" ? phaseTwo : phaseOne;
+                // The previous table row intentionally disables publisher A
+                // while proving old-publisher detachment. Each row is an
+                // independent A -> invalid -> B transaction, so restore A's
+                // precondition before configuring the next subscriber type.
+                InvokePublic(publisherA, "Enable");
+                Assert.That(
+                    publisherA.GetType().GetProperty("IsEnabled")
+                        .GetValue(publisherA),
+                    Is.True,
+                    typeName + " publisher A precondition was not restored."
+                );
                 GameObject owner = Track(new GameObject(typeName + "_Owner"));
                 owner.transform.SetParent(fixture.Root.transform, false);
                 BoxCollider colliderA = owner.AddComponent<BoxCollider>();
@@ -846,6 +863,196 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             AssertColor(
                 ReadBaseColor(feedbackRenderer),
                 new Color(0.15f, 1f, 0.35f, 1f)
+            );
+        }
+
+        [UnityTest]
+        public IEnumerator RuntimeReenableHonorsTerminalSnapshotAndRebuildsChest()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "TerminalSnapshotAndChestRebuild"
+            );
+            Component phaseFour = fixture.Adapters[3];
+
+            GameObject inputObject = new GameObject("PhaseFourInput");
+            inputObject.transform.SetParent(fixture.Root.transform, false);
+            BoxCollider inputCollider = inputObject.AddComponent<BoxCollider>();
+            Component inputBinding = inputObject.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                inputBinding,
+                "Configure",
+                "blue",
+                phaseFour,
+                Array.Empty<Behaviour>(),
+                new Collider[] { inputCollider }
+            );
+
+            GameObject lid = new GameObject("ChestLid");
+            lid.transform.SetParent(fixture.Root.transform, false);
+            GameObject hinge = new GameObject("ChestHinge");
+            hinge.transform.SetParent(fixture.Root.transform, false);
+            object lidBinding = CreateHingeBinding(
+                lid.transform,
+                hinge.transform
+            );
+            string[] buttonIds = { "blue", "red", "yellow", "green" };
+            var buttonObjects = new GameObject[buttonIds.Length];
+            var buttonBindings = new object[buttonIds.Length];
+            for (int index = 0; index < buttonIds.Length; index++)
+            {
+                buttonObjects[index] = new GameObject(buttonIds[index]);
+                buttonObjects[index].transform.SetParent(
+                    fixture.Root.transform,
+                    false
+                );
+                buttonBindings[index] = CreateTargetStateBinding(
+                    buttonIds[index],
+                    buttonObjects[index].transform
+                );
+            }
+            PresentationKeyProbe key = CreatePresentationKey(
+                fixture.Root.transform,
+                "RuntimeRebuildKey"
+            );
+            Component presentation = fixture.Root.AddComponent(
+                RuntimeType("InteractionDeterministicPresentation")
+            );
+            ConfigurePhaseFourPresentation(
+                presentation,
+                fixture.Coordinator,
+                lidBinding,
+                buttonBindings,
+                key.Binding
+            );
+            key.AssertLocked();
+
+            CompletePhaseOne(fixture);
+            InvokePublic(
+                fixture.Coordinator,
+                "Synchronize",
+                CreatePhaseSnapshot(2)
+            );
+            AssertAccepted(InvokePublic(
+                fixture.Coordinator,
+                "AcceptInput",
+                2,
+                InvokeCoreFactory(
+                    "PhaseInput",
+                    "Pair",
+                    "coin_dragon",
+                    "plate_dragon"
+                )
+            ));
+            InvokePublic(
+                fixture.Coordinator,
+                "Synchronize",
+                CreatePhaseSnapshot(3)
+            );
+            AssertAccepted(InvokePublic(
+                fixture.Coordinator,
+                "AcceptInput",
+                3,
+                CreateTargetInput("picture_frame_a")
+            ));
+            InvokePublic(
+                fixture.Coordinator,
+                "Synchronize",
+                CreatePhaseSnapshot(4)
+            );
+            Assert.That(inputCollider.enabled, Is.True);
+            Assert.That(
+                inputBinding.GetType().GetProperty("IsInputAvailable")
+                    .GetValue(inputBinding),
+                Is.True
+            );
+
+            ((Behaviour)presentation).enabled = false;
+            foreach (string buttonId in buttonIds)
+            {
+                AssertAccepted(InvokePublic(
+                    fixture.Coordinator,
+                    "AcceptInput",
+                    4,
+                    CreateTargetInput(buttonId)
+                ));
+            }
+            yield return null;
+
+            Assert.That(
+                fixture.Coordinator.GetType().GetProperty("IsEnabled")
+                    .GetValue(fixture.Coordinator),
+                Is.False
+            );
+            Assert.That(
+                phaseFour.GetType().GetProperty("IsEnabled")
+                    .GetValue(phaseFour),
+                Is.False
+            );
+            Assert.That(inputCollider.enabled, Is.False);
+            Assert.That(
+                inputBinding.GetType().GetProperty("IsInputAvailable")
+                    .GetValue(inputBinding),
+                Is.False
+            );
+            Assert.That(
+                Quaternion.Angle(
+                    Quaternion.identity,
+                    lid.transform.localRotation
+                ),
+                Is.LessThan(0.01f)
+            );
+            foreach (GameObject buttonObject in buttonObjects)
+            {
+                Assert.That(
+                    Quaternion.Angle(
+                        Quaternion.identity,
+                        buttonObject.transform.localRotation
+                    ),
+                    Is.LessThan(0.01f)
+                );
+            }
+            key.AssertLocked();
+
+            ((Behaviour)presentation).enabled = true;
+            Assert.That(
+                Quaternion.Angle(
+                    Quaternion.identity,
+                    lid.transform.localRotation
+                ),
+                Is.GreaterThan(0.1f),
+                "PlayMode OnEnable did not rebuild the missed chest state."
+            );
+            foreach (GameObject buttonObject in buttonObjects)
+            {
+                Assert.That(
+                    Quaternion.Angle(
+                        Quaternion.identity,
+                        buttonObject.transform.localRotation
+                    ),
+                    Is.GreaterThan(0.1f),
+                    "PlayMode OnEnable did not rebuild a chest button."
+                );
+            }
+            key.AssertReleased();
+
+            ((Behaviour)fixture.Coordinator).enabled = false;
+            ((Behaviour)fixture.Coordinator).enabled = true;
+            InvokePublic(fixture.Coordinator, "Enable");
+            ((Behaviour)inputBinding).enabled = false;
+            ((Behaviour)inputBinding).enabled = true;
+            Assert.That(
+                fixture.Coordinator.GetType().GetProperty("IsEnabled")
+                    .GetValue(fixture.Coordinator),
+                Is.False,
+                "Runtime re-enable bypassed the terminal W1/W7 gate."
+            );
+            Assert.That(inputCollider.enabled, Is.False);
+            Assert.That(
+                inputBinding.GetType().GetProperty("IsInputAvailable")
+                    .GetValue(inputBinding),
+                Is.False
             );
         }
 
@@ -1525,6 +1732,29 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Component adapter = fixtureA.Adapters[0];
             var acceptedResults = new EventCounter();
             SubscribeGenericEvent(adapter, "InputAccepted", acceptedResults);
+            GameObject targetObject = Track(
+                new GameObject("DestroyedCoordinatorTarget")
+            );
+            targetObject.transform.SetParent(fixtureA.Root.transform, false);
+            BoxCollider targetCollider =
+                targetObject.AddComponent<BoxCollider>();
+            Component targetBinding = targetObject.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                targetBinding,
+                "Configure",
+                "box_stool",
+                adapter,
+                Array.Empty<Behaviour>(),
+                new Collider[] { targetCollider }
+            );
+            Assert.That(
+                targetBinding.GetType().GetProperty("IsInputAvailable")
+                    .GetValue(targetBinding),
+                Is.True
+            );
+            Assert.That(targetCollider.enabled, Is.True);
 
             UnityEngine.Object.DestroyImmediate(fixtureA.Coordinator);
             Assert.That(
@@ -1532,6 +1762,43 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 Is.True,
                 "The publisher-A coordinator was not destroyed."
             );
+            object destroyedAuthority = adapter.GetType()
+                .GetProperty("Coordinator").GetValue(adapter);
+            Assert.That(
+                object.ReferenceEquals(
+                    destroyedAuthority,
+                    fixtureA.Coordinator
+                ),
+                Is.True,
+                "The adapter did not retain publisher A's Unity wrapper."
+            );
+            Assert.That(
+                object.ReferenceEquals(destroyedAuthority, null),
+                Is.False,
+                "This regression must exercise Unity fake-null, not CLR null."
+            );
+            InvokePublic(adapter, "Enable");
+            Assert.That(
+                adapter.GetType().GetProperty("IsEnabled").GetValue(adapter),
+                Is.False,
+                "A destroyed coordinator was mistaken for a standalone " +
+                "adapter authority."
+            );
+            Assert.That(
+                targetBinding.GetType().GetProperty("IsInputAvailable")
+                    .GetValue(targetBinding),
+                Is.False
+            );
+            Assert.That(
+                targetCollider.enabled,
+                Is.False,
+                "The fake-null authority window reopened bound input."
+            );
+            Assert.That(
+                InvokePublic(targetBinding, "AcceptInput"),
+                Is.Null
+            );
+
             InvokePublic(
                 adapter,
                 "Configure",
@@ -1539,7 +1806,17 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 fixtureB.Plan
             );
             InvokePublic(adapter, "Enable");
-            AssertAccepted(AcceptTarget(fixtureB, "box_stool"));
+            Assert.That(
+                adapter.GetType().GetProperty("IsEnabled").GetValue(adapter),
+                Is.True
+            );
+            Assert.That(
+                targetBinding.GetType().GetProperty("IsInputAvailable")
+                    .GetValue(targetBinding),
+                Is.True
+            );
+            Assert.That(targetCollider.enabled, Is.True);
+            AssertAccepted(InvokePublic(targetBinding, "AcceptInput"));
             Assert.That(
                 acceptedResults.Count,
                 Is.EqualTo(1),
@@ -1834,11 +2111,18 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
 
         private static void ActivatePhaseOne(RuntimeFixture fixture)
         {
+            ActivatePhase(fixture, 1);
+        }
+
+        private static void ActivatePhase(
+            RuntimeFixture fixture,
+            int phaseId)
+        {
             InvokePublic(fixture.Coordinator, "Enable");
             InvokePublic(
                 fixture.Coordinator,
                 "Synchronize",
-                CreatePhaseSnapshot(1)
+                CreatePhaseSnapshot(phaseId)
             );
         }
 
@@ -2170,6 +2454,43 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 coordinator,
                 safeDoorBinding,
                 Activator.CreateInstance(hingeType),
+                Activator.CreateInstance(hingeType),
+                Activator.CreateInstance(hingeType),
+                Activator.CreateInstance(hingeType),
+                chestStates,
+                noStates,
+                noStates,
+                keys
+            );
+        }
+
+        private static void ConfigurePhaseFourPresentation(
+            Component presentation,
+            Component coordinator,
+            object chestLidBinding,
+            object[] chestStateBindings,
+            object keyBinding)
+        {
+            Type hingeType = RuntimeType("DeterministicHingeBinding");
+            Type stateType = RuntimeType("DeterministicTargetStateBinding");
+            Type keyType = RuntimeType("PlannedKeyReleaseBinding");
+            Array chestStates = Array.CreateInstance(
+                stateType,
+                chestStateBindings.Length
+            );
+            for (int index = 0; index < chestStateBindings.Length; index++)
+            {
+                chestStates.SetValue(chestStateBindings[index], index);
+            }
+            Array noStates = Array.CreateInstance(stateType, 0);
+            Array keys = Array.CreateInstance(keyType, 1);
+            keys.SetValue(keyBinding, 0);
+            InvokePublic(
+                presentation,
+                "Configure",
+                coordinator,
+                Activator.CreateInstance(hingeType),
+                chestLidBinding,
                 Activator.CreateInstance(hingeType),
                 Activator.CreateInstance(hingeType),
                 Activator.CreateInstance(hingeType),
@@ -2721,6 +3042,17 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             public void AssertAuthored()
             {
                 AssertAuthoredComplete();
+            }
+
+            public void AssertReleased()
+            {
+                Assert.That(key.activeSelf, Is.True);
+                for (int index = 0; index < bodies.Length; index++)
+                {
+                    Assert.That(bodies[index].isKinematic, Is.False);
+                    Assert.That(bodies[index].useGravity, Is.True);
+                }
+                Assert.That(collider.enabled, Is.True);
             }
 
             public void PrepareReleaseAndDisplace()
