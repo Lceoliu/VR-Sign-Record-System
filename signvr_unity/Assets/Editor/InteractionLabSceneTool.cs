@@ -111,7 +111,7 @@ namespace SignVR.Editor.Interaction
                         // The copied scene did not exist before this attempt.
                         // Restore the caller's scene layout before deleting the
                         // failed generated asset.
-                        EditorSceneManager.RestoreSceneManagerSetup(originalSetup);
+                        RestoreSceneManagerSetupSafely(originalSetup);
                         if (AssetDatabase.LoadAssetAtPath<SceneAsset>(
                                 InteractionLabContract.ScenePath
                             ) != null &&
@@ -458,6 +458,30 @@ namespace SignVR.Editor.Interaction
                 current = current.parent;
             }
             return string.Join("/", names);
+        }
+
+        internal static void RestoreSceneManagerSetupSafely(SceneSetup[] setup)
+        {
+            bool hasRestorableActiveScene = setup != null &&
+                setup.Count(item => item.isLoaded && item.isActive) == 1;
+            bool allLoadedScenesAreSaved = hasRestorableActiveScene &&
+                setup
+                    .Where(item => item.isLoaded)
+                    .All(item => !string.IsNullOrEmpty(item.path));
+
+            if (allLoadedScenesAreSaved)
+            {
+                EditorSceneManager.RestoreSceneManagerSetup(setup);
+                return;
+            }
+
+            // The EditMode Test Runner can temporarily expose no loaded scene,
+            // while Unity's RestoreSceneManagerSetup requires exactly one
+            // active scene. Restore an equivalent neutral editor state instead.
+            EditorSceneManager.NewScene(
+                NewSceneSetup.EmptyScene,
+                NewSceneMode.Single
+            );
         }
 
         private static void EnsureLoadedScenesAreSaved()

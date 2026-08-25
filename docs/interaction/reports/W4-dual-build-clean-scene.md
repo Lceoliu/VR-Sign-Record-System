@@ -242,3 +242,28 @@ before integration:
 - changed InteractionLab generation to validate the complete in-memory scene
   before saving it, restore an existing scene after failure, and delete a newly
   copied scene when first-generation validation fails.
+
+## Orchestrator main-worktree Unity validation
+
+Unity `6000.5.6f1` imported and compiled the integrated W4 sources without a
+compile or Console error. The Orchestrator then ran the Editor menu generator
+against the main worktree and versioned the resulting
+`Assets/Scenes/InteractionLab.unity` and `.meta`.
+
+- The generated scene is `397,512` bytes and the complete build/scene contract
+  validator passed.
+- The first W4 EditMode run exposed a Test Runner-only cleanup defect: Unity
+  temporarily supplied a scene setup with no loaded scene, while
+  `RestoreSceneManagerSetup` requires exactly one active scene. The scene
+  contract itself had already passed before cleanup failed.
+- Cleanup now restores a saved scene setup when one exists and otherwise
+  creates a neutral empty Editor scene. The authoritative rerun passed `2/2`
+  tests (job `9c76e4af`).
+- A subsequent generator invocation left the scene SHA-256 unchanged at
+  `AC24BE09E6E07729C1086B8F17E38D287E14675F7E7E02EBAD836A30EDD7DDB8`,
+  confirming idempotence on the integrated scene.
+- `Assets/Scenes/VRroom.unity`, Editor Build Settings, and the user's existing
+  OpenXR working-tree change were not modified by the W4 integration.
+
+Android APK generation and Quest/device behavior remain deliberately deferred
+to the later batched device-validation gate.

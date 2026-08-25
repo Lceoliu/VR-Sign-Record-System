@@ -198,7 +198,7 @@ namespace SignVR.Editor.Interaction
             }
             finally
             {
-                EditorSceneManager.RestoreSceneManagerSetup(setup);
+                InteractionLabSceneTool.RestoreSceneManagerSetupSafely(setup);
             }
         }
 
