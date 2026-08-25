@@ -59,11 +59,20 @@ def run_plan(run_id: str = "run_20260826T101530Z_alpha") -> dict:
     }
 
 
-def post_plan(client: TestClient, plan: dict, *, raw: bytes | None = None):
+def post_plan(
+    client: TestClient,
+    plan: dict,
+    *,
+    raw: bytes | None = None,
+    quest_device_id: str | None = "quest-interaction",
+):
+    headers = {"content-type": "application/json"}
+    if quest_device_id is not None:
+        headers["X-SignVR-Quest-Id"] = quest_device_id
     return client.post(
         "/api/interaction/runs",
         content=raw if raw is not None else json.dumps(plan).encode("utf-8"),
-        headers={"content-type": "application/json"},
+        headers=headers,
     )
 
 
@@ -84,16 +93,52 @@ def announce_paired_quest(app, device_id: str = "quest-interaction") -> None:
     assert device.paired is True
 
 
-def report_camera_ready(client: TestClient) -> None:
+def report_quest_ready(
+    client: TestClient,
+    device_id: str = "quest-interaction",
+    *,
+    ready: bool = True,
+    generation: int = 10,
+    sequence: int = 1,
+) -> None:
     response = client.put(
-        "/api/interaction/readiness/camera",
-        json={"schema_version": 1, "ready": True},
+        "/api/interaction/readiness/quest",
+        json={
+            "schema_version": 1,
+            "quest_device_id": device_id,
+            "ready": ready,
+            "heartbeat_generation": generation,
+            "heartbeat_sequence": sequence,
+        },
     )
     assert response.status_code == 200
+    assert response.json()["accepted"] is True
+
+
+def report_camera_ready(
+    client: TestClient,
+    participant_id: str | None = "P001",
+    *,
+    ready: bool = True,
+    generation: int = 20,
+    sequence: int = 1,
+) -> None:
+    response = client.put(
+        "/api/interaction/readiness/camera",
+        json={
+            "schema_version": 1,
+            "participant_id": participant_id,
+            "ready": ready,
+            "heartbeat_generation": generation,
+            "heartbeat_sequence": sequence,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["accepted"] is True
 
 
 def make_interaction_ready(client: TestClient, app) -> None:
-    announce_paired_quest(app)
+    report_quest_ready(client)
     report_camera_ready(client)
 
 
@@ -157,6 +202,373 @@ def summary_bytes(run_id: str) -> bytes:
     ).encode("utf-8")
 
 
+def test_http_quest_heartbeat_drives_interaction_readiness_without_udp_registry(
+    tmp_path,
+):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        initial = client.get("/api/interaction/readiness")
+        heartbeat = client.put(
+            "/api/interaction/readiness/quest",
+            json={
+                "schema_version": 1,
+                "quest_device_id": "quest-http-alpha",
+                "ready": True,
+                "heartbeat_generation": 10,
+                "heartbeat_sequence": 1,
+            },
+        )
+        after = client.get("/api/interaction/readiness")
+
+    assert initial.status_code == 200
+    assert initial.json()["quest_fresh"] is False
+    assert initial.json()["quest_ready"] is False
+    assert heartbeat.status_code == 200
+    assert heartbeat.json()["accepted"] is True
+    assert heartbeat.json()["quest_fresh"] is True
+    assert heartbeat.json()["quest_ready"] is True
+    assert heartbeat.json()["quest_device_id"] == "quest-http-alpha"
+    assert heartbeat.json()["quest_last_seen_utc"] is not None
+    assert after.json()["quest_ready"] is True
+    assert after.json()["quest_fresh"] is True
+    assert after.json()["quest_device_id"] == "quest-http-alpha"
+    assert after.json()["quest_last_seen_utc"] == heartbeat.json()["quest_last_seen_utc"]
+    assert after.json()["camera_ready"] is False
+    assert after.json()["camera_fresh"] is False
+    assert after.json()["participant_fresh"] is False
+    assert after.json()["ready"] is False
+
+
+def test_host_camera_heartbeat_advertises_a_fresh_participant_identity(tmp_path):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        heartbeat = client.put(
+            "/api/interaction/readiness/camera",
+            json={
+                "schema_version": 1,
+                "participant_id": "P001",
+                "ready": True,
+                "heartbeat_generation": 20,
+                "heartbeat_sequence": 1,
+            },
+        )
+        after = client.get("/api/interaction/readiness")
+
+    assert heartbeat.status_code == 200
+    assert heartbeat.json()["accepted"] is True
+    assert heartbeat.json()["camera_fresh"] is True
+    assert heartbeat.json()["camera_ready"] is True
+    assert heartbeat.json()["participant_ready"] is True
+    assert heartbeat.json()["participant_fresh"] is True
+    assert heartbeat.json()["participant_id"] == "P001"
+    assert heartbeat.json()["camera_last_seen_utc"] is not None
+    assert heartbeat.json()["participant_last_seen_utc"] == heartbeat.json()[
+        "camera_last_seen_utc"
+    ]
+    assert after.json()["camera_ready"] is True
+    assert after.json()["camera_fresh"] is True
+    assert after.json()["participant_ready"] is True
+    assert after.json()["participant_fresh"] is True
+    assert after.json()["participant_id"] == "P001"
+    assert after.json()["participant_last_seen_utc"] == heartbeat.json()[
+        "participant_last_seen_utc"
+    ]
+    assert after.json()["ready"] is False
+
+
+def test_fresh_http_quest_rejects_a_conflicting_device_without_changing_presence(
+    tmp_path,
+):
+    app = build_app(tmp_path)
+    first_body = {
+        "schema_version": 1,
+        "quest_device_id": "quest-http-alpha",
+        "ready": True,
+        "heartbeat_generation": 10,
+        "heartbeat_sequence": 1,
+    }
+    with TestClient(app) as client:
+        first = client.put("/api/interaction/readiness/quest", json=first_body)
+        conflict = client.put(
+            "/api/interaction/readiness/quest",
+            json={
+                **first_body,
+                "quest_device_id": "quest-http-beta",
+                "heartbeat_generation": 20,
+            },
+        )
+        after = client.get("/api/interaction/readiness")
+
+    assert first.status_code == 200
+    assert conflict.status_code == 409
+    assert "quest-http-alpha" in conflict.json()["detail"]
+    assert after.json()["quest_ready"] is True
+    assert after.json()["quest_device_id"] == "quest-http-alpha"
+    assert after.json()["quest_last_seen_utc"] == first.json()["quest_last_seen_utc"]
+
+
+@pytest.mark.parametrize(
+    ("quest_header", "participant_id", "expected_detail"),
+    [
+        (None, "P001", "X-SignVR-Quest-Id"),
+        ("quest-other", "P001", "fresh Quest heartbeat"),
+        ("quest-interaction", "P002", "fresh Host participant"),
+    ],
+    ids=["missing-quest-header", "wrong-quest", "wrong-participant"],
+)
+def test_run_registration_rejects_identity_mismatch_before_creating_a_directory(
+    tmp_path,
+    quest_header,
+    participant_id,
+    expected_detail,
+):
+    app = build_app(tmp_path)
+    plan = run_plan(f"run_identity_{participant_id}_{quest_header or 'missing'}")
+    plan["participant_id"] = participant_id
+
+    with TestClient(app) as client:
+        report_quest_ready(client)
+        report_camera_ready(client)
+        rejected = post_plan(
+            client,
+            plan,
+            quest_device_id=quest_header,
+        )
+
+    assert rejected.status_code == 409
+    assert expected_detail in rejected.json()["detail"]
+    assert not run_directory(tmp_path, plan).exists()
+    assert list((tmp_path / "interaction-tests").rglob("run.manifest.json")) == []
+
+
+def test_stale_heartbeat_cannot_restore_an_old_ready_identity(tmp_path):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        quest_new = client.put(
+            "/api/interaction/readiness/quest",
+            json={
+                "schema_version": 1,
+                "quest_device_id": "quest-interaction",
+                "ready": True,
+                "heartbeat_generation": 10,
+                "heartbeat_sequence": 2,
+            },
+        )
+        quest_old = client.put(
+            "/api/interaction/readiness/quest",
+            json={
+                "schema_version": 1,
+                "quest_device_id": "quest-interaction",
+                "ready": False,
+                "heartbeat_generation": 10,
+                "heartbeat_sequence": 1,
+            },
+        )
+        quest_old_generation = client.put(
+            "/api/interaction/readiness/quest",
+            json={
+                "schema_version": 1,
+                "quest_device_id": "quest-interaction",
+                "ready": False,
+                "heartbeat_generation": 9,
+                "heartbeat_sequence": 999,
+            },
+        )
+        camera_ready = client.put(
+            "/api/interaction/readiness/camera",
+            json={
+                "schema_version": 1,
+                "participant_id": "P001",
+                "ready": True,
+                "heartbeat_generation": 20,
+                "heartbeat_sequence": 1,
+            },
+        )
+        camera_cleared = client.put(
+            "/api/interaction/readiness/camera",
+            json={
+                "schema_version": 1,
+                "participant_id": None,
+                "ready": False,
+                "heartbeat_generation": 20,
+                "heartbeat_sequence": 2,
+            },
+        )
+        camera_old = client.put(
+            "/api/interaction/readiness/camera",
+            json={
+                "schema_version": 1,
+                "participant_id": "P001",
+                "ready": True,
+                "heartbeat_generation": 20,
+                "heartbeat_sequence": 1,
+            },
+        )
+        camera_old_generation = client.put(
+            "/api/interaction/readiness/camera",
+            json={
+                "schema_version": 1,
+                "participant_id": "P001",
+                "ready": True,
+                "heartbeat_generation": 19,
+                "heartbeat_sequence": 999,
+            },
+        )
+        after = client.get("/api/interaction/readiness")
+
+    assert quest_new.status_code == 200
+    assert quest_old.status_code == 200
+    assert quest_old.json()["accepted"] is False
+    assert quest_old.json()["quest_fresh"] is True
+    assert quest_old.json()["quest_ready"] is True
+    assert quest_old.json()["quest_last_seen_utc"] == quest_new.json()[
+        "quest_last_seen_utc"
+    ]
+    assert quest_old_generation.status_code == 200
+    assert quest_old_generation.json()["accepted"] is False
+    assert quest_old_generation.json()["quest_last_seen_utc"] == quest_new.json()[
+        "quest_last_seen_utc"
+    ]
+    assert camera_ready.status_code == 200
+    assert camera_cleared.status_code == 200
+    assert camera_old.status_code == 200
+    assert camera_old.json()["accepted"] is False
+    assert camera_old.json()["camera_fresh"] is True
+    assert camera_old.json()["camera_ready"] is False
+    assert camera_old.json()["participant_id"] is None
+    assert camera_old.json()["participant_fresh"] is False
+    assert camera_old.json()["camera_last_seen_utc"] == camera_cleared.json()[
+        "camera_last_seen_utc"
+    ]
+    assert camera_old_generation.status_code == 200
+    assert camera_old_generation.json()["accepted"] is False
+    assert camera_old_generation.json()["participant_id"] is None
+    assert camera_old_generation.json()["camera_last_seen_utc"] == camera_cleared.json()[
+        "camera_last_seen_utc"
+    ]
+    assert after.json()["quest_ready"] is True
+    assert after.json()["camera_ready"] is False
+    assert after.json()["participant_ready"] is False
+    assert after.json()["participant_id"] is None
+    assert after.json()["ready"] is False
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "body"),
+    [
+        (
+            "quest",
+            {
+                "schema_version": 1,
+                "quest_device_id": "../quest",
+                "ready": True,
+                "heartbeat_generation": 1,
+                "heartbeat_sequence": 1,
+            },
+        ),
+        (
+            "quest",
+            {
+                "schema_version": 1,
+                "quest_device_id": "quest-alpha",
+                "ready": True,
+                "heartbeat_generation": True,
+                "heartbeat_sequence": 1,
+            },
+        ),
+        (
+            "quest",
+            {
+                "schema_version": 1,
+                "quest_device_id": "quest-alpha",
+                "ready": True,
+                "heartbeat_generation": 1,
+                "heartbeat_sequence": 0,
+            },
+        ),
+        (
+            "quest",
+            {
+                "schema_version": 1,
+                "quest_device_id": "quest-alpha",
+                "ready": True,
+                "heartbeat_generation": 2**63,
+                "heartbeat_sequence": 1,
+            },
+        ),
+        (
+            "quest",
+            {
+                "schema_version": 1,
+                "quest_device_id": "quest-alpha",
+                "ready": True,
+                "heartbeat_generation": 1,
+                "heartbeat_sequence": 1,
+                "unexpected": True,
+            },
+        ),
+        (
+            "camera",
+            {
+                "schema_version": 1,
+                "participant_id": None,
+                "ready": True,
+                "heartbeat_generation": 1,
+                "heartbeat_sequence": 1,
+            },
+        ),
+        (
+            "camera",
+            {
+                "schema_version": 1,
+                "participant_id": "CON",
+                "ready": False,
+                "heartbeat_generation": 1,
+                "heartbeat_sequence": 1,
+            },
+        ),
+        (
+            "camera",
+            {
+                "schema_version": 1,
+                "participant_id": "P001",
+                "ready": True,
+                "heartbeat_sequence": 1,
+            },
+        ),
+    ],
+    ids=[
+        "unsafe-quest-id",
+        "boolean-generation",
+        "zero-sequence",
+        "generation-over-int64",
+        "extra-quest-field",
+        "ready-camera-without-participant",
+        "reserved-participant-id",
+        "missing-camera-generation",
+    ],
+)
+def test_readiness_heartbeat_bodies_are_strict(tmp_path, endpoint, body):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        response = client.put(f"/api/interaction/readiness/{endpoint}", json=body)
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("endpoint", ["quest", "camera"])
+def test_readiness_heartbeat_requires_json_media_type(tmp_path, endpoint):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        response = client.put(
+            f"/api/interaction/readiness/{endpoint}",
+            content=b"{}",
+            headers={"content-type": "text/plain"},
+        )
+
+    assert response.status_code == 415
+
+
 @pytest.mark.parametrize("missing", ["storage", "quest", "camera"])
 def test_run_registration_rejects_each_missing_readiness_without_persisting_plan(
     tmp_path,
@@ -177,7 +589,7 @@ def test_run_registration_rejects_each_missing_readiness_without_persisting_plan
     plan = run_plan(f"run_missing_{missing}")
     with TestClient(app) as client:
         if missing != "quest":
-            announce_paired_quest(app)
+            report_quest_ready(client)
         if missing != "camera":
             report_camera_ready(client)
 
@@ -196,7 +608,7 @@ def test_identical_quest_plan_can_be_retried_after_camera_becomes_ready(tmp_path
     raw = (json.dumps(plan, ensure_ascii=False, indent=4) + "\n").encode("utf-8")
 
     with TestClient(app) as client:
-        announce_paired_quest(app)
+        report_quest_ready(client)
         rejected = post_plan(client, plan, raw=raw)
         assert rejected.status_code == 409
         assert not run_directory(tmp_path, plan).exists()
@@ -236,7 +648,7 @@ def test_selected_but_unpaired_quest_cannot_register_a_run(tmp_path):
     assert not run_directory(tmp_path, plan).exists()
 
 
-def test_readiness_reports_backend_storage_and_selected_quest(tmp_path):
+def test_readiness_reports_only_http_study_heartbeats_with_udp_disabled(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
         initial = client.get("/api/interaction/readiness")
@@ -246,11 +658,18 @@ def test_readiness_reports_backend_storage_and_selected_quest(tmp_path):
             "backend_ready": True,
             "storage_ready": True,
             "storage_error": None,
+            "quest_fresh": False,
             "quest_ready": False,
+            "camera_fresh": False,
             "camera_ready": False,
+            "participant_fresh": False,
+            "participant_ready": False,
             "ready": False,
             "quest_device_id": None,
+            "quest_last_seen_utc": None,
             "camera_last_seen_utc": None,
+            "participant_id": None,
+            "participant_last_seen_utc": None,
             "server_utc": initial.json()["server_utc"],
             "interaction_root": str(tmp_path / "interaction-tests"),
             "active_run": None,
@@ -268,30 +687,92 @@ def test_readiness_reports_backend_storage_and_selected_quest(tmp_path):
         selected = client.post("/api/devices/quest-interaction/select")
         assert selected.status_code == 200
 
+        udp_only = client.get("/api/interaction/readiness").json()
+        assert udp_only["quest_ready"] is False
+        assert udp_only["quest_fresh"] is False
+        assert udp_only["quest_device_id"] is None
+        assert udp_only["quest_last_seen_utc"] is None
+
+        report_quest_ready(client)
         quest_only = client.get("/api/interaction/readiness").json()
         assert quest_only["quest_ready"] is True
+        assert quest_only["quest_fresh"] is True
         assert quest_only["camera_ready"] is False
         assert quest_only["ready"] is False
 
         invalid_camera = client.put(
             "/api/interaction/readiness/camera",
-            json={"schema_version": 1, "ready": 1},
+            json={
+                "schema_version": 1,
+                "participant_id": "P001",
+                "ready": 1,
+                "heartbeat_generation": 20,
+                "heartbeat_sequence": 1,
+            },
         )
         assert invalid_camera.status_code == 422
 
-        camera = client.put(
-            "/api/interaction/readiness/camera",
-            json={"schema_version": 1, "ready": True},
-        )
-        assert camera.status_code == 200
+        report_camera_ready(client)
         ready = client.get("/api/interaction/readiness").json()
         assert ready["backend_ready"] is True
         assert ready["storage_ready"] is True
+        assert ready["quest_fresh"] is True
         assert ready["quest_ready"] is True
+        assert ready["camera_fresh"] is True
         assert ready["camera_ready"] is True
+        assert ready["participant_fresh"] is True
+        assert ready["participant_ready"] is True
         assert ready["ready"] is True
         assert ready["quest_device_id"] == "quest-interaction"
+        assert ready["quest_last_seen_utc"] is not None
         assert ready["camera_last_seen_utc"] is not None
+        assert ready["participant_id"] == "P001"
+        assert ready["participant_last_seen_utc"] == ready["camera_last_seen_utc"]
+
+
+def test_host_restart_does_not_restore_process_local_study_presence(tmp_path):
+    first_app = build_app(tmp_path)
+    with TestClient(first_app) as client:
+        report_quest_ready(client)
+        report_camera_ready(client)
+        assert client.get("/api/interaction/readiness").json()["ready"] is True
+
+    restarted_app = build_app(tmp_path)
+    with TestClient(restarted_app) as client:
+        restarted = client.get("/api/interaction/readiness")
+
+    assert restarted.status_code == 200
+    assert restarted.json()["quest_ready"] is False
+    assert restarted.json()["quest_fresh"] is False
+    assert restarted.json()["camera_ready"] is False
+    assert restarted.json()["camera_fresh"] is False
+    assert restarted.json()["participant_ready"] is False
+    assert restarted.json()["participant_fresh"] is False
+    assert restarted.json()["ready"] is False
+    assert restarted.json()["quest_device_id"] is None
+    assert restarted.json()["participant_id"] is None
+    assert restarted.json()["quest_last_seen_utc"] is None
+    assert restarted.json()["camera_last_seen_utc"] is None
+    assert restarted.json()["participant_last_seen_utc"] is None
+
+
+def test_http_study_presence_does_not_register_or_select_a_recorder_device(tmp_path):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        report_quest_ready(client, "quest-http-only")
+        report_camera_ready(client)
+        interaction = client.get("/api/interaction/readiness")
+        recorder_state = client.get("/api/state")
+        recorder_devices = client.get("/api/devices")
+
+    assert interaction.status_code == 200
+    assert interaction.json()["ready"] is True
+    assert interaction.json()["quest_device_id"] == "quest-http-only"
+    assert recorder_state.status_code == 200
+    assert recorder_state.json()["recording_status"] == "ready"
+    assert recorder_state.json()["selected_device_id"] is None
+    assert recorder_devices.status_code == 200
+    assert recorder_devices.json() == []
 
 
 def test_only_active_run_blocks_registration_and_terminal_history_is_not_active(
@@ -440,6 +921,7 @@ def test_duplicate_global_run_id_never_overwrites_original_manifest(tmp_path):
         lambda plan: plan["phases"][1].update(phase_id=3),
         lambda plan: plan["phases"][0].update(signer_id="other"),
         lambda plan: plan["phases"][0].update(artifact_path="../../outside.pose.jsonl"),
+        lambda plan: plan.update(quest_device_id="quest-interaction"),
         lambda plan: plan.update(unexpected=True),
     ],
     ids=[
@@ -453,6 +935,7 @@ def test_duplicate_global_run_id_never_overwrites_original_manifest(tmp_path):
         "unordered-phases",
         "non-pilot-signer",
         "artifact-path-traversal",
+        "quest-device-is-not-a-v1-manifest-field",
         "extra-schema-field",
     ],
 )

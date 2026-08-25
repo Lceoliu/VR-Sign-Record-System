@@ -1,4 +1,18 @@
-import type { InteractionRunSnapshot } from './types'
+import type {
+  InteractionCameraReadiness,
+  InteractionCameraReadinessUpdate,
+  InteractionRunSnapshot,
+} from './types'
+
+const PARTICIPANT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/
+const WINDOWS_RESERVED_NAMES = new Set([
+  'CON',
+  'PRN',
+  'AUX',
+  'NUL',
+  ...Array.from({ length: 9 }, (_, index) => `COM${index + 1}`),
+  ...Array.from({ length: 9 }, (_, index) => `LPT${index + 1}`),
+])
 
 export type CaptureDirective =
   | { action: 'none' }
@@ -62,6 +76,45 @@ export type WebcamRecoveryAction =
 export type WebcamRecoveryTransition = {
   state: WebcamRecoveryState
   upload: WebcamRecoveryUpload | null
+}
+
+export function isValidParticipantId(participantId: string): boolean {
+  if (!PARTICIPANT_ID_PATTERN.test(participantId) || participantId.endsWith('.')) return false
+  return !WINDOWS_RESERVED_NAMES.has(participantId.split('.', 1)[0].toUpperCase())
+}
+
+export function createCameraReadinessHeartbeat(
+  cameraReady: boolean,
+  participantId: string,
+  heartbeatGeneration: number,
+  heartbeatSequence: number,
+): InteractionCameraReadinessUpdate {
+  const participantValid = isValidParticipantId(participantId)
+  return {
+    schema_version: 1,
+    ready: cameraReady && participantValid,
+    participant_id: participantValid ? participantId : null,
+    heartbeat_generation: heartbeatGeneration,
+    heartbeat_sequence: heartbeatSequence,
+  }
+}
+
+export function cameraHeartbeatEchoIsReady(
+  heartbeat: InteractionCameraReadinessUpdate,
+  echo: InteractionCameraReadiness,
+): boolean {
+  return Boolean(
+    heartbeat.ready
+    && heartbeat.participant_id !== null
+    && echo.accepted
+    && echo.heartbeat_generation === heartbeat.heartbeat_generation
+    && echo.heartbeat_sequence === heartbeat.heartbeat_sequence
+    && echo.camera_fresh
+    && echo.camera_ready
+    && echo.participant_fresh
+    && echo.participant_ready
+    && echo.participant_id === heartbeat.participant_id
+  )
 }
 
 export function transitionWebcamRecovery(

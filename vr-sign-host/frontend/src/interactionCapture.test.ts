@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  cameraHeartbeatEchoIsReady,
   cameraReadinessForCurrentStream,
+  createCameraReadinessHeartbeat,
   captureDirective,
   participantIdsMatch,
   reconcilePolledInteractionRun,
@@ -8,7 +10,7 @@ import {
   webcamRecoveryFilename,
   type CameraReadinessStream,
 } from './interactionCapture'
-import type { InteractionRunSnapshot } from './types'
+import type { InteractionCameraReadiness, InteractionRunSnapshot } from './types'
 
 const run: InteractionRunSnapshot = {
   schema_version: 1,
@@ -58,6 +60,54 @@ describe('participantIdsMatch', () => {
     expect(participantIdsMatch(' P001 ', 'P001')).toBe(true)
     expect(participantIdsMatch('', 'P001')).toBe(false)
     expect(participantIdsMatch('P001', 'P002')).toBe(false)
+  })
+})
+
+describe('Interaction camera readiness heartbeat', () => {
+  it('sends the canonical ready heartbeat for a valid participant', () => {
+    expect(createCameraReadinessHeartbeat(true, 'P001', 1234, 1)).toEqual({
+      schema_version: 1,
+      ready: true,
+      participant_id: 'P001',
+      heartbeat_generation: 1234,
+      heartbeat_sequence: 1,
+    })
+  })
+
+  it.each(['', ' P001 ', '../P001', 'CON', 'P'.repeat(81)])(
+    'clears participant presence and camera readiness for invalid input %j',
+    (participantId) => {
+      expect(createCameraReadinessHeartbeat(true, participantId, 1234, 2)).toEqual({
+        schema_version: 1,
+        ready: false,
+        participant_id: null,
+        heartbeat_generation: 1234,
+        heartbeat_sequence: 2,
+      })
+    },
+  )
+
+  it('requires an accepted Host echo for the exact latest watermark and identity', () => {
+    const heartbeat = createCameraReadinessHeartbeat(true, 'P001', 1234, 3)
+    const echo: InteractionCameraReadiness = {
+      schema_version: 1,
+      accepted: true,
+      camera_fresh: true,
+      camera_ready: true,
+      camera_last_seen_utc: '2026-08-26T10:00:00Z',
+      participant_fresh: true,
+      participant_ready: true,
+      participant_id: 'P001',
+      participant_last_seen_utc: '2026-08-26T10:00:00Z',
+      heartbeat_generation: 1234,
+      heartbeat_sequence: 3,
+    }
+
+    expect(cameraHeartbeatEchoIsReady(heartbeat, echo)).toBe(true)
+    expect(cameraHeartbeatEchoIsReady(heartbeat, { ...echo, accepted: false })).toBe(false)
+    expect(cameraHeartbeatEchoIsReady(heartbeat, { ...echo, heartbeat_sequence: 2 })).toBe(false)
+    expect(cameraHeartbeatEchoIsReady(heartbeat, { ...echo, participant_id: 'P002' })).toBe(false)
+    expect(cameraHeartbeatEchoIsReady(heartbeat, { ...echo, camera_ready: false })).toBe(false)
   })
 })
 

@@ -52,6 +52,8 @@ _WINDOWS_RESERVED_NAMES = {
 
 NonNegativeInt = Annotated[StrictInt, Field(ge=0)]
 SchemaVersion = Annotated[StrictInt, Field(ge=1, le=1)]
+HeartbeatGeneration = Annotated[StrictInt, Field(ge=0, le=2**63 - 1)]
+HeartbeatSequence = Annotated[StrictInt, Field(ge=1, le=2**63 - 1)]
 
 
 def validate_interaction_id(value: str, label: str = "identifier") -> str:
@@ -337,7 +339,63 @@ class InteractionAck(StrictModel):
 
 class InteractionCameraReadinessUpdate(StrictModel):
     schema_version: SchemaVersion
+    participant_id: StrictStr | None
     ready: StrictBool
+    heartbeat_generation: HeartbeatGeneration
+    heartbeat_sequence: HeartbeatSequence
+
+    @field_validator("participant_id")
+    @classmethod
+    def validate_participant_id(cls, value: str | None) -> str | None:
+        return (
+            validate_interaction_id(value, "participant_id")
+            if value is not None
+            else None
+        )
+
+    @model_validator(mode="after")
+    def require_participant_when_ready(self) -> "InteractionCameraReadinessUpdate":
+        if self.ready and self.participant_id is None:
+            raise ValueError("participant_id is required when camera ready is true")
+        return self
+
+
+class InteractionCameraReadinessStatus(StrictModel):
+    schema_version: SchemaVersion = INTERACTION_SCHEMA_VERSION
+    accepted: bool
+    camera_fresh: bool
+    camera_ready: bool
+    camera_last_seen_utc: datetime | None
+    participant_ready: bool
+    participant_fresh: bool
+    participant_id: str | None
+    participant_last_seen_utc: datetime | None
+    heartbeat_generation: int | None
+    heartbeat_sequence: int | None
+
+
+class InteractionQuestReadinessUpdate(StrictModel):
+    schema_version: SchemaVersion
+    quest_device_id: StrictStr
+    ready: StrictBool
+    heartbeat_generation: HeartbeatGeneration
+    heartbeat_sequence: HeartbeatSequence
+
+    @field_validator("quest_device_id")
+    @classmethod
+    def validate_quest_device_id(cls, value: str) -> str:
+        return validate_interaction_id(value, "quest_device_id")
+
+
+class InteractionQuestReadinessStatus(StrictModel):
+    schema_version: SchemaVersion = INTERACTION_SCHEMA_VERSION
+    accepted: bool
+    quest_fresh: bool
+    quest_ready: bool
+    quest_device_id: str | None
+    quest_last_seen_utc: datetime | None
+    heartbeat_generation: int | None
+    heartbeat_sequence: int | None
 
 
 class InteractionReadiness(StrictModel):
@@ -345,11 +403,18 @@ class InteractionReadiness(StrictModel):
     backend_ready: bool
     storage_ready: bool
     storage_error: str | None
+    quest_fresh: bool
     quest_ready: bool
+    camera_fresh: bool
     camera_ready: bool
+    participant_fresh: bool
+    participant_ready: bool
     ready: bool
     quest_device_id: str | None
+    quest_last_seen_utc: datetime | None
     camera_last_seen_utc: datetime | None
+    participant_id: str | None
+    participant_last_seen_utc: datetime | None
     server_utc: datetime
     interaction_root: str
     active_run: InteractionRunSnapshot | None

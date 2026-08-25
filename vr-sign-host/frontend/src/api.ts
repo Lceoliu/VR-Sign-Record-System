@@ -6,6 +6,7 @@ import type {
   InteractionArtifactType,
   InteractionArtifactUploadResponse,
   InteractionCameraReadiness,
+  InteractionCameraReadinessUpdate,
   InteractionReadiness,
   InteractionRunSnapshot,
   RecordingBatchesResponse,
@@ -85,11 +86,11 @@ export const api = {
   interactionReadiness: () => request<InteractionReadiness>('/api/interaction/readiness'),
   interactionRun: (runId: string) =>
     request<InteractionRunSnapshot>(`/api/interaction/runs/${encodeURIComponent(runId)}`),
-  updateInteractionCameraReadiness: (ready: boolean) =>
+  updateInteractionCameraReadiness: (heartbeat: InteractionCameraReadinessUpdate) =>
     request<InteractionCameraReadiness>('/api/interaction/readiness/camera', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ schema_version: 1, ready }),
+      body: JSON.stringify(heartbeat),
     }),
   interactionAck: (runId: string) =>
     request<InteractionAck>(`/api/interaction/runs/${encodeURIComponent(runId)}/ack`),

@@ -6,7 +6,9 @@ from datetime import datetime, timezone
 
 from app.interaction_models import (
     InteractionAbortRequest,
+    InteractionCameraReadinessUpdate,
     InteractionCompleteRequest,
+    InteractionQuestReadinessUpdate,
     InteractionRunAccepted,
     InteractionRunSnapshot,
     InteractionRunState,
@@ -213,6 +215,75 @@ def test_concurrent_run_registration_allows_exactly_one_active_run(
         active = await service.active_snapshot()
         assert active is not None
         assert active.run_id == successes[0].run_id
+        assert len(list(repository.interaction_root.rglob("run.manifest.json"))) == 1
+
+    asyncio.run(scenario())
+
+
+def test_participant_heartbeat_waits_for_atomic_run_admission(tmp_path, monkeypatch):
+    async def scenario() -> None:
+        repository = InteractionRepository(tmp_path)
+        service = InteractionService(repository)
+        await service.update_quest_readiness(
+            InteractionQuestReadinessUpdate(
+                schema_version=1,
+                quest_device_id="quest-interaction",
+                ready=True,
+                heartbeat_generation=10,
+                heartbeat_sequence=1,
+            )
+        )
+        await service.update_camera_readiness(
+            InteractionCameraReadinessUpdate(
+                schema_version=1,
+                participant_id="P001",
+                ready=True,
+                heartbeat_generation=20,
+                heartbeat_sequence=1,
+            )
+        )
+
+        original_create_run = repository.create_run
+        admission_reached_storage = asyncio.Event()
+        release_storage = asyncio.Event()
+
+        async def blocked_create_run(*args, **kwargs):
+            admission_reached_storage.set()
+            await asyncio.wait_for(release_storage.wait(), timeout=1)
+            return await original_create_run(*args, **kwargs)
+
+        monkeypatch.setattr(repository, "create_run", blocked_create_run)
+        admission = asyncio.create_task(
+            service.accept_run_if_ready(
+                manifest_bytes("run_participant_admission_race"),
+                "quest-interaction",
+            ),
+            name="atomic-run-admission",
+        )
+        await asyncio.wait_for(admission_reached_storage.wait(), timeout=1)
+
+        participant_change = asyncio.create_task(
+            service.update_camera_readiness(
+                InteractionCameraReadinessUpdate(
+                    schema_version=1,
+                    participant_id="P002",
+                    ready=True,
+                    heartbeat_generation=20,
+                    heartbeat_sequence=2,
+                )
+            ),
+            name="concurrent-participant-heartbeat",
+        )
+        await asyncio.sleep(0)
+        assert participant_change.done() is False
+
+        release_storage.set()
+        accepted = await asyncio.wait_for(admission, timeout=1)
+        changed = await asyncio.wait_for(participant_change, timeout=1)
+
+        assert accepted.run_id == "run_participant_admission_race"
+        assert changed.accepted is True
+        assert changed.participant_id == "P002"
         assert len(list(repository.interaction_root.rglob("run.manifest.json"))) == 1
 
     asyncio.run(scenario())

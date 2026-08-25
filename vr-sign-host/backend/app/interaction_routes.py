@@ -1,25 +1,28 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TypeVar
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
-from .device_registry import DeviceRegistry
 from .interaction_models import (
     InteractionAbortRequest,
     InteractionArtifactType,
+    InteractionCameraReadinessStatus,
     InteractionCameraReadinessUpdate,
     InteractionCompleteRequest,
     InteractionReadiness,
+    InteractionQuestReadinessStatus,
+    InteractionQuestReadinessUpdate,
     InteractionRunSnapshot,
     InteractionRunState,
 )
 from .interaction_service import (
     InteractionArtifactError,
+    InteractionQuestPresenceConflict,
+    InteractionReadinessConflict,
     InteractionService,
     InteractionStateConflict,
     parse_json_model,
@@ -30,23 +33,8 @@ from .realtime import RealtimeHub
 _RequestModel = TypeVar("_RequestModel", bound=BaseModel)
 
 
-@dataclass(frozen=True, slots=True)
-class _InteractionReadinessFacts:
-    storage_ready: bool
-    storage_error: str | None
-    quest_ready: bool
-    quest_device_id: str | None
-    camera_ready: bool
-    camera_last_seen_utc: datetime | None
-
-    @property
-    def ready(self) -> bool:
-        return self.storage_ready and self.quest_ready and self.camera_ready
-
-
 def create_interaction_router(
     interactions: InteractionService,
-    registry: DeviceRegistry,
     hub: RealtimeHub,
 ) -> APIRouter:
     router = APIRouter(prefix="/api/interaction", tags=["interaction"])
@@ -54,73 +42,73 @@ def create_interaction_router(
 
     @router.get("/readiness", response_model=InteractionReadiness)
     async def readiness() -> InteractionReadiness:
-        facts = await _readiness_facts(interactions, registry)
+        facts = await interactions.readiness()
         return InteractionReadiness(
             backend_ready=True,
             storage_ready=facts.storage_ready,
             storage_error=facts.storage_error,
+            quest_fresh=facts.quest_fresh,
             quest_ready=facts.quest_ready,
+            camera_fresh=facts.camera_fresh,
             camera_ready=facts.camera_ready,
+            participant_fresh=facts.participant_fresh,
+            participant_ready=facts.participant_ready,
             ready=facts.ready,
             quest_device_id=facts.quest_device_id,
+            quest_last_seen_utc=facts.quest_last_seen_utc,
             camera_last_seen_utc=facts.camera_last_seen_utc,
+            participant_id=facts.participant_id,
+            participant_last_seen_utc=facts.participant_last_seen_utc,
             server_utc=datetime.now(timezone.utc),
             interaction_root=str(interactions.interaction_root),
             active_run=await interactions.active_snapshot(),
         )
 
-    @router.put("/readiness/camera")
-    async def update_camera_readiness(request: Request):
+    @router.put(
+        "/readiness/quest",
+        response_model=InteractionQuestReadinessStatus,
+    )
+    async def update_quest_readiness(request: Request) -> InteractionQuestReadinessStatus:
+        body = await _validated_body(request, InteractionQuestReadinessUpdate)
+        try:
+            status = await interactions.update_quest_readiness(body)
+        except InteractionQuestPresenceConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        await hub.publish_event(
+            {
+                "type": "interaction_quest_readiness",
+                "payload": status.model_dump(mode="json"),
+            }
+        )
+        return status
+
+    @router.put(
+        "/readiness/camera",
+        response_model=InteractionCameraReadinessStatus,
+    )
+    async def update_camera_readiness(request: Request) -> InteractionCameraReadinessStatus:
         body = await _validated_body(request, InteractionCameraReadinessUpdate)
-        camera_ready, last_seen_utc = interactions.set_camera_readiness(body.ready)
+        status = await interactions.update_camera_readiness(body)
         await hub.publish_event(
             {
                 "type": "interaction_camera_readiness",
-                "payload": {
-                    "camera_ready": camera_ready,
-                    "camera_last_seen_utc": (
-                        last_seen_utc.isoformat() if last_seen_utc else None
-                    ),
-                },
+                "payload": status.model_dump(mode="json"),
             }
         )
-        return {
-            "schema_version": 1,
-            "camera_ready": camera_ready,
-            "camera_last_seen_utc": last_seen_utc,
-        }
+        return status
 
     @router.post("/runs")
     async def accept_run(request: Request):
         _require_media_type(request, {"application/json"})
-        facts = await _readiness_facts(interactions, registry)
-        if not facts.ready:
-            missing = [
-                label
-                for label, ready in (
-                    ("storage", facts.storage_ready),
-                    ("selected and paired Quest", facts.quest_ready),
-                    ("fresh camera heartbeat", facts.camera_ready),
-                )
-                if not ready
-            ]
-            raise HTTPException(
-                status_code=409,
-                detail=f"Interaction Host is not ready: {', '.join(missing)}",
-            )
-        active = await interactions.active_snapshot()
-        if active is not None:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "An Interaction Run is already active: "
-                    f"{active.run_id} ({active.state.value})"
-                ),
-            )
         manifest_bytes = await request.body()
         try:
-            response = await interactions.accept_run_if_idle(manifest_bytes)
+            response = await interactions.accept_run_if_ready(
+                manifest_bytes,
+                request.headers.get("X-SignVR-Quest-Id"),
+            )
             snapshot = await interactions.snapshot(response.run_id)
+        except InteractionReadinessConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except ValueError as exc:
@@ -247,22 +235,6 @@ def create_interaction_router(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return router
-
-
-async def _readiness_facts(
-    interactions: InteractionService,
-    registry: DeviceRegistry,
-) -> _InteractionReadinessFacts:
-    selected = await registry.selected()
-    camera_ready, camera_last_seen_utc = interactions.camera_readiness()
-    return _InteractionReadinessFacts(
-        storage_ready=interactions.storage_ready(),
-        storage_error=interactions.storage_error,
-        quest_ready=bool(selected and selected.selected and selected.paired),
-        quest_device_id=selected.device_id if selected else None,
-        camera_ready=camera_ready,
-        camera_last_seen_utc=camera_last_seen_utc,
-    )
 
 
 async def _validated_body(

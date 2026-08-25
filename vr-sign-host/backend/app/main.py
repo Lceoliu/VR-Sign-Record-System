@@ -134,7 +134,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     app.state.interaction_repository = interaction_repository
     app.state.interactions = interactions
     app.state.udp = udp
-    app.include_router(create_interaction_router(interactions, registry, hub))
+    app.include_router(create_interaction_router(interactions, hub))
 
     @app.get("/api/health")
     async def health() -> dict:

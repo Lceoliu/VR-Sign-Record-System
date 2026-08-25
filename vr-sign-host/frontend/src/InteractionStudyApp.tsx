@@ -16,9 +16,12 @@ import { api } from './api'
 import { QuestPreviewPanel } from './components/QuestPreviewPanel'
 import { VideoPanel } from './components/VideoPanel'
 import {
+  cameraHeartbeatEchoIsReady,
   cameraReadinessForCurrentStream,
   captureDirective,
+  createCameraReadinessHeartbeat,
   isTerminalInteractionRun,
+  isValidParticipantId,
   participantIdsMatch,
   reconcilePolledInteractionRun,
   transitionWebcamRecovery,
@@ -64,8 +67,6 @@ const CAPTURE_LABELS: Record<CaptureStatus, string> = {
   error: '摄像头录制失败',
 }
 
-const PARTICIPANT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/
-
 function preferredMimeType(): string {
   return ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
     .find((type) => MediaRecorder.isTypeSupported(type)) ?? ''
@@ -95,6 +96,7 @@ export default function InteractionStudyApp() {
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([])
   const [cameraId, setCameraId] = useState('')
   const [cameraReady, setCameraReady] = useState(false)
+  const [cameraHeartbeatReady, setCameraHeartbeatReady] = useState(false)
   const [captureStatus, setCaptureStatus] = useState<CaptureStatus>('idle')
   const [captureDetail, setCaptureDetail] = useState('尚未收到本轮同步起点')
   const [abortReason, setAbortReason] = useState('')
@@ -108,6 +110,9 @@ export default function InteractionStudyApp() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const cameraRequestRef = useRef(0)
+  const participantIdRef = useRef(expectedParticipantId)
+  const heartbeatGenerationRef = useRef(Math.floor(performance.timeOrigin * 1000))
+  const heartbeatSequenceRef = useRef(0)
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const captureRunIdRef = useRef<string | null>(null)
@@ -155,6 +160,13 @@ export default function InteractionStudyApp() {
       if (reconciled.acceptedSequence !== sequence) return
       refreshAcceptedSequenceRef.current = sequence
       setReadiness(next)
+      if (
+        !next.camera_ready
+        || !next.participant_ready
+        || next.participant_id !== participantIdRef.current
+      ) {
+        setCameraHeartbeatReady(false)
+      }
       applyCurrentRun(reconciled.run)
       setBackendOnline(true)
     } catch (reason) {
@@ -206,7 +218,51 @@ export default function InteractionStudyApp() {
     )
     if (ready === null) return
     setCameraReady(ready)
-    void api.updateInteractionCameraReadiness(ready).catch(() => undefined)
+    const heartbeat = createCameraReadinessHeartbeat(
+      ready,
+      participantIdRef.current,
+      heartbeatGenerationRef.current,
+      ++heartbeatSequenceRef.current,
+    )
+    if (!heartbeat.ready) setCameraHeartbeatReady(false)
+    void api.updateInteractionCameraReadiness(heartbeat).then((echo) => {
+      if (
+        heartbeat.heartbeat_generation !== heartbeatGenerationRef.current
+        || heartbeat.heartbeat_sequence !== heartbeatSequenceRef.current
+      ) return
+      const echoReady = cameraHeartbeatEchoIsReady(heartbeat, echo)
+      setCameraHeartbeatReady(echoReady)
+      setReadiness((previous) => previous
+        ? {
+            ...previous,
+            camera_fresh: echo.camera_fresh,
+            camera_ready: echo.camera_ready,
+            camera_last_seen_utc: echo.camera_last_seen_utc,
+            participant_fresh: echo.participant_fresh,
+            participant_ready: echo.participant_ready,
+            participant_id: echo.participant_id,
+            participant_last_seen_utc: echo.participant_last_seen_utc,
+            ready: previous.storage_ready
+              && previous.quest_ready
+              && echo.camera_ready
+              && echo.participant_ready,
+          }
+        : previous)
+    }).catch(() => {
+      if (heartbeat.heartbeat_sequence === heartbeatSequenceRef.current) {
+        setCameraHeartbeatReady(false)
+      }
+    })
+  }, [])
+
+  const clearCameraReadiness = useCallback(() => {
+    const heartbeat = createCameraReadinessHeartbeat(
+      false,
+      '',
+      heartbeatGenerationRef.current,
+      ++heartbeatSequenceRef.current,
+    )
+    void api.updateInteractionCameraReadiness(heartbeat).catch(() => undefined)
   }, [])
 
   const openCamera = useCallback(async (deviceId?: string) => {
@@ -271,9 +327,9 @@ export default function InteractionStudyApp() {
       const stream = mediaStreamRef.current
       mediaStreamRef.current = null
       stream?.getTracks().forEach((track) => track.stop())
-      void api.updateInteractionCameraReadiness(false).catch(() => undefined)
+      clearCameraReadiness()
     }
-  }, [openCamera])
+  }, [clearCameraReadiness, openCamera])
 
   useEffect(() => {
     const report = () => reportCameraReadiness()
@@ -437,16 +493,28 @@ export default function InteractionStudyApp() {
     if (directive.action === 'stop') stopCapture(currentRun.run_id)
   }, [beginCapture, cameraReady, currentRun, stopCapture])
 
-  const participantInputValid = PARTICIPANT_ID_PATTERN.test(expectedParticipantId)
+  const participantInputValid = isValidParticipantId(expectedParticipantId)
   const participantMatch = participantIdsMatch(
     expectedParticipantId,
     currentRun?.participant_id ?? null,
+  )
+  const participantHeartbeatMatch = participantIdsMatch(
+    expectedParticipantId,
+    readiness?.participant_id ?? null,
+  )
+  const participantHeartbeatReady = Boolean(
+    participantInputValid
+    && cameraHeartbeatReady
+    && readiness?.participant_fresh
+    && readiness?.participant_ready
+    && participantHeartbeatMatch,
   )
   const captureBusy = ['scheduled', 'recording', 'stopping', 'uploading'].includes(captureStatus)
   const hostReady = Boolean(
     backendOnline
     && readiness?.ready
     && cameraReady
+    && cameraHeartbeatReady
     && participantInputValid,
   )
   const startAtMs = currentRun ? Date.parse(currentRun.start_at_utc) : Number.NaN
@@ -472,28 +540,35 @@ export default function InteractionStudyApp() {
     {
       label: 'Quest',
       ready: Boolean(readiness?.quest_ready),
-      detail: selectedQuestId ?? '未选择并配对 Quest',
+      detail: selectedQuestId ?? '未收到 fresh Quest HTTP heartbeat',
       icon: Headset,
     },
     {
       label: 'Camera',
-      ready: cameraReady,
-      detail: cameraReady ? 'video-only WebM 就绪' : '浏览器未获得摄像头',
+      ready: cameraReady && cameraHeartbeatReady,
+      detail: !cameraReady
+        ? '浏览器未获得摄像头'
+        : cameraHeartbeatReady ? 'Host 已接受 fresh camera heartbeat' : '等待 Host 回显',
       icon: Camera,
     },
     {
       label: 'Participant',
-      ready: participantInputValid && (!currentRun || participantMatch),
+      ready: participantHeartbeatReady && (!currentRun || participantMatch),
       detail: currentRun
         ? participantMatch ? `已核对 ${currentRun.participant_id}` : '输入值与 Run Plan 不一致'
-        : participantInputValid ? '等待与 Quest Run Plan 核对' : '请输入匿名编号',
+        : !participantInputValid
+          ? '请输入合法匿名编号'
+          : participantHeartbeatReady ? `Host 已接受 ${expectedParticipantId}` : '等待 Host 回显',
       icon: Activity,
     },
   ], [
     backendOnline,
+    cameraHeartbeatReady,
     cameraReady,
     currentRun,
+    expectedParticipantId,
     participantInputValid,
+    participantHeartbeatReady,
     participantMatch,
     readiness?.quest_ready,
     readiness?.storage_error,
@@ -578,15 +653,18 @@ export default function InteractionStudyApp() {
 
         <section className="interaction-controls">
           <label className="participant-control">
-            <span>匿名参与者编号（仅本机核对，不写入 Run Plan）</span>
+            <span>匿名参与者编号（通过 Host heartbeat 核对，不写入 Run Plan）</span>
             <input
               value={expectedParticipantId}
               placeholder="例如 P001"
               disabled={captureBusy}
               onChange={(event) => {
                 const value = event.target.value
+                participantIdRef.current = value
                 setExpectedParticipantId(value)
+                setCameraHeartbeatReady(false)
                 window.localStorage.setItem('signvr-interaction-participant', value)
+                reportCameraReadiness()
               }}
             />
           </label>

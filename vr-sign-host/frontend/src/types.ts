@@ -121,20 +121,43 @@ export interface InteractionReadiness {
   backend_ready: boolean
   storage_ready: boolean
   storage_error: string | null
+  quest_fresh: boolean
   quest_ready: boolean
+  camera_fresh: boolean
   camera_ready: boolean
+  participant_fresh: boolean
+  participant_ready: boolean
   ready: boolean
   quest_device_id: string | null
+  quest_last_seen_utc: string | null
   camera_last_seen_utc: string | null
+  participant_id: string | null
+  participant_last_seen_utc: string | null
   server_utc: string
   interaction_root: string
   active_run: InteractionRunSnapshot | null
 }
 
+export interface InteractionCameraReadinessUpdate {
+  schema_version: 1
+  ready: boolean
+  participant_id: string | null
+  heartbeat_generation: number
+  heartbeat_sequence: number
+}
+
 export interface InteractionCameraReadiness {
   schema_version: 1
+  accepted: boolean
+  camera_fresh: boolean
   camera_ready: boolean
   camera_last_seen_utc: string | null
+  participant_fresh: boolean
+  participant_ready: boolean
+  participant_id: string | null
+  participant_last_seen_utc: string | null
+  heartbeat_generation: number | null
+  heartbeat_sequence: number | null
 }
 
 export interface InteractionAck {

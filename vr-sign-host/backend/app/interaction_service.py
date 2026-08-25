@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import math
+import time
 from collections.abc import AsyncIterable, Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TypeVar
@@ -13,12 +17,16 @@ from .interaction_models import (
     InteractionAbortRequest,
     InteractionAck,
     InteractionArtifactType,
+    InteractionCameraReadinessStatus,
+    InteractionCameraReadinessUpdate,
     InteractionCompleteRequest,
     InteractionEvent,
     InteractionRunAccepted,
     InteractionRunPlan,
     InteractionRunSnapshot,
     InteractionRunState,
+    InteractionQuestReadinessStatus,
+    InteractionQuestReadinessUpdate,
     StoredInteractionRunStatus,
     validate_interaction_id,
 )
@@ -40,9 +48,18 @@ _JSONL_CONTENT_TYPES = frozenset(
 )
 _SUMMARY_CONTENT_TYPES = frozenset({"application/json", "application/octet-stream"})
 _WEBCAM_CONTENT_TYPES = frozenset({"video/webm", "application/octet-stream"})
+INTERACTION_READINESS_TTL_SECONDS = 5.0
 
 
 class InteractionStateConflict(RuntimeError):
+    pass
+
+
+class InteractionQuestPresenceConflict(RuntimeError):
+    pass
+
+
+class InteractionReadinessConflict(RuntimeError):
     pass
 
 
@@ -54,6 +71,32 @@ class DuplicateJsonKey(ValueError):
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class InteractionReadinessFacts:
+    storage_ready: bool
+    storage_error: str | None
+    quest_fresh: bool
+    quest_ready: bool
+    quest_device_id: str | None
+    quest_last_seen_utc: datetime | None
+    camera_fresh: bool
+    camera_ready: bool
+    camera_last_seen_utc: datetime | None
+    participant_fresh: bool
+    participant_ready: bool
+    participant_id: str | None
+    participant_last_seen_utc: datetime | None
+
+    @property
+    def ready(self) -> bool:
+        return (
+            self.storage_ready
+            and self.quest_ready
+            and self.camera_ready
+            and self.participant_ready
+        )
+
+
 class InteractionService:
     """The Host-side Interaction interface used by routes and tests."""
 
@@ -62,15 +105,30 @@ class InteractionService:
         repository: InteractionRepository,
         *,
         start_delay_seconds: float = 2.0,
-        camera_readiness_ttl_seconds: float = 5.0,
+        readiness_ttl_seconds: float = INTERACTION_READINESS_TTL_SECONDS,
         clock: Callable[[], datetime] | None = None,
+        monotonic_clock: Callable[[], float] | None = None,
     ) -> None:
         self.repository = repository
         self.start_delay_seconds = start_delay_seconds
-        self.camera_readiness_ttl_seconds = camera_readiness_ttl_seconds
+        self.readiness_ttl_seconds = readiness_ttl_seconds
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._monotonic_clock = monotonic_clock or time.monotonic
+        self._readiness_lock = asyncio.Lock()
+        self._quest_reported_ready = False
+        self._quest_device_id: str | None = None
+        self._quest_last_seen_utc: datetime | None = None
+        self._quest_last_seen_monotonic: float | None = None
+        self._quest_heartbeat_generation: int | None = None
+        self._quest_heartbeat_sequence: int | None = None
         self._camera_reported_ready = False
         self._camera_last_seen_utc: datetime | None = None
+        self._camera_last_seen_monotonic: float | None = None
+        self._participant_id: str | None = None
+        self._participant_last_seen_utc: datetime | None = None
+        self._participant_last_seen_monotonic: float | None = None
+        self._camera_heartbeat_generation: int | None = None
+        self._camera_heartbeat_sequence: int | None = None
 
     async def accept_run(self, manifest_bytes: bytes) -> InteractionRunAccepted:
         return await self._accept_run(manifest_bytes, require_no_active_run=False)
@@ -81,15 +139,78 @@ class InteractionService:
     ) -> InteractionRunAccepted:
         return await self._accept_run(manifest_bytes, require_no_active_run=True)
 
+    async def accept_run_if_ready(
+        self,
+        manifest_bytes: bytes,
+        quest_device_id: str | None,
+    ) -> InteractionRunAccepted:
+        plan = self._parse_run_plan(manifest_bytes)
+        async with self._readiness_lock:
+            facts = self._readiness_facts_locked(self._monotonic_now())
+            missing = [
+                label
+                for label, ready in (
+                    ("storage", facts.storage_ready),
+                    ("fresh Quest heartbeat", facts.quest_ready),
+                    ("fresh camera heartbeat", facts.camera_ready),
+                    ("fresh Host participant heartbeat", facts.participant_ready),
+                )
+                if not ready
+            ]
+            if missing:
+                raise InteractionReadinessConflict(
+                    f"Interaction Host is not ready: {', '.join(missing)}"
+                )
+            if quest_device_id is None:
+                raise InteractionReadinessConflict(
+                    "X-SignVR-Quest-Id is required for Interaction Run registration"
+                )
+            try:
+                safe_quest_device_id = validate_interaction_id(
+                    quest_device_id,
+                    "X-SignVR-Quest-Id",
+                )
+            except ValueError as exc:
+                raise InteractionReadinessConflict(str(exc)) from exc
+            if safe_quest_device_id != facts.quest_device_id:
+                raise InteractionReadinessConflict(
+                    "X-SignVR-Quest-Id does not match the fresh Quest heartbeat"
+                )
+            if plan.participant_id != facts.participant_id:
+                raise InteractionReadinessConflict(
+                    "Run Plan participant_id does not match the fresh Host participant heartbeat"
+                )
+            return await self._accept_plan(
+                plan,
+                manifest_bytes,
+                require_no_active_run=True,
+            )
+
     async def _accept_run(
         self,
         manifest_bytes: bytes,
         *,
         require_no_active_run: bool,
     ) -> InteractionRunAccepted:
+        plan = self._parse_run_plan(manifest_bytes)
+        return await self._accept_plan(
+            plan,
+            manifest_bytes,
+            require_no_active_run=require_no_active_run,
+        )
+
+    def _parse_run_plan(self, manifest_bytes: bytes) -> InteractionRunPlan:
         if not manifest_bytes or len(manifest_bytes) > 1024 * 1024:
             raise ValueError("Run Plan must contain 1 byte to 1 MiB of JSON")
-        plan = parse_json_model(manifest_bytes, InteractionRunPlan)
+        return parse_json_model(manifest_bytes, InteractionRunPlan)
+
+    async def _accept_plan(
+        self,
+        plan: InteractionRunPlan,
+        manifest_bytes: bytes,
+        *,
+        require_no_active_run: bool,
+    ) -> InteractionRunAccepted:
         now = self._now()
         start_at = now + timedelta(seconds=self.start_delay_seconds)
         status = StoredInteractionRunStatus(
@@ -229,17 +350,183 @@ class InteractionService:
     def storage_error(self) -> str | None:
         return self.repository.storage_error
 
-    def set_camera_readiness(self, ready: bool) -> tuple[bool, datetime]:
-        self._camera_reported_ready = ready
-        self._camera_last_seen_utc = self._now()
-        return self.camera_readiness()
+    async def update_quest_readiness(
+        self,
+        update: InteractionQuestReadinessUpdate,
+    ) -> InteractionQuestReadinessStatus:
+        async with self._readiness_lock:
+            monotonic_now = self._monotonic_now()
+            owner_changed = (
+                self._quest_device_id is not None
+                and update.quest_device_id != self._quest_device_id
+            )
+            if (
+                owner_changed
+                and self._is_fresh(self._quest_last_seen_monotonic, monotonic_now)
+            ):
+                raise InteractionQuestPresenceConflict(
+                    "Fresh Interaction Quest "
+                    f"{self._quest_device_id} already owns readiness"
+                )
+            incoming_watermark = (
+                update.heartbeat_generation,
+                update.heartbeat_sequence,
+            )
+            current_watermark = (
+                self._quest_heartbeat_generation,
+                self._quest_heartbeat_sequence,
+            )
+            accepted = (
+                current_watermark[0] is None
+                or owner_changed
+                or incoming_watermark > current_watermark
+            )
+            if accepted:
+                self._quest_reported_ready = update.ready
+                self._quest_device_id = update.quest_device_id
+                self._quest_last_seen_utc = self._now()
+                self._quest_last_seen_monotonic = monotonic_now
+                self._quest_heartbeat_generation = update.heartbeat_generation
+                self._quest_heartbeat_sequence = update.heartbeat_sequence
+            return self._quest_readiness_status(
+                accepted=accepted,
+                monotonic_now=monotonic_now,
+            )
 
-    def camera_readiness(self) -> tuple[bool, datetime | None]:
+    async def quest_readiness(self) -> InteractionQuestReadinessStatus:
+        async with self._readiness_lock:
+            return self._quest_readiness_status(
+                accepted=True,
+                monotonic_now=self._monotonic_now(),
+            )
+
+    async def readiness(self) -> InteractionReadinessFacts:
+        async with self._readiness_lock:
+            return self._readiness_facts_locked(self._monotonic_now())
+
+    async def update_camera_readiness(
+        self,
+        update: InteractionCameraReadinessUpdate,
+    ) -> InteractionCameraReadinessStatus:
+        async with self._readiness_lock:
+            monotonic_now = self._monotonic_now()
+            incoming_watermark = (
+                update.heartbeat_generation,
+                update.heartbeat_sequence,
+            )
+            current_watermark = (
+                self._camera_heartbeat_generation,
+                self._camera_heartbeat_sequence,
+            )
+            accepted = (
+                current_watermark[0] is None
+                or incoming_watermark > current_watermark
+            )
+            if accepted:
+                received_at = self._now()
+                self._camera_reported_ready = update.ready
+                self._camera_last_seen_utc = received_at
+                self._camera_last_seen_monotonic = monotonic_now
+                self._participant_id = update.participant_id
+                self._participant_last_seen_utc = received_at
+                self._participant_last_seen_monotonic = monotonic_now
+                self._camera_heartbeat_generation = update.heartbeat_generation
+                self._camera_heartbeat_sequence = update.heartbeat_sequence
+            return self._camera_readiness_status(
+                accepted=accepted,
+                monotonic_now=monotonic_now,
+            )
+
+    async def camera_readiness(self) -> InteractionCameraReadinessStatus:
+        async with self._readiness_lock:
+            return self._camera_readiness_status(
+                accepted=True,
+                monotonic_now=self._monotonic_now(),
+            )
+
+    def _quest_readiness_status(
+        self,
+        *,
+        accepted: bool,
+        monotonic_now: float,
+    ) -> InteractionQuestReadinessStatus:
+        last_seen = self._quest_last_seen_utc
+        fresh = self._is_fresh(self._quest_last_seen_monotonic, monotonic_now)
+        return InteractionQuestReadinessStatus(
+            accepted=accepted,
+            quest_fresh=fresh,
+            quest_ready=self._quest_reported_ready and fresh,
+            quest_device_id=self._quest_device_id,
+            quest_last_seen_utc=last_seen,
+            heartbeat_generation=self._quest_heartbeat_generation,
+            heartbeat_sequence=self._quest_heartbeat_sequence,
+        )
+
+    def _camera_readiness_status(
+        self,
+        *,
+        accepted: bool,
+        monotonic_now: float,
+    ) -> InteractionCameraReadinessStatus:
         last_seen = self._camera_last_seen_utc
-        if not self._camera_reported_ready or last_seen is None:
-            return False, last_seen
-        fresh = (self._now() - last_seen).total_seconds() <= self.camera_readiness_ttl_seconds
-        return fresh, last_seen
+        camera_fresh = self._is_fresh(
+            self._camera_last_seen_monotonic,
+            monotonic_now,
+        )
+        participant_fresh = self._is_fresh(
+            self._participant_last_seen_monotonic,
+            monotonic_now,
+        )
+        return InteractionCameraReadinessStatus(
+            accepted=accepted,
+            camera_fresh=camera_fresh,
+            camera_ready=self._camera_reported_ready and camera_fresh,
+            camera_last_seen_utc=last_seen,
+            participant_ready=self._participant_id is not None and participant_fresh,
+            participant_fresh=self._participant_id is not None and participant_fresh,
+            participant_id=self._participant_id,
+            participant_last_seen_utc=self._participant_last_seen_utc,
+            heartbeat_generation=self._camera_heartbeat_generation,
+            heartbeat_sequence=self._camera_heartbeat_sequence,
+        )
+
+    def _readiness_facts_locked(
+        self,
+        monotonic_now: float,
+    ) -> InteractionReadinessFacts:
+        quest = self._quest_readiness_status(
+            accepted=True,
+            monotonic_now=monotonic_now,
+        )
+        camera = self._camera_readiness_status(
+            accepted=True,
+            monotonic_now=monotonic_now,
+        )
+        return InteractionReadinessFacts(
+            storage_ready=self.storage_ready(),
+            storage_error=self.storage_error,
+            quest_fresh=quest.quest_fresh,
+            quest_ready=quest.quest_ready,
+            quest_device_id=quest.quest_device_id,
+            quest_last_seen_utc=quest.quest_last_seen_utc,
+            camera_fresh=camera.camera_fresh,
+            camera_ready=camera.camera_ready,
+            camera_last_seen_utc=camera.camera_last_seen_utc,
+            participant_fresh=camera.participant_fresh,
+            participant_ready=camera.participant_ready,
+            participant_id=camera.participant_id,
+            participant_last_seen_utc=camera.participant_last_seen_utc,
+        )
+
+    def _is_fresh(
+        self,
+        last_seen_monotonic: float | None,
+        monotonic_now: float,
+    ) -> bool:
+        if last_seen_monotonic is None:
+            return False
+        age_seconds = monotonic_now - last_seen_monotonic
+        return 0 <= age_seconds <= self.readiness_ttl_seconds
 
     @property
     def interaction_root(self) -> Path:
@@ -378,6 +665,12 @@ class InteractionService:
         if now.tzinfo is None:
             raise RuntimeError("InteractionService clock must return a timezone-aware datetime")
         return now.astimezone(timezone.utc)
+
+    def _monotonic_now(self) -> float:
+        now = self._monotonic_clock()
+        if not math.isfinite(now):
+            raise RuntimeError("InteractionService monotonic clock must return a finite value")
+        return now
 
 
 def parse_json_model(data: bytes, model_type: type[_ModelT]) -> _ModelT:
