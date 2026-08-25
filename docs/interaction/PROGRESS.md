@@ -16,7 +16,8 @@ Overall state: first parallel implementation batch active
 
 ## Current gates
 
-- UnitySkills REST service: not listening on ports 8090–8100 at orchestration start.
+- UnitySkills REST service: online at `8090`, mode `bypass`, surface profile `full`; Orchestrator workflow session `5f171442-a8f2-424d-859f-69f7d943c6a1` is active.
+- Local Unity baseline: `6000.5.6f1`, Android/IL2CPP, URP, one enabled `Assets/Scenes/VRroom.unity`; `unity_diagnose` reports healthy, zero console errors, and no compilation in progress.
 - Local Unity Editor validation: pending first integrated Unity change.
 - Quest validation: intentionally deferred and batched.
 - Existing user OpenXR settings change: preserved, excluded from orchestration commits.
@@ -26,3 +27,4 @@ Overall state: first parallel implementation batch active
 - 2026-08-25: Contract V1 and Orchestrator policy created before worker dispatch.
 - 2026-08-25: W1, W2, and W3 dispatched from baseline `35fcc93` into independent detached Codex worktrees; every worker prompt explicitly forbids Git commands.
 - 2026-08-25: W4 dispatched after confirming its build/scene tooling can stay independent of W1 Core types.
+- 2026-08-25: Local Unity automation enabled; compile/Console/build-settings baseline captured before worker integration.
