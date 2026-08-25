@@ -158,6 +158,19 @@ namespace SignVR.Editor
                     failures
                 );
 
+                if (failures.Count == 0)
+                {
+                    // PlayerSettings setters restore the in-memory values, but
+                    // an interactive build can otherwise leave the temporary
+                    // product identity serialized on disk until the next
+                    // project save. Persist the fully restored state now.
+                    TryRestore(
+                        AssetDatabase.SaveAssets,
+                        "restored project settings",
+                        failures
+                    );
+                }
+
                 if (failures.Count > 0)
                 {
                     throw new AggregateException(

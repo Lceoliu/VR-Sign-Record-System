@@ -266,8 +266,31 @@ against the main worktree and versioned the resulting
 - A subsequent generator invocation left the scene SHA-256 unchanged at
   `AC24BE09E6E07729C1086B8F17E38D287E14675F7E7E02EBAD836A30EDD7DDB8`,
   confirming idempotence on the integrated scene.
+- Two local Interaction Android APK builds completed successfully through
+  `SignVR/Build/Interaction/Android APK`. The second, incremental build
+  produced `Builds/SignVR_Interaction_Local.apk` at `286,880,702` bytes with
+  SHA-256
+  `7C98DE2662AF73D1E6F1AAEE8D99BB6D936621EBAA758B1E575148275133F9B8`.
+  Android `aapt` inspection reported package `com.signvr.interaction`, version
+  `1.0.0` (`versionCode=1`), application label `SignVR Interaction`, and native
+  ABI `arm64-v8a`.
+- The first interactive APK build exposed a persistence edge case: restoring
+  `PlayerSettings` returned the Editor's in-memory identity to Recorder, but
+  the temporary Interaction identity remained serialized until the next
+  project save. The successful restore path now calls
+  `AssetDatabase.SaveAssets` after every individual state restoration has
+  succeeded. The W4 EditMode filter passed `2/2` again after this correction
+  (job `01be3ae4`).
+- The second APK build proved the correction on disk. The hashes before and
+  after the build were exactly equal for `ProjectSettings.asset`
+  (`376FD034...D966A`), `EditorBuildSettings.asset`
+  (`600F15E1...B94F`), `InteractionLab.unity`
+  (`AC24BE09...DDB8`), and `Mobile_RPAsset.asset`
+  (`AB038EF8...8104`). The serialized default identity remained
+  `SignVR Recorder` / `com.signvr.recorder`.
 - `Assets/Scenes/VRroom.unity`, Editor Build Settings, and the user's existing
   OpenXR working-tree change were not modified by the W4 integration.
 
-Android APK generation and Quest/device behavior remain deliberately deferred
-to the later batched device-validation gate.
+Quest installation, naked-hand behavior, and device performance remain
+deliberately deferred to the later batched device-validation gate; the local
+APK build evidence above does not claim device validation.
