@@ -2,14 +2,20 @@ import { describe, expect, it } from 'vitest'
 import {
   cameraHeartbeatEchoIsReady,
   cameraReadinessForCurrentStream,
+  bindCameraPresenceRetirement,
   createCameraReadinessHeartbeat,
+  createHeartbeatGenerationAllocator,
   captureDirective,
+  nextPageSessionHeartbeatGeneration,
   participantIdsMatch,
   reconcilePolledInteractionRun,
+  transitionCameraHeartbeatGate,
   transitionWebcamRecovery,
   webcamRecoveryFilename,
   type CameraReadinessStream,
+  type CameraHeartbeatGateState,
 } from './interactionCapture'
+import { interactionCameraReadinessRequestInit } from './api'
 import type { InteractionCameraReadiness, InteractionRunSnapshot } from './types'
 
 const run: InteractionRunSnapshot = {
@@ -108,6 +114,93 @@ describe('Interaction camera readiness heartbeat', () => {
     expect(cameraHeartbeatEchoIsReady(heartbeat, { ...echo, heartbeat_sequence: 2 })).toBe(false)
     expect(cameraHeartbeatEchoIsReady(heartbeat, { ...echo, participant_id: 'P002' })).toBe(false)
     expect(cameraHeartbeatEchoIsReady(heartbeat, { ...echo, camera_ready: false })).toBe(false)
+  })
+
+  it('clears an old READY while a newer heartbeat is pending and keeps it clear on failure', () => {
+    const oldReady: CameraHeartbeatGateState = {
+      ready: true,
+      pendingGeneration: null,
+      pendingSequence: null,
+    }
+    const heartbeat = createCameraReadinessHeartbeat(true, 'P001', 1234, 4)
+
+    const pending = transitionCameraHeartbeatGate(oldReady, {
+      type: 'sent',
+      heartbeat,
+    })
+    expect(pending).toEqual({
+      ready: false,
+      pendingGeneration: 1234,
+      pendingSequence: 4,
+    })
+
+    const failed = transitionCameraHeartbeatGate(pending, {
+      type: 'failed',
+      heartbeat,
+    })
+    expect(failed).toEqual({
+      ready: false,
+      pendingGeneration: null,
+      pendingSequence: null,
+    })
+  })
+})
+
+describe('page-session heartbeat generation', () => {
+  it('allocates a new increasing generation for remounts with the same time origin', () => {
+    const allocate = createHeartbeatGenerationAllocator()
+
+    expect(allocate(1000)).toBe(1_000_000)
+    expect(allocate(1000)).toBe(1_000_001)
+    expect(allocate(999)).toBe(1_000_002)
+
+    const mounted = nextPageSessionHeartbeatGeneration(2000)
+    const remounted = nextPageSessionHeartbeatGeneration(2000)
+    expect(remounted).toBe(mounted + 1)
+  })
+})
+
+describe('camera presence retirement', () => {
+  it('sends one canonical keepalive clear across pagehide and repeated cleanup', () => {
+    const lifecycle: {
+      pagehide?: () => void
+      removed?: () => void
+    } = {}
+    const target = {
+      addEventListener: (type: 'pagehide', listener: () => void) => {
+        expect(type).toBe('pagehide')
+        lifecycle.pagehide = listener
+      },
+      removeEventListener: (type: 'pagehide', listener: () => void) => {
+        expect(type).toBe('pagehide')
+        lifecycle.removed = listener
+      },
+    }
+    const requests: RequestInit[] = []
+    const cleanup = bindCameraPresenceRetirement(
+      target,
+      () => createCameraReadinessHeartbeat(false, '', 5678, 7),
+      (heartbeat) => requests.push(interactionCameraReadinessRequestInit(heartbeat, true)),
+    )
+
+    expect(lifecycle.pagehide).toBeTypeOf('function')
+    lifecycle.pagehide?.()
+    cleanup()
+    cleanup()
+
+    expect(lifecycle.removed).toBe(lifecycle.pagehide)
+    expect(requests).toEqual([{
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        schema_version: 1,
+        ready: false,
+        participant_id: null,
+        heartbeat_generation: 5678,
+        heartbeat_sequence: 7,
+      }),
+      keepalive: true,
+    }])
   })
 })
 

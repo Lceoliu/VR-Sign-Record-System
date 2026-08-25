@@ -16,16 +16,20 @@ import { api } from './api'
 import { QuestPreviewPanel } from './components/QuestPreviewPanel'
 import { VideoPanel } from './components/VideoPanel'
 import {
-  cameraHeartbeatEchoIsReady,
+  bindCameraPresenceRetirement,
   cameraReadinessForCurrentStream,
   captureDirective,
   createCameraReadinessHeartbeat,
   isTerminalInteractionRun,
   isValidParticipantId,
+  nextPageSessionHeartbeatGeneration,
   participantIdsMatch,
   reconcilePolledInteractionRun,
+  transitionCameraHeartbeatGate,
   transitionWebcamRecovery,
   webcamRecoveryFilename,
+  type CameraHeartbeatGateAction,
+  type CameraHeartbeatGateState,
   type WebcamRecoveryAction,
   type WebcamRecoveryState,
 } from './interactionCapture'
@@ -111,8 +115,13 @@ export default function InteractionStudyApp() {
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const cameraRequestRef = useRef(0)
   const participantIdRef = useRef(expectedParticipantId)
-  const heartbeatGenerationRef = useRef(Math.floor(performance.timeOrigin * 1000))
+  const [heartbeatGeneration] = useState(() => nextPageSessionHeartbeatGeneration())
   const heartbeatSequenceRef = useRef(0)
+  const cameraHeartbeatGateRef = useRef<CameraHeartbeatGateState>({
+    ready: false,
+    pendingGeneration: null,
+    pendingSequence: null,
+  })
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const captureRunIdRef = useRef<string | null>(null)
@@ -134,6 +143,13 @@ export default function InteractionStudyApp() {
       setWebcamRecoveries(transition.state)
     }
     return transition.upload
+  }, [])
+
+  const applyCameraHeartbeatGate = useCallback((action: CameraHeartbeatGateAction) => {
+    const next = transitionCameraHeartbeatGate(cameraHeartbeatGateRef.current, action)
+    cameraHeartbeatGateRef.current = next
+    setCameraHeartbeatReady(next.ready)
+    return next
   }, [])
 
   const refreshReadiness = useCallback(async () => {
@@ -165,7 +181,7 @@ export default function InteractionStudyApp() {
         || !next.participant_ready
         || next.participant_id !== participantIdRef.current
       ) {
-        setCameraHeartbeatReady(false)
+        applyCameraHeartbeatGate({ type: 'invalidate' })
       }
       applyCurrentRun(reconciled.run)
       setBackendOnline(true)
@@ -175,7 +191,7 @@ export default function InteractionStudyApp() {
       setBackendOnline(false)
       setError(reason instanceof Error ? reason.message : 'Interaction Host 无法连接')
     }
-  }, [applyCurrentRun])
+  }, [applyCameraHeartbeatGate, applyCurrentRun])
 
   useEffect(() => {
     queueMicrotask(() => void refreshReadiness())
@@ -221,17 +237,16 @@ export default function InteractionStudyApp() {
     const heartbeat = createCameraReadinessHeartbeat(
       ready,
       participantIdRef.current,
-      heartbeatGenerationRef.current,
+      heartbeatGeneration,
       ++heartbeatSequenceRef.current,
     )
-    if (!heartbeat.ready) setCameraHeartbeatReady(false)
+    applyCameraHeartbeatGate({ type: 'sent', heartbeat })
     void api.updateInteractionCameraReadiness(heartbeat).then((echo) => {
       if (
-        heartbeat.heartbeat_generation !== heartbeatGenerationRef.current
+        heartbeat.heartbeat_generation !== heartbeatGeneration
         || heartbeat.heartbeat_sequence !== heartbeatSequenceRef.current
       ) return
-      const echoReady = cameraHeartbeatEchoIsReady(heartbeat, echo)
-      setCameraHeartbeatReady(echoReady)
+      applyCameraHeartbeatGate({ type: 'echo', heartbeat, echo })
       setReadiness((previous) => previous
         ? {
             ...previous,
@@ -250,20 +265,25 @@ export default function InteractionStudyApp() {
         : previous)
     }).catch(() => {
       if (heartbeat.heartbeat_sequence === heartbeatSequenceRef.current) {
-        setCameraHeartbeatReady(false)
+        applyCameraHeartbeatGate({ type: 'failed', heartbeat })
       }
     })
-  }, [])
+  }, [applyCameraHeartbeatGate, heartbeatGeneration])
 
-  const clearCameraReadiness = useCallback(() => {
-    const heartbeat = createCameraReadinessHeartbeat(
-      false,
-      '',
-      heartbeatGenerationRef.current,
-      ++heartbeatSequenceRef.current,
-    )
-    void api.updateInteractionCameraReadiness(heartbeat).catch(() => undefined)
-  }, [])
+  useEffect(() => bindCameraPresenceRetirement(
+    window,
+    () => {
+      const heartbeat = createCameraReadinessHeartbeat(
+        false,
+        '',
+        heartbeatGeneration,
+        ++heartbeatSequenceRef.current,
+      )
+      applyCameraHeartbeatGate({ type: 'sent', heartbeat })
+      return heartbeat
+    },
+    (heartbeat) => api.retireInteractionCameraReadiness(heartbeat),
+  ), [applyCameraHeartbeatGate, heartbeatGeneration])
 
   const openCamera = useCallback(async (deviceId?: string) => {
     const requestId = ++cameraRequestRef.current
@@ -327,9 +347,8 @@ export default function InteractionStudyApp() {
       const stream = mediaStreamRef.current
       mediaStreamRef.current = null
       stream?.getTracks().forEach((track) => track.stop())
-      clearCameraReadiness()
     }
-  }, [clearCameraReadiness, openCamera])
+  }, [openCamera])
 
   useEffect(() => {
     const report = () => reportCameraReadiness()
@@ -662,7 +681,7 @@ export default function InteractionStudyApp() {
                 const value = event.target.value
                 participantIdRef.current = value
                 setExpectedParticipantId(value)
-                setCameraHeartbeatReady(false)
+                applyCameraHeartbeatGate({ type: 'invalidate' })
                 window.localStorage.setItem('signvr-interaction-participant', value)
                 reportCameraReadiness()
               }}

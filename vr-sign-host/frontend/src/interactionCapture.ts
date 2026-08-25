@@ -14,6 +14,59 @@ const WINDOWS_RESERVED_NAMES = new Set([
   ...Array.from({ length: 9 }, (_, index) => `LPT${index + 1}`),
 ])
 
+export type HeartbeatGenerationAllocator = (timeOriginMs: number) => number
+
+export type PagehideEventTarget = {
+  addEventListener: (type: 'pagehide', listener: () => void) => void
+  removeEventListener: (type: 'pagehide', listener: () => void) => void
+}
+
+export function createHeartbeatGenerationAllocator(): HeartbeatGenerationAllocator {
+  let lastGeneration = -1
+  return (timeOriginMs: number) => {
+    const timeBasedGeneration = Math.floor(timeOriginMs * 1000)
+    if (!Number.isSafeInteger(timeBasedGeneration) || timeBasedGeneration < 0) {
+      throw new Error('heartbeat generation time origin must produce a nonnegative safe integer')
+    }
+    const generation = Math.max(timeBasedGeneration, lastGeneration + 1)
+    if (!Number.isSafeInteger(generation)) {
+      throw new Error('heartbeat generation exhausted JavaScript safe integers')
+    }
+    lastGeneration = generation
+    return generation
+  }
+}
+
+const allocatePageSessionHeartbeatGeneration = createHeartbeatGenerationAllocator()
+
+export function nextPageSessionHeartbeatGeneration(
+  timeOriginMs: number = performance.timeOrigin,
+): number {
+  return allocatePageSessionHeartbeatGeneration(timeOriginMs)
+}
+
+export function bindCameraPresenceRetirement(
+  target: PagehideEventTarget,
+  createRetirementHeartbeat: () => InteractionCameraReadinessUpdate,
+  sendKeepalive: (heartbeat: InteractionCameraReadinessUpdate) => void,
+): () => void {
+  let retired = false
+  let listenerRemoved = false
+  const retire = () => {
+    if (retired) return
+    retired = true
+    sendKeepalive(createRetirementHeartbeat())
+  }
+  target.addEventListener('pagehide', retire)
+  return () => {
+    if (!listenerRemoved) {
+      target.removeEventListener('pagehide', retire)
+      listenerRemoved = true
+    }
+    retire()
+  }
+}
+
 export type CaptureDirective =
   | { action: 'none' }
   | { action: 'wait-for-camera' }
@@ -78,6 +131,22 @@ export type WebcamRecoveryTransition = {
   upload: WebcamRecoveryUpload | null
 }
 
+export type CameraHeartbeatGateState = {
+  ready: boolean
+  pendingGeneration: number | null
+  pendingSequence: number | null
+}
+
+export type CameraHeartbeatGateAction =
+  | { type: 'sent'; heartbeat: InteractionCameraReadinessUpdate }
+  | {
+      type: 'echo'
+      heartbeat: InteractionCameraReadinessUpdate
+      echo: InteractionCameraReadiness
+    }
+  | { type: 'failed'; heartbeat: InteractionCameraReadinessUpdate }
+  | { type: 'invalidate' }
+
 export function isValidParticipantId(participantId: string): boolean {
   if (!PARTICIPANT_ID_PATTERN.test(participantId) || participantId.endsWith('.')) return false
   return !WINDOWS_RESERVED_NAMES.has(participantId.split('.', 1)[0].toUpperCase())
@@ -115,6 +184,39 @@ export function cameraHeartbeatEchoIsReady(
     && echo.participant_ready
     && echo.participant_id === heartbeat.participant_id
   )
+}
+
+export function transitionCameraHeartbeatGate(
+  current: CameraHeartbeatGateState,
+  action: CameraHeartbeatGateAction,
+): CameraHeartbeatGateState {
+  if (action.type === 'invalidate') {
+    return {
+      ready: false,
+      pendingGeneration: null,
+      pendingSequence: null,
+    }
+  }
+  if (action.type === 'sent') {
+    return {
+      ready: false,
+      pendingGeneration: action.heartbeat.heartbeat_generation,
+      pendingSequence: action.heartbeat.heartbeat_sequence,
+    }
+  }
+  if (
+    current.pendingGeneration !== action.heartbeat.heartbeat_generation
+    || current.pendingSequence !== action.heartbeat.heartbeat_sequence
+  ) {
+    return current
+  }
+  return {
+    ready: action.type === 'echo'
+      ? cameraHeartbeatEchoIsReady(action.heartbeat, action.echo)
+      : false,
+    pendingGeneration: null,
+    pendingSequence: null,
+  }
 }
 
 export function transitionWebcamRecovery(

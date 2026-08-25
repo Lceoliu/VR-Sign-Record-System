@@ -31,7 +31,17 @@ the default Recorder frontend workflow remain unchanged.
   identity.
 - The Study page does not display camera/Participant READY until the Host
   accepts and echoes the exact latest generation, sequence, and Participant.
-  Older or failed responses cannot light READY.
+  Sending every new heartbeat first clears any previous READY while the request
+  is pending; only its exact accepted echo restores READY. Older or failed
+  responses cannot retain or relight READY.
+- Allocates camera heartbeat generations from one module-level page-session
+  allocator. Every component mount receives a strictly larger generation even
+  when `performance.timeOrigin` is unchanged, so a remount that restarts its
+  sequence at 1 cannot be trapped below the Host's previous watermark.
+- Binds camera/Participant retirement to `pagehide` and sends the canonical
+  `ready: false, participant_id: null` PUT with `fetch(..., {keepalive: true})`.
+  React effect cleanup invokes the same idempotent retirement seam, so
+  pagehide plus cleanup never emits duplicate retirement watermarks.
 - Hardened `POST /api/interaction/runs` to bind the caller's
   `X-SignVR-Quest-Id` to the fresh Quest heartbeat and the frozen manifest's
   `participant_id` to the fresh Host Participant heartbeat before any Run is
@@ -87,6 +97,8 @@ use strict JSON types (for example, `1` is not accepted as a boolean and
 - `ready: true` requires a valid non-null `participant_id`.
 - `ready: false` accepts either a valid Participant ID or `null`; the Study page
   sends `null` when its input is invalid or when it clears presence on unload.
+  Unload/navigation clearing uses `pagehide` plus a keepalive PUT instead of
+  depending only on an ordinary asynchronous React-cleanup fetch.
 - A successful response contains `accepted`, `camera_fresh`, `camera_ready`,
   `camera_last_seen_utc`, `participant_fresh`, `participant_ready`,
   `participant_id`, `participant_last_seen_utc`, and the current watermark.
@@ -155,7 +167,7 @@ Host bootstrap edit is the Interaction router constructor call in `main.py`.
 Final results:
 
 - `cd vr-sign-host/backend; python -m pytest -q`
-  - Exit 0: **85 passed in 2.78s**.
+  - Exit 0: **85 passed in 2.85s**.
   - Includes strict heartbeat API bodies/int64 bounds, five-second inclusive
     TTL and post-boundary expiry, wall-clock rollback immunity, stale generation
     and sequence rejection without timestamp refresh, fresh Quest conflict,
@@ -165,16 +177,18 @@ Final results:
     HTTP-only `start_udp=False` readiness, Recorder DeviceRegistry isolation,
     and all existing Recorder API/config/service/UDP regressions.
 - `cd vr-sign-host/frontend; pnpm test`
-  - Exit 0: **1 test file passed, 18 tests passed**.
+  - Exit 0: **1 test file passed, 21 tests passed**.
   - Covers canonical heartbeat construction, invalid Participant fail-closed
-    payloads, and exact Host-echo gating in addition to existing capture/polling
-    and webcam-recovery behavior.
+    payloads, exact Host-echo gating, old-READY/pending/failure races,
+    same-time-origin remount generations, and pagehide keepalive payload/options
+    with idempotent cleanup, in addition to existing capture/polling and
+    webcam-recovery behavior.
 - `cd vr-sign-host/frontend; pnpm lint`
   - Exit 0: no warnings or errors.
 - `cd vr-sign-host/frontend; pnpm build`
   - Exit 0: TypeScript and Vite production build succeeded; **1812 modules
     transformed**. Generated sizes were HTML 0.48 kB (gzip 0.33 kB), CSS
-    22.67 kB (gzip 5.19 kB), and JS 242.73 kB (gzip 76.54 kB).
+    22.67 kB (gzip 5.19 kB), and JS 244.08 kB (gzip 76.97 kB).
 
 Ignored local outputs are `frontend/node_modules/`, `frontend/dist/`, Python
 `__pycache__/`, and `.pytest_cache/`; they are not source changes or deployment

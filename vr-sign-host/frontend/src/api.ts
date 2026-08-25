@@ -22,6 +22,18 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
+export function interactionCameraReadinessRequestInit(
+  heartbeat: InteractionCameraReadinessUpdate,
+  keepalive = false,
+): RequestInit {
+  return {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(heartbeat),
+    ...(keepalive ? { keepalive: true } : {}),
+  }
+}
+
 export const api = {
   state: () => request<HostState>('/api/state'),
   devices: () => request<DeviceInfo[]>('/api/devices'),
@@ -87,11 +99,16 @@ export const api = {
   interactionRun: (runId: string) =>
     request<InteractionRunSnapshot>(`/api/interaction/runs/${encodeURIComponent(runId)}`),
   updateInteractionCameraReadiness: (heartbeat: InteractionCameraReadinessUpdate) =>
-    request<InteractionCameraReadiness>('/api/interaction/readiness/camera', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(heartbeat),
-    }),
+    request<InteractionCameraReadiness>(
+      '/api/interaction/readiness/camera',
+      interactionCameraReadinessRequestInit(heartbeat),
+    ),
+  retireInteractionCameraReadiness: (heartbeat: InteractionCameraReadinessUpdate) => {
+    void fetch(
+      '/api/interaction/readiness/camera',
+      interactionCameraReadinessRequestInit(heartbeat, true),
+    ).catch(() => undefined)
+  },
   interactionAck: (runId: string) =>
     request<InteractionAck>(`/api/interaction/runs/${encodeURIComponent(runId)}/ack`),
   uploadInteractionArtifact: (
