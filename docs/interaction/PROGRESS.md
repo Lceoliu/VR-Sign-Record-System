@@ -1,13 +1,13 @@
 # Interaction Development Progress
 
 Updated: 2026-08-25
-Overall state: orchestration bootstrap
+Overall state: first parallel implementation batch active
 
 | Work ID | Scope | Dependencies | Worker task | State | Integration |
 | --- | --- | --- | --- | --- | --- |
-| W1 | Interaction Core: contracts, Run Plan, condition allocator, passwords, six-phase state machine, EditMode tests | Contract V1 | pending dispatch | Pending | Not reviewed |
-| W2 | Wang 31-sentence resolver, integrity validation, build-time staging tool, tests | Contract V1 | pending dispatch | Pending | Not reviewed |
-| W3 | Host Interaction API, repository, webcam Study mode, backend/frontend tests | Contract V1 | pending dispatch | Pending | Not reviewed |
+| W1 | Interaction Core: contracts, Run Plan, condition allocator, passwords, six-phase state machine, EditMode tests | Contract V1 | `W1 Interaction Core` · `01a03916-2d8c-7162-bb51-2513ed2fdbff` · worktree `d4ff` | In progress | Not reviewed |
+| W2 | Wang 31-sentence resolver, integrity validation, build-time staging tool, tests | Contract V1 | `W2 Instruction Content Staging` · `01a03916-2d87-7ac0-865f-0638e51856a5` · worktree `2664` | In progress | Not reviewed |
+| W3 | Host Interaction API, repository, webcam Study mode, backend/frontend tests | Contract V1 | `W3 Host Interaction Mode` · `01a03916-2d85-7842-9c70-b1b7abcb1184` · worktree `b57e` | In progress | Not reviewed |
 | W4 | Dual build entry and clean Interaction scene bootstrap | W1 | unassigned | Blocked | Not started |
 | W5 | Independent ghost player, bubble, Replay, immediate-hit pointing | W1,W2,W4 | unassigned | Blocked | Not started |
 | W6 | Local capture and Quest–Host client | W1,W3,W4 | unassigned | Blocked | Not started |
@@ -24,3 +24,4 @@ Overall state: orchestration bootstrap
 ## Integration log
 
 - 2026-08-25: Contract V1 and Orchestrator policy created before worker dispatch.
+- 2026-08-25: W1, W2, and W3 dispatched from baseline `35fcc93` into independent detached Codex worktrees; every worker prompt explicitly forbids Git commands.
