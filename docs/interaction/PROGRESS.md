@@ -1,7 +1,7 @@
 # Interaction Development Progress
 
-Updated: 2026-08-25
-Overall state: Host and W5 complete; W6/W7 Unity implementation batch active
+Updated: 2026-08-26
+Overall state: W6/W7 review remediation and W8a Host Study readiness bridge active
 
 | Work ID | Scope | Dependencies | Worker task | State | Integration |
 | --- | --- | --- | --- | --- | --- |
@@ -10,9 +10,10 @@ Overall state: Host and W5 complete; W6/W7 Unity implementation batch active
 | W3 | Host Interaction API, repository, webcam Study mode, backend/frontend tests | Contract V1 | `W3 Host Interaction Mode` · `01a03916-2d85-7842-9c70-b1b7abcb1184` · worktree `b57e` | Complete | Reviewed and integrated as `4f9629d`; backend 62/62 and frontend 11/11 passed |
 | W4 | Dual build entry and clean Interaction scene bootstrap | Contract V1 | `W4 Dual Build and Clean Scene` · `01a03917-bd12-7740-81c3-d3d5dd00d49f` · worktree `c99f` | Complete | Reviewed, integrated, scene generated; Unity EditMode 2/2 passed |
 | W5 | Independent ghost player, bubble, Replay, immediate-hit pointing | W1,W2,W4 | `W5 Instruction Presentation` · `01a03949-d3cc-7810-afe1-89cbc2a5eefc` · worktree `7d6d` | Complete | Reviewed and integrated as `38eb411` + `ef1df15`; Unity EditMode 21/21 passed |
-| W6 | Local capture and Quest–Host client | W1,W3,W4 | `W6 Quest Capture and Host Client` · `01a03950-0130-73f2-bc09-62fd206a7348` · worktree `13c9` | In progress | Contract-first implementation against the now-integrated W3 API |
-| W7 | Six simplified interaction adapters | W1,W4 | `W7 Six Phase Interaction Adapters` · `01a03949-d3c9-77b1-837b-ddbf9d097eba` · worktree `69ef` | In progress | Not reviewed |
-| W8 | Local Unity/Host integration and batched Quest validation package | W2..W7 | Orchestrator | Blocked | Not started |
+| W6 | Local capture and Quest–Host client | W1,W3,W4 | `W6 Quest Capture and Host Client` · `01a03950-0130-73f2-bc09-62fd206a7348` · worktree `13c9` | In progress | Initial contract tests passed; Orchestrator review returned Host recovery, true playback timing, data-completeness, frozen-artifact, bounded-I/O, and restart-recovery issues for correction |
+| W7 | Six simplified interaction adapters | W1,W4 | `W7 Six Phase Interaction Adapters` · `01a03949-d3c9-77b1-837b-ddbf9d097eba` · worktree `69ef` | In progress | Initial review blocked integration; refactoring to synchronize W1 lifecycle snapshots and correcting physical input, reset, keypad, and scene-validation paths |
+| W8a | Host HTTP Study readiness and participant bridge | W3 | `W8a Host Study Readiness Bridge` · `01a039b8-71c8-7442-aeb5-ebe24005da87` · worktree `eed1` | In progress | Host-only HTTP Quest/camera/participant heartbeat work dispatched; no Recorder or Unity overlap |
+| W8 | Local Unity/Host integration and batched Quest validation package | W2..W8a | Orchestrator | Blocked | Starts after W6/W7/W8a integration |
 
 ## Current gates
 
@@ -25,6 +26,9 @@ Overall state: Host and W5 complete; W6/W7 Unity implementation batch active
 - Quest validation: intentionally deferred and batched.
 - Existing user OpenXR settings change: preserved, excluded from orchestration commits.
 - Host gate: W3 is integrated. In the main worktree, all 62 backend tests and 11 frontend tests pass; frontend lint and production build also pass. Webcam upload failures retain one Blob per Run in page memory with guarded retry and local-download recovery until Host confirmation.
+- W6 review gate: the first implementation proved its pure contract and W3 fixture path, but is not integrated until retry-after-lost-registration, actual playback-origin timing, non-empty object capture, immutable uploaded artifacts, bounded writer waits, readiness watermarks, and partial-Run recovery are corrected.
+- W7 review gate: the first implementation is not integrated until W1 remains the sole lifecycle authority, GiveUp is replay-gated through a W1 snapshot, physical triggers reject non-hand colliders, Phase 1 provides working `*`/`#` input, hint/reset semantics are complete, and the saved-scene validator proves the full wiring.
+- Study readiness gate: the clean Interaction package cannot rely on the Recorder UDP DeviceRegistry. W8a is adding a separate HTTP heartbeat path on port 8011 and Host-owned participant matching before W6/W8 can claim the Study Start gate is reachable.
 
 ## Integration log
 
@@ -40,3 +44,6 @@ Overall state: Host and W5 complete; W6/W7 Unity implementation batch active
 - 2026-08-25: W6 dispatched contract-first from the integrated Unity baseline. It owns Quest Run control, local atomic capture and the Host client, with explicit event seams for later W5/W7 integration and no Host/scene overlap.
 - 2026-08-25: W3 completed Orchestrator review and integration. Review-driven hardening added atomic terminal transitions and active-Run registration, fail-closed storage/Quest/camera readiness, camera-unplug detection, HTTP terminal-state polling when WebSocket delivery is lost, stale-response watermarks, and retained/retryable/downloadable webcam Blobs. Main-worktree regression passed backend 62/62, frontend 11/11, lint, and production build.
 - 2026-08-25: W5 completed Orchestrator review and scene integration. Real Unity setup exposed Meta Movement's Animator-less sibling `Geometry`/`Skeleton` layout and saved-scene loss of nonserialized control caches; both were fixed with a Retargeter-root bone resolver and read-only existing-control lookup. The W5 suite passed 21/21, the W4 cleanliness validator still passed, and repeat setup/save was hash-idempotent.
+- 2026-08-26: Two-axis Orchestrator review blocked the initial W7 handoff. The task was returned to its original worktree to remove the duplicate phase authority, enforce W1 snapshot synchronization and replay-gated GiveUp, filter physical trigger sources, add the approved keypad backspace/submit path, complete reset/fallback semantics, and strengthen scene validation.
+- 2026-08-26: Two-axis Orchestrator review also blocked the initial W6 handoff despite its green static and Host fixture tests. The task was returned for lost-response registration recovery, actual playback handshakes, non-empty tracking/object gates, immutable and streaming uploads, bounded I/O waits, readiness ordering, and recoverable partial Runs.
+- 2026-08-26: W8a was dispatched in an independent worktree to replace the unreachable old-UDP Study gate with port-8011 HTTP Quest and camera/participant heartbeats while preserving the Recorder workflow.
