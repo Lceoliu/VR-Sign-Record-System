@@ -25,7 +25,7 @@ namespace SignVR.Recording
             string promptText,
             int takeIndex,
             string takeId,
-            DateTime createdAtUtc)
+            DateTime startedAtUtc)
         {
             if (string.IsNullOrWhiteSpace(sessionId))
             {
@@ -52,7 +52,9 @@ namespace SignVR.Recording
             PromptText = promptText ?? string.Empty;
             TakeIndex = takeIndex;
             TakeId = takeId;
-            CreatedAtUtc = createdAtUtc;
+            StartedAtUtc = startedAtUtc.Kind == DateTimeKind.Utc
+                ? startedAtUtc
+                : startedAtUtc.ToUniversalTime();
         }
 
         public string SessionId { get; }
@@ -60,7 +62,7 @@ namespace SignVR.Recording
         public string PromptText { get; }
         public int TakeIndex { get; }
         public string TakeId { get; }
-        public DateTime CreatedAtUtc { get; }
+        public DateTime StartedAtUtc { get; }
 
         public bool IsValid =>
             !string.IsNullOrWhiteSpace(SessionId) &&

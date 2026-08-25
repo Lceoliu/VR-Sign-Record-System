@@ -7,6 +7,5 @@
   "udp_port": 5011,
   "quest_control_port": 5012,
   "discovery_broadcast": "255.255.255.255",
-  "allowed_device_ids": [],
-  "pairing_key": "signvr-pointing-2026-01"
+  "allowed_device_ids": []
 }

@@ -68,7 +68,7 @@ cd ..
 
 Quest 和主机必须位于同一可信局域网。本组 APK 使用 UDP 5011/5012，和旧录制组的 5005/5006 完全分开。Windows 主机需要允许 Python 的 TCP 8011 和 UDP 5011 入站；UDP 5012 位于 Quest 端，仅在 Unity Editor 本机模拟时需要 Windows 入站规则。Unity 项目允许明文 HTTP，仅用于这个受信任的本地录制网络。
 
-便携指代录制包还通过 `config/station.json` 的唯一 `station_id`、`pairing_key` 和 `allowed_device_ids` 隔离同一局域网中的其他录制组。未列入允许列表的 Quest 不会进入设备列表，APK 也会拒绝其他工作站的配对和录制命令。
+便携指代录制包默认不写死 Quest ID 或共享密钥。未配置 `station_id` 时使用 `SignVR-<计算机名>`，网页端选择设备后，Quest 只接受该工作站 IP 与 `station_id` 的后续命令。确实需要固定设备时仍可在 `config/station.json` 中填写 `allowed_device_ids`。
 
 ## 数据目录
 

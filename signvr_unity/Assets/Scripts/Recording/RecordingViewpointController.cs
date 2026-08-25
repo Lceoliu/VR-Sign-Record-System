@@ -382,7 +382,19 @@ namespace SignVR.Recording
             }
 
             ResolveDependencies();
-            playerRig?.ReassertFixedWorldFrame();
+            if (playerRig == null)
+            {
+                error = "XR 固定视角控制器尚未就绪";
+                return false;
+            }
+
+            playerRig.ReassertFixedWorldFrame();
+            if (!playerRig.LastSpawnAlignmentSucceeded ||
+                !playerRig.HasFixedRecordingOriginPose)
+            {
+                error = "固定视角对齐失败，请重新选择当前句";
+                return false;
+            }
 #if !UNITY_EDITOR
             if (!OVRPlugin.positionTracked)
             {

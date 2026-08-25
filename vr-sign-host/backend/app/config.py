@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,7 +18,6 @@ class Settings:
     frontend_origin: str = "http://localhost:5174"
     discovery_broadcast: str = "255.255.255.255"
     allowed_device_ids: frozenset[str] = field(default_factory=frozenset)
-    pairing_key: str = "signvr-pointing-2026-01"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -33,9 +33,10 @@ class Settings:
             for value in os.environ.get("SIGNVR_ALLOWED_DEVICE_IDS", "").split(",")
             if value.strip()
         )
+        configured_station_id = os.environ.get("SIGNVR_STATION_ID", "").strip()
         return cls(
             data_root=data_root,
-            station_id=os.environ.get("SIGNVR_STATION_ID", "development").strip(),
+            station_id=configured_station_id or f"SignVR-{socket.gethostname()}",
             http_host=os.environ.get("SIGNVR_HTTP_HOST", "0.0.0.0"),
             http_port=int(os.environ.get("SIGNVR_HTTP_PORT", "8011")),
             udp_host=os.environ.get("SIGNVR_UDP_HOST", "0.0.0.0"),
@@ -44,8 +45,4 @@ class Settings:
             frontend_origin=os.environ.get("SIGNVR_FRONTEND_ORIGIN", "http://localhost:5174"),
             discovery_broadcast=os.environ.get("SIGNVR_DISCOVERY_BROADCAST", "255.255.255.255"),
             allowed_device_ids=allowed_device_ids,
-            pairing_key=os.environ.get(
-                "SIGNVR_PAIRING_KEY",
-                "signvr-pointing-2026-01",
-            ).strip(),
         )

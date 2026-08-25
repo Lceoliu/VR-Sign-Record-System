@@ -14,7 +14,6 @@ namespace SignVR.Recording
         private const int ProtocolVersion = 3;
         private const int ControlPort = 5012;
         private const int HostAnnouncementPort = 5011;
-        private const string PointingPairingKey = "signvr-pointing-2026-01";
         private const string DeviceIdPlayerPrefsKey = "SignVR.DeviceId";
         private const string PairedStationPlayerPrefsKey = "SignVR.PairedStationId";
 
@@ -116,7 +115,6 @@ namespace SignVR.Recording
             public int pose_port;
             public string station_id;
             public string device_id;
-            public string pairing_key;
         }
 
         [Serializable]
@@ -135,6 +133,7 @@ namespace SignVR.Recording
             public string take_id;
             public int take_index;
             public long start_at_unix_ms;
+            public long host_unix_ms;
             public float countdown_seconds;
 
             // pedal: "down" / "hold" / "up"; hold carries progress in 0..1.
@@ -414,14 +413,9 @@ namespace SignVR.Recording
                 deviceId,
                 StringComparison.OrdinalIgnoreCase
             );
-            bool pairingKeyValid = string.Equals(
-                packet.pairing_key,
-                PointingPairingKey,
-                StringComparison.Ordinal
-            );
             bool stationValid = !string.IsNullOrWhiteSpace(packet.station_id);
             bool accepted = packet.version == ProtocolVersion &&
-                deviceTargetValid && pairingKeyValid &&
+                deviceTargetValid &&
                 hostAddressValid && stationValid &&
                 packet.http_port > 0 && packet.pose_port > 0;
 
@@ -433,10 +427,6 @@ namespace SignVR.Recording
             else if (!deviceTargetValid)
             {
                 message = "device_id_mismatch";
-            }
-            else if (!pairingKeyValid)
-            {
-                message = "pairing_key_mismatch";
             }
             else if (!hostAddressValid)
             {
@@ -540,7 +530,7 @@ namespace SignVR.Recording
                     );
                     break;
                 case "stop_take":
-                    accepted = StopRemoteTake();
+                    accepted = StopRemoteTake(packet);
                     break;
                 case "reset_take":
                     accepted = ResetRemoteTake(
@@ -623,12 +613,17 @@ namespace SignVR.Recording
                 return false;
             }
 
-            coordinator.ResetCurrentPrompt();
+            if (!TryGetHostUtc(packet.host_unix_ms, out DateTime resetUtc))
+            {
+                return RejectCommand("host_time_missing");
+            }
+
+            coordinator.ResetCurrentPrompt(resetUtc);
             QueueSentenceSelection(packet, sentenceIndexSupplied);
             return true;
         }
 
-        private bool StopRemoteTake()
+        private bool StopRemoteTake(CommandPacket packet)
         {
             if (coordinator == null)
             {
@@ -644,7 +639,12 @@ namespace SignVR.Recording
                 return true;
             }
 
-            return coordinator.StopCurrentTake() ||
+            if (!TryGetHostUtc(packet.host_unix_ms, out DateTime stoppedUtc))
+            {
+                return RejectCommand("host_time_missing");
+            }
+
+            return coordinator.StopCurrentTake(stoppedUtc) ||
                    RejectCommand(
                        "stop_take_failed_state_" +
                        coordinator.State.ToString().ToLowerInvariant()
@@ -807,6 +807,13 @@ namespace SignVR.Recording
                 );
             }
 
+            if (!TryGetHostUtc(
+                    packet.start_at_unix_ms,
+                    out DateTime startedUtc))
+            {
+                return RejectCommand("host_start_time_missing");
+            }
+
             if (viewpointController != null)
             {
                 if (!TrySelectRemoteViewpoint(packet, sentenceIndexSupplied))
@@ -846,7 +853,7 @@ namespace SignVR.Recording
                 packet.prompt,
                 packet.take_index,
                 packet.take_id,
-                DateTime.UtcNow
+                startedUtc
             );
 
             if (coordinator.BeginRemoteTake(take, packet.countdown_seconds))
@@ -860,6 +867,28 @@ namespace SignVR.Recording
                     ? recorder.LastError
                     : "state_" + coordinator.State.ToString().ToLowerInvariant();
             return RejectCommand("start_take_failed:" + detail);
+        }
+
+        private static bool TryGetHostUtc(long unixMilliseconds, out DateTime utc)
+        {
+            if (unixMilliseconds <= 0)
+            {
+                utc = default;
+                return false;
+            }
+
+            try
+            {
+                utc = DateTimeOffset
+                    .FromUnixTimeMilliseconds(unixMilliseconds)
+                    .UtcDateTime;
+                return true;
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                utc = default;
+                return false;
+            }
         }
 
         private bool RejectCommand(string reason)

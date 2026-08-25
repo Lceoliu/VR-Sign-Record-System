@@ -74,12 +74,13 @@ namespace SignVR.Recording
         public bool editor_simulation;
 
         public static RecordingSpatialSnapshot CreateUnavailable(
-            string worldFrameId)
+            string worldFrameId,
+            DateTime capturedAtUtc)
         {
             return new RecordingSpatialSnapshot
             {
                 valid = false,
-                captured_utc = DateTime.UtcNow.ToString("O"),
+                captured_utc = capturedAtUtc.ToUniversalTime().ToString("O"),
                 world_frame_id = worldFrameId ?? string.Empty,
                 viewpoint_index = -1,
                 viewpoint_position_error_meters = -1f,
@@ -141,14 +142,15 @@ namespace SignVR.Recording
             ResolveDependencies();
         }
 
-        public RecordingSpatialSnapshot CaptureSnapshot()
+        public RecordingSpatialSnapshot CaptureSnapshot(DateTime capturedAtUtc)
         {
             ResolveDependencies();
             playerRig?.ReassertFixedWorldFrame();
 
             RecordingSpatialSnapshot snapshot =
                 RecordingSpatialSnapshot.CreateUnavailable(
-                    ResolveWorldFrameId()
+                    ResolveWorldFrameId(),
+                    capturedAtUtc
                 );
 
             CaptureViewpoint(snapshot);
@@ -200,6 +202,7 @@ namespace SignVR.Recording
             snapshot.valid = snapshot.has_viewpoint &&
                              snapshot.has_xr_origin &&
                              snapshot.has_tracked_head &&
+                             snapshot.viewpoint_position_aligned &&
                              snapshot.position_tracking_valid &&
                              (Application.isEditor ||
                               snapshot.xr_origin_world_frame_locked);
@@ -207,10 +210,11 @@ namespace SignVR.Recording
         }
 
         public bool TryCaptureValidatedSnapshot(
+            DateTime capturedAtUtc,
             out RecordingSpatialSnapshot snapshot,
             out string error)
         {
-            snapshot = CaptureSnapshot();
+            snapshot = CaptureSnapshot(capturedAtUtc);
             if (snapshot.valid)
             {
                 error = string.Empty;
@@ -228,6 +232,10 @@ namespace SignVR.Recording
             else if (!snapshot.position_tracking_valid)
             {
                 error = "头显位置追踪已丢失";
+            }
+            else if (!snapshot.viewpoint_position_aligned)
+            {
+                error = "固定视角对齐失败，请重新选择当前句";
             }
             else if (!Application.isEditor &&
                      !snapshot.xr_origin_world_frame_locked)
@@ -281,22 +289,18 @@ namespace SignVR.Recording
             snapshot.viewpoint_position_error_meters = -1f;
             snapshot.viewpoint_position_aligned = false;
 
-            Transform authoredPose = viewpointController?
-                .CurrentViewpoint?
-                .Pose;
-            if (authoredPose == null || trackedHead == null)
+            if (playerRig == null || trackedHead == null)
             {
                 return;
             }
 
-            float error = Vector3.Distance(
-                authoredPose.position,
-                trackedHead.position
-            );
+            float error = playerRig.SpawnAlignmentPositionError;
             snapshot.viewpoint_position_error_meters = error;
             snapshot.viewpoint_position_aligned =
                 float.IsFinite(error) &&
                 error <= tolerance &&
+                playerRig.LastSpawnAlignmentSucceeded &&
+                playerRig.HasFixedRecordingOriginPose &&
                 (viewpointController == null ||
                  !viewpointController.IsAlignmentPending);
         }

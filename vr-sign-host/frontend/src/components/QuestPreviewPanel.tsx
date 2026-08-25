@@ -39,7 +39,7 @@ export function QuestPreviewPanel({ deviceId, active }: QuestPreviewPanelProps) 
     <VideoPanel
       kind="quest"
       title="Quest 实时画面"
-      meta="640 × 360 · 8 FPS"
+      meta="480 × 270 · 3 FPS · 广角第一人称"
       imageUrl={imageUrl}
       active={active}
     />

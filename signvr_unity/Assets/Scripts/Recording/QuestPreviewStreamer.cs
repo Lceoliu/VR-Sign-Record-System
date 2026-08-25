@@ -37,8 +37,8 @@ namespace SignVR.Recording
         private Vector3 fixedCameraPosition = new Vector3(0f, 1.35f, -0.65f);
 
         [SerializeField]
-        [Range(30f, 70f)]
-        private float fieldOfView = 60f;
+        [Range(30f, 100f)]
+        private float fieldOfView = 80f;
 
         [Header("Preview")]
         [SerializeField]
@@ -65,6 +65,7 @@ namespace SignVR.Recording
         private bool readbackPending;
         private bool uploadInFlight;
         private string previewUrl;
+        private UniversalRenderPipeline.SingleCameraRequest renderRequest;
 
         public void ConfigureView(
             Transform head,
@@ -77,6 +78,19 @@ namespace SignVR.Recording
             upperBodyHips = hips;
             fixedCameraPosition = cameraPosition;
             fieldOfView = verticalFieldOfView;
+            streamJpegPreview = enableJpegStreaming;
+        }
+
+        public void ConfigureHeadsetView(
+            Camera headsetCamera,
+            bool enableJpegStreaming)
+        {
+            sourceCamera = headsetCamera;
+            upperBodyHead = null;
+            upperBodyHips = null;
+            characterRoot = null;
+            deskScreenTarget = null;
+            fieldOfView = 80f;
             streamJpegPreview = enableJpegStreaming;
         }
 
@@ -102,7 +116,7 @@ namespace SignVR.Recording
             height = 270;
             framesPerSecond = 3;
             jpegQuality = 35;
-            fieldOfView = 60f;
+            fieldOfView = 80f;
 
             if (!streamJpegPreview)
             {
@@ -122,47 +136,17 @@ namespace SignVR.Recording
                 return;
             }
 
-            characterRoot = GameObject.Find("Objects/StylizedCharacter")?.transform;
-            deskScreenTarget = GameObject.Find(
-                "Environment/TouchScreenDevice_03/ScreenArea"
-            )?.transform;
-
-            if (characterRoot == null || deskScreenTarget == null)
+            if (upperBodyHead != null && upperBodyHips != null &&
+                deskScreenTarget != null && characterRoot != null)
             {
-                Debug.LogError(
-                    "[QuestPreviewStreamer] Character or desk screen target is missing."
-                );
-                enabled = false;
-                return;
+                Vector3 forward = Vector3.ProjectOnPlane(
+                    deskScreenTarget.position - characterRoot.position,
+                    Vector3.up
+                ).normalized;
+                Vector3 side = Vector3.Cross(Vector3.up, forward).normalized;
+                fixedCameraPosition = characterRoot.position - forward * 1.45f +
+                                      side * 0.9f + Vector3.up * 1.4f;
             }
-
-            Transform[] characterTransforms =
-                characterRoot.GetComponentsInChildren<Transform>(true);
-            upperBodyHead = System.Array.Find(
-                characterTransforms,
-                item => item.name == "Head"
-            );
-            upperBodyHips = System.Array.Find(
-                characterTransforms,
-                item => item.name == "Hips"
-            );
-
-            if (upperBodyHead == null || upperBodyHips == null)
-            {
-                Debug.LogError(
-                    "[QuestPreviewStreamer] Character Head or Hips is missing."
-                );
-                enabled = false;
-                return;
-            }
-
-            Vector3 forward = Vector3.ProjectOnPlane(
-                deskScreenTarget.position - characterRoot.position,
-                Vector3.up
-            ).normalized;
-            Vector3 side = Vector3.Cross(Vector3.up, forward).normalized;
-            fixedCameraPosition = characterRoot.position - forward * 1.45f +
-                                  side * 0.9f + Vector3.up * 1.4f;
         }
 
         public void ConfigureHost(
@@ -225,7 +209,6 @@ namespace SignVR.Recording
         private IEnumerator CaptureLoop()
         {
             var interval = new WaitForSecondsRealtime(1f / framesPerSecond);
-            var endOfFrame = new WaitForEndOfFrame();
 
             while (true)
             {
@@ -236,10 +219,7 @@ namespace SignVR.Recording
                     previewCamera.aspect = (float)width / height;
                     previewCamera.fieldOfView = fieldOfView;
                     previewCamera.targetTexture = renderTexture;
-
-                    previewCamera.enabled = true;
-                    yield return endOfFrame;
-                    previewCamera.enabled = false;
+                    SubmitPreviewRenderRequest();
 
                     if (SystemInfo.supportsAsyncGPUReadback)
                     {
@@ -270,6 +250,16 @@ namespace SignVR.Recording
 
         private void PositionPreviewCamera()
         {
+            if (upperBodyHead == null || upperBodyHips == null ||
+                deskScreenTarget == null)
+            {
+                previewCamera.transform.SetPositionAndRotation(
+                    sourceCamera.transform.position,
+                    sourceCamera.transform.rotation
+                );
+                return;
+            }
+
             Vector3 characterCenter =
                 (upperBodyHead.position + upperBodyHips.position) * 0.5f +
                 Vector3.up * 0.12f;
@@ -285,6 +275,29 @@ namespace SignVR.Recording
                 fixedCameraPosition,
                 Quaternion.LookRotation(viewDirection, Vector3.up)
             );
+        }
+
+        private void SubmitPreviewRenderRequest()
+        {
+            UniversalAdditionalCameraData cameraData =
+                previewCamera.GetUniversalAdditionalCameraData();
+            cameraData.renderType = CameraRenderType.Base;
+            cameraData.allowXRRendering = false;
+            cameraData.renderPostProcessing = false;
+
+            renderRequest ??=
+                new UniversalRenderPipeline.SingleCameraRequest();
+            renderRequest.destination = renderTexture;
+            if (!RenderPipeline.SupportsRenderRequest(
+                    previewCamera,
+                    renderRequest))
+            {
+                throw new System.InvalidOperationException(
+                    "URP single-camera render requests are unavailable."
+                );
+            }
+
+            RenderPipeline.SubmitRenderRequest(previewCamera, renderRequest);
         }
 
         private void ReadbackSynchronously()

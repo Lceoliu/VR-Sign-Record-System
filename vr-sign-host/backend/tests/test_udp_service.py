@@ -143,8 +143,8 @@ def test_command_wait_resolves_matching_ack(tmp_path):
             pose_port=5005,
             station_id="station-test",
             session_token="token",
-            pairing_key="pairing-key",
         )
+        assert "pairing_key" not in packet
 
         pending = asyncio.create_task(
             service.send_to_device_and_wait("quest-test", packet)

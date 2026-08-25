@@ -17,9 +17,9 @@
 
 ## Quest 隔离
 
-本指代录制包使用独立 UDP 端口 5011/5012、工作站 `SignVR-Pointing-01` 和配对密钥，并只接受设备 ID `e610fa41060a431e9932d18aa15bd866`。旧录制组使用 5005/5006，因此两组不会互相发现；设备 ID 和配对密钥会继续拦截误发的数据及命令。
+本指代录制包使用独立 UDP 端口 5011/5012。默认工作站身份为 `SignVR-<计算机名>`，不内置 Quest ID 或共享密钥；打开网页后选择当前工作站对应的 Quest 即可完成绑定。旧录制组使用 5005/5006，因此不会与本流程互相发现。
 
-如果重装应用或清除 Quest 应用数据导致设备 ID 变化，请编辑 `config/station.json` 中的 `allowed_device_ids`，不要删除过滤配置或改回公共的 `development` 工作站。
+若现场确实需要只显示指定 Quest，可在 `config/station.json` 的 `allowed_device_ids` 中填写设备 ID；留空则允许迁移到任意 Quest。
 
 ## 录制设备
 

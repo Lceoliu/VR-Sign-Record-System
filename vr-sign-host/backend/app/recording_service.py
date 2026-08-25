@@ -375,6 +375,7 @@ class RecordingService:
             "version": 3,
             "command_id": cmd_id,
             "action": action,
+            "host_unix_ms": unix_ms(),
             "session_id": self._state.session_id,
             "batch_id": self._state.batch_id,
             "round_id": self._state.round_id,
