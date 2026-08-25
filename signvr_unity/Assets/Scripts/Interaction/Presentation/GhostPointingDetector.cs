@@ -135,17 +135,55 @@ namespace SignVR.Interaction.Presentation
 
         public bool TryConfigureFingerBones(Animator animator)
         {
-            if (animator == null || !animator.isHuman)
+            if (animator == null)
             {
                 return false;
             }
 
-            Transform leftDistal = animator.GetBoneTransform(
-                HumanBodyBones.LeftIndexDistal
+            Transform leftDistal = animator.isHuman
+                ? animator.GetBoneTransform(HumanBodyBones.LeftIndexDistal)
+                : null;
+            Transform rightDistal = animator.isHuman
+                ? animator.GetBoneTransform(HumanBodyBones.RightIndexDistal)
+                : null;
+            leftDistal ??= FindNamedDescendant(
+                animator.transform,
+                "Left_IndexDistal"
             );
-            Transform rightDistal = animator.GetBoneTransform(
-                HumanBodyBones.RightIndexDistal
+            rightDistal ??= FindNamedDescendant(
+                animator.transform,
+                "Right_IndexDistal"
             );
+            return TryConfigureFingerBones(leftDistal, rightDistal);
+        }
+
+        /// <summary>
+        /// Resolves Meta Movement's packaged source skeleton when the prefab
+        /// exposes no Animator component. StylizedCharacter keeps Geometry and
+        /// Skeleton as siblings below its CharacterRetargeter root.
+        /// </summary>
+        public bool TryConfigureFingerBones(Transform rigRoot)
+        {
+            if (rigRoot == null)
+            {
+                return false;
+            }
+
+            Transform leftDistal = FindNamedDescendant(
+                rigRoot,
+                "Left_IndexDistal"
+            );
+            Transform rightDistal = FindNamedDescendant(
+                rigRoot,
+                "Right_IndexDistal"
+            );
+            return TryConfigureFingerBones(leftDistal, rightDistal);
+        }
+
+        private bool TryConfigureFingerBones(
+            Transform leftDistal,
+            Transform rightDistal)
+        {
             Transform leftTip = FindTipDescendant(leftDistal);
             Transform rightTip = FindTipDescendant(rightDistal);
             if (leftDistal == null || rightDistal == null ||
@@ -161,6 +199,42 @@ namespace SignVR.Interaction.Presentation
                 rightTip
             );
             return true;
+        }
+
+        private static Transform FindNamedDescendant(
+            Transform root,
+            string expectedName)
+        {
+            if (root == null || string.IsNullOrWhiteSpace(expectedName))
+            {
+                return null;
+            }
+
+            Transform[] descendants = root.GetComponentsInChildren<Transform>(
+                includeInactive: true
+            );
+            for (int index = 0; index < descendants.Length; index++)
+            {
+                string candidateName = descendants[index].name;
+                int namespaceSeparator = candidateName.LastIndexOf(':');
+                if (namespaceSeparator >= 0 &&
+                    namespaceSeparator + 1 < candidateName.Length)
+                {
+                    candidateName = candidateName.Substring(
+                        namespaceSeparator + 1
+                    );
+                }
+
+                if (string.Equals(
+                        candidateName,
+                        expectedName,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return descendants[index];
+                }
+            }
+
+            return null;
         }
 
         public void ConfigureTargetBindings(
@@ -256,7 +330,7 @@ namespace SignVR.Interaction.Presentation
                 ghostPlayer.Retargeter != null)
             {
                 TryConfigureFingerBones(
-                    ghostPlayer.Retargeter.GetComponentInChildren<Animator>(true)
+                    ghostPlayer.Retargeter.transform
                 );
             }
         }

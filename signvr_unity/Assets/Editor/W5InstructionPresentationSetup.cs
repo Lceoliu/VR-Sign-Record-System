@@ -129,10 +129,7 @@ namespace SignVR.Editor.Interaction
                 detector.ConfigurePlayer(player);
                 detector.ConfigureHighlight(highlight);
                 detector.ConfigureTargetBindings(targetBindings);
-                Animator animator = ghostRig.GetComponentInChildren<Animator>(
-                    true
-                );
-                if (!detector.TryConfigureFingerBones(animator))
+                if (!detector.TryConfigureFingerBones(ghostRig.transform))
                 {
                     Debug.LogWarning(
                         "[W5InstructionPresentationSetup] Could not resolve " +

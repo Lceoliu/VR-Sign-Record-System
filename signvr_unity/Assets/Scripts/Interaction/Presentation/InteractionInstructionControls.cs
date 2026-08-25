@@ -38,11 +38,32 @@ namespace SignVR.Interaction.Presentation
         private InteractionHoldToConfirm abortHold;
         private bool bound;
 
-        public Button ReplayButton => replayButton;
+        public Button ReplayButton
+        {
+            get
+            {
+                ResolveExistingVisualReferences();
+                return replayButton;
+            }
+        }
 
-        public Button GiveUpButton => giveUpButton;
+        public Button GiveUpButton
+        {
+            get
+            {
+                ResolveExistingVisualReferences();
+                return giveUpButton;
+            }
+        }
 
-        public Button AbortButton => abortButton;
+        public Button AbortButton
+        {
+            get
+            {
+                ResolveExistingVisualReferences();
+                return abortButton;
+            }
+        }
 
         public void Configure(InstructionPresentationController presentation)
         {
@@ -165,6 +186,28 @@ namespace SignVR.Interaction.Presentation
                 visualRoot.GetComponent<WorldSpacePokeCanvas>() ??
                 visualRoot.AddComponent<WorldSpacePokeCanvas>();
             pokeCanvas.Configure(canvas);
+        }
+
+        private void ResolveExistingVisualReferences()
+        {
+            if (visualRoot == null)
+            {
+                Transform existingRoot = transform.Find(VisualRootName);
+                visualRoot = existingRoot != null
+                    ? existingRoot.gameObject
+                    : null;
+            }
+            if (visualRoot == null)
+            {
+                return;
+            }
+
+            replayButton ??= visualRoot.transform.Find("Replay")
+                ?.GetComponent<Button>();
+            giveUpButton ??= visualRoot.transform.Find("GiveUpPhase")
+                ?.GetComponent<Button>();
+            abortButton ??= visualRoot.transform.Find("AbortRun")
+                ?.GetComponent<Button>();
         }
 
         private Button EnsureButton(
