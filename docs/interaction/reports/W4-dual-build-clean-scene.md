@@ -259,6 +259,10 @@ against the main worktree and versioned the resulting
 - Cleanup now restores a saved scene setup when one exists and otherwise
   creates a neutral empty Editor scene. The authoritative rerun passed `2/2`
   tests (job `9c76e4af`).
+- The Android build-state restorer uses the same zero-scene-safe path, so a
+  successful batch build cannot be turned into a false failure merely because
+  the batch process began without an active Editor scene. The W4 filter was
+  rerun after this build-path change and passed `2/2` (job `9caf9fac`).
 - A subsequent generator invocation left the scene SHA-256 unchanged at
   `AC24BE09E6E07729C1086B8F17E38D287E14675F7E7E02EBAD836A30EDD7DDB8`,
   confirming idempotence on the integrated scene.

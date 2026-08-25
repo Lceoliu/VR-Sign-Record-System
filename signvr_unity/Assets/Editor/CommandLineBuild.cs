@@ -152,7 +152,8 @@ namespace SignVR.Editor
                 }
 
                 TryRestore(
-                    () => EditorSceneManager.RestoreSceneManagerSetup(sceneSetup),
+                    () => InteractionLabSceneTool
+                        .RestoreSceneManagerSetupSafely(sceneSetup),
                     "open scene setup",
                     failures
                 );
