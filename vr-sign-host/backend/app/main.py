@@ -13,6 +13,9 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import Settings
 from .device_registry import DeviceRegistry
+from .interaction_repository import InteractionRepository
+from .interaction_routes import create_interaction_router
+from .interaction_service import InteractionService
 from .models import (
     DeviceSelectResponse,
     RecordingCommandResponse,
@@ -39,6 +42,8 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     hub = RealtimeHub()
     repository = RecordingRepository(config.data_root, config.station_id)
     recordings = RecordingService(repository)
+    interaction_repository = InteractionRepository(config.data_root)
+    interactions = InteractionService(interaction_repository)
     udp = UdpService(config, registry, hub)
     sentence_sync_lock = asyncio.Lock()
 
@@ -126,7 +131,10 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
     app.state.hub = hub
     app.state.recordings = recordings
     app.state.repository = repository
+    app.state.interaction_repository = interaction_repository
+    app.state.interactions = interactions
     app.state.udp = udp
+    app.include_router(create_interaction_router(interactions, registry, hub))
 
     @app.get("/api/health")
     async def health() -> dict:

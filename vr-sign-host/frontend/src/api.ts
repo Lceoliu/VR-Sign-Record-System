@@ -2,6 +2,12 @@ import type {
   CommandResponse,
   DeviceInfo,
   HostState,
+  InteractionAck,
+  InteractionArtifactType,
+  InteractionArtifactUploadResponse,
+  InteractionCameraReadiness,
+  InteractionReadiness,
+  InteractionRunSnapshot,
   RecordingBatchesResponse,
   RecordingRoundsResponse,
 } from './types'
@@ -76,4 +82,49 @@ export const api = {
       body,
     })
   },
+  interactionReadiness: () => request<InteractionReadiness>('/api/interaction/readiness'),
+  interactionRun: (runId: string) =>
+    request<InteractionRunSnapshot>(`/api/interaction/runs/${encodeURIComponent(runId)}`),
+  updateInteractionCameraReadiness: (ready: boolean) =>
+    request<InteractionCameraReadiness>('/api/interaction/readiness/camera', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ schema_version: 1, ready }),
+    }),
+  interactionAck: (runId: string) =>
+    request<InteractionAck>(`/api/interaction/runs/${encodeURIComponent(runId)}/ack`),
+  uploadInteractionArtifact: (
+    runId: string,
+    artifactType: InteractionArtifactType,
+    content: Blob,
+  ) => request<InteractionArtifactUploadResponse>(
+    `/api/interaction/runs/${encodeURIComponent(runId)}/artifacts/${artifactType}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': content.type || 'application/octet-stream' },
+      body: content,
+    },
+  ),
+  completeInteractionRun: (runId: string) =>
+    request<InteractionRunSnapshot>(
+      `/api/interaction/runs/${encodeURIComponent(runId)}/complete`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schema_version: 1, run_id: runId }),
+      },
+    ),
+  abortInteractionRun: (runId: string, abortReason: string) =>
+    request<InteractionRunSnapshot>(
+      `/api/interaction/runs/${encodeURIComponent(runId)}/abort`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          schema_version: 1,
+          run_id: runId,
+          abort_reason: abortReason,
+        }),
+      },
+    ),
 }

@@ -99,6 +99,56 @@ export interface RecordingRoundsResponse {
   suggested_round_id: string
 }
 
+export type InteractionRunState = 'Scheduled' | 'Running' | 'Completed' | 'Aborted'
+
+export type InteractionArtifactType = 'events' | 'poses' | 'objects' | 'summary' | 'webcam'
+
+export interface InteractionRunSnapshot {
+  schema_version: 1
+  batch_id: string
+  participant_id: string
+  run_id: string
+  state: InteractionRunState
+  start_at_utc: string
+  missing_artifacts: InteractionArtifactType[]
+  acknowledged: boolean
+  terminal_utc: string | null
+  abort_reason: string | null
+}
+
+export interface InteractionReadiness {
+  schema_version: 1
+  backend_ready: boolean
+  storage_ready: boolean
+  storage_error: string | null
+  quest_ready: boolean
+  camera_ready: boolean
+  ready: boolean
+  quest_device_id: string | null
+  camera_last_seen_utc: string | null
+  server_utc: string
+  interaction_root: string
+  active_run: InteractionRunSnapshot | null
+}
+
+export interface InteractionCameraReadiness {
+  schema_version: 1
+  camera_ready: boolean
+  camera_last_seen_utc: string | null
+}
+
+export interface InteractionAck {
+  run_id: string
+  state: InteractionRunState
+  acknowledged: boolean
+  missing_artifacts: InteractionArtifactType[]
+}
+
+export interface InteractionArtifactUploadResponse extends InteractionAck {
+  stored: true
+  artifact_type: InteractionArtifactType
+}
+
 export interface SkeletonMessage {
   type: 'skeleton'
   skeleton_type: string

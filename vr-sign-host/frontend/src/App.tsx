@@ -475,6 +475,7 @@ export default function App() {
           <span>工作站 {state.station_id}</span>
           <span>{state.batch_id && state.round_id ? `${state.batch_id} / ${state.round_id}` : '尚未选择录制轮次'}</span>
           <strong>{completedCount} 已完成 · 第 {state.current_sentence_index + 1} / {state.sentences.length} 句</strong>
+          <a className="mode-switch-link" href="/?mode=interaction">Interaction Study</a>
         </div>
       </header>
 

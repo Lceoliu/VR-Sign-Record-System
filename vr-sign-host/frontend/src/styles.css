@@ -31,6 +31,8 @@ button { color: inherit; }
 .brand h1 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: .01em; }
 .topbar-meta { gap: 24px; color: #c8ceca; font-size: 13px; }
 .topbar-meta strong { color: #fff; font-weight: 650; }
+.mode-switch-link { padding: 7px 9px; border: 1px solid #55605c; border-radius: 6px; color: #dce6e2; text-decoration: none; white-space: nowrap; }
+.mode-switch-link:hover { background: #2b3431; }
 .online { gap: 8px; color: #d8ebe4; }
 .online i { width: 8px; height: 8px; border-radius: 50%; background: #5fc09d; box-shadow: 0 0 0 4px rgba(95,192,157,.12); }
 
