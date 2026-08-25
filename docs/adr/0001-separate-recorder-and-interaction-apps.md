@@ -1,0 +1,3 @@
+# Separate Recorder and Interaction as independently installable applications
+
+The Recorder and Interaction workflows will remain independently installable Quest applications with separate scenes, package identifiers, build entries, and data contracts, while sharing the Unity repository and, initially, the Host through explicit product and protocol identities. This protects existing Recording Takes and the stable recording workflow from interaction-state, physics, deployment, and data-model changes, at the cost of maintaining two validated build paths and guarding shared code and Host changes against cross-application regressions.
