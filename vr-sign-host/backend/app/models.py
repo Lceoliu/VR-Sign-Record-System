@@ -1,6 +1,15 @@
 from __future__ import annotations
 
-from enum import StrEnum
+try:
+    from enum import StrEnum
+except ImportError:  # Python 3.10 compatibility
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        """Backport of the Python 3.11 string-enum behavior we use."""
+
+        def __str__(self) -> str:
+            return str.__str__(self)
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field

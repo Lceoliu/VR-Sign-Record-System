@@ -8,7 +8,7 @@
 
 - Unity 6000.5.6f1
 - 目标平台 Android / Quest 3，渲染管线 URP
-- 构建场景只启用 `Assets/Scenes/Recording.unity`
+- 构建场景只启用 `Assets/Scenes/VRroom.unity`
 
 ## 未纳入版本控制的外部依赖
 
@@ -29,11 +29,19 @@
 
 ### UnitySkills 开发工具包（约 45 MB）
 
-`Packages/com.besty.unity-skills/`。来源已由 `Packages/manifest.json` 声明，Unity 打开工程时会自动拉取。
+来源已由 `Packages/manifest.json` 以 Git UPM 依赖声明，Unity 打开工程时会自动拉取。Codex 的项目级 Skill 位于仓库根目录 `.agents/skills/unity-skills/`，仅保存在本机工作副本中。
 
 ## 构建
 
 Android IL2CPP 开发包输出到 `Builds/Android/`（该目录不入库）。安装到 Quest 3 后，应用会在局域网内广播 UDP 公告等待主机配对。
+
+可在 Unity 菜单中执行 `SignVR -> Build -> Android`，或从仓库根目录运行：
+
+```powershell
+& "$PWD\signvr_unity\Tools\Build-Quest.ps1"
+```
+
+脚本会先修补 Meta XR 205 在 Unity 6000.5 中无法直接解析 Android SDK 设置的兼容性问题，然后启动命令行构建。构建会应用产品身份，强制 Android IL2CPP + ARM64，并校验 `VRroom` 的玩家、物理与指向录制契约；校验失败时不会产出 APK。
 
 正式产品身份为：
 

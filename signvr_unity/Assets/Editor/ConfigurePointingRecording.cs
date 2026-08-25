@@ -812,7 +812,6 @@ internal static class ConfigurePointingRecording
         {
             if (target.GetComponentsInChildren<Rigidbody>(true).Any(body =>
                     !body.isKinematic || body.useGravity ||
-                    body.detectCollisions ||
                     body.constraints != RigidbodyConstraints.FreezeAll) ||
                 target.GetComponentsInChildren<Grabbable>(true)
                     .Any(grabbable => grabbable.enabled))

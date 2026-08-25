@@ -1,0 +1,5 @@
+/meetings/
+
+# Machine-specific Codex integrations and generated local skills.
+/.codex/
+/signvr_unity/.codex/

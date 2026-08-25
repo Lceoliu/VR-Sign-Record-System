@@ -18,8 +18,11 @@ namespace SignVR.Editor
         private const string DefaultBuildPath =
             "Builds/SignVR_Unity_Local.apk";
 
+        [MenuItem("SignVR/Build/Android APK")]
         public static void BuildAndroid()
         {
+            PrepareQuestBuild();
+
             string projectRoot = Directory.GetParent(Application.dataPath)!
                 .FullName;
             string requestedPath =
@@ -76,6 +79,29 @@ namespace SignVR.Editor
                     ". See the Unity build log for details."
                 );
             }
+        }
+
+        private static void PrepareQuestBuild()
+        {
+            SignVR.EditorTools.SignVRReleaseSettings.ApplyProductIdentity();
+            PlayerSettings.SetScriptingBackend(
+                NamedBuildTarget.Android,
+                ScriptingImplementation.IL2CPP
+            );
+            PlayerSettings.Android.targetArchitectures =
+                AndroidArchitecture.ARM64;
+            PlayerSettings.insecureHttpOption =
+                InsecureHttpOption.AlwaysAllowed;
+
+            ConfigureVRRoomPlayer.ValidateSceneForAutomation();
+            ConfigurePointingRecording.ValidateSceneForAutomation();
+            SignVR.EditorTools.SignVRReleaseSettings.ValidateProductIdentity();
+            AssetDatabase.SaveAssets();
+
+            Debug.Log(
+                "[CommandLineBuild] Quest build settings and scene " +
+                "contracts validated."
+            );
         }
 
         private static string GetArgument(string name)
