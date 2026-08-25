@@ -28,6 +28,8 @@ namespace SignVR.Editor
             "Builds/SignVR_Unity_Local.apk";
         private const string DefaultInteractionBuildPath =
             "Builds/SignVR_Interaction_Local.apk";
+        private const string RecorderScenePath =
+            "Assets/Scenes/VRroom.unity";
 
         private readonly struct AndroidBuildProfile
         {
@@ -300,7 +302,6 @@ namespace SignVR.Editor
 
         private static void PrepareQuestBuild(AndroidBuildProfile profile)
         {
-            InteractionLabValidator.ValidateBuildContractForAutomation();
             SignVRReleaseSettings.ApplyProductIdentity(profile.Product);
             PlayerSettings.SetScriptingBackend(
                 NamedBuildTarget.Android,
@@ -318,6 +319,7 @@ namespace SignVR.Editor
                     ConfigurePointingRecording.ValidateSceneForAutomation();
                     break;
                 case SignVRProduct.Interaction:
+                    InteractionLabValidator.ValidateBuildContractForAutomation();
                     InteractionLabSceneTool.GenerateOrUpdateSceneForAutomation();
                     InteractionLabValidator.ValidateLoadedScene(
                         SceneManager.GetSceneByPath(
@@ -347,7 +349,7 @@ namespace SignVR.Editor
                 case SignVRProduct.Recorder:
                     return new AndroidBuildProfile(
                         product,
-                        InteractionLabContract.RecorderScenePath,
+                        RecorderScenePath,
                         RecorderBuildPathArgument,
                         DefaultRecorderBuildPath
                     );

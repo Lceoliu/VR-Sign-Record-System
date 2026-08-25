@@ -39,6 +39,8 @@ namespace SignVR.Editor.Interaction
         public static void GenerateOrUpdateSceneForAutomation()
         {
             EnsureLoadedScenesAreSaved();
+            SceneSetup[] originalSetup =
+                EditorSceneManager.GetSceneManagerSetup();
             EnsureSceneAssetsExist();
 
             bool created = false;
@@ -76,6 +78,11 @@ namespace SignVR.Editor.Interaction
                 bool changed = SanitizeRecordingResponsibilities(scene);
                 changed |= EnsureInteractionContract(scene);
 
+                // Validate the complete in-memory result before it is allowed
+                // to replace the saved scene. The saved-scene validator runs
+                // again below after persistence.
+                InteractionLabValidator.ValidateLoadedSceneForGeneration(scene);
+
                 if (created || changed)
                 {
                     EditorSceneManager.MarkSceneDirty(scene);
@@ -95,18 +102,49 @@ namespace SignVR.Editor.Interaction
                     $"{InteractionLabContract.ScenePath}; changed={changed}."
                 );
             }
-            catch
+            catch (Exception generationFailure)
             {
-                // Discard only this tool's unsaved partial mutations so a
-                // failed build cannot strand a dirty scene that blocks the
-                // outer build-state restoration.
-                if (scene.IsValid() && scene.isLoaded && scene.isDirty)
+                try
                 {
-                    EditorSceneManager.OpenScene(
-                        InteractionLabContract.ScenePath,
-                        OpenSceneMode.Single
+                    if (created)
+                    {
+                        // The copied scene did not exist before this attempt.
+                        // Restore the caller's scene layout before deleting the
+                        // failed generated asset.
+                        EditorSceneManager.RestoreSceneManagerSetup(originalSetup);
+                        if (AssetDatabase.LoadAssetAtPath<SceneAsset>(
+                                InteractionLabContract.ScenePath
+                            ) != null &&
+                            !AssetDatabase.DeleteAsset(
+                                InteractionLabContract.ScenePath
+                            ))
+                        {
+                            throw new InvalidOperationException(
+                                $"Unity could not remove failed generated scene " +
+                                $"{InteractionLabContract.ScenePath}."
+                            );
+                        }
+                    }
+                    else if (scene.IsValid() && scene.isLoaded && scene.isDirty)
+                    {
+                        // Existing Interaction work is restored from its last
+                        // valid saved state; unsaved sanitizer mutations never
+                        // survive a failed pre-save validation.
+                        EditorSceneManager.OpenScene(
+                            InteractionLabContract.ScenePath,
+                            OpenSceneMode.Single
+                        );
+                    }
+                }
+                catch (Exception cleanupFailure)
+                {
+                    throw new AggregateException(
+                        "InteractionLab generation failed and cleanup was incomplete.",
+                        generationFailure,
+                        cleanupFailure
                     );
                 }
+
                 throw;
             }
         }

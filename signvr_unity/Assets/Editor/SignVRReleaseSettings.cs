@@ -32,7 +32,10 @@ namespace SignVR.EditorTools
         public const string BundleVersion = "1.0.0";
         public const int AndroidVersionCode = 1;
 
-        [MenuItem("SignVR/Release/Recorder/Apply Product Identity")]
+        // Preserve the Recorder menu path used before the Interaction product
+        // was introduced. Existing operator muscle memory and automation stay
+        // valid while Interaction gets its own explicit entry below.
+        [MenuItem("SignVR/Release/Apply Product Identity")]
         public static void ApplyProductIdentity()
         {
             ApplyProductIdentity(SignVRProduct.Recorder);
@@ -122,7 +125,7 @@ namespace SignVR.EditorTools
             }
         }
 
-        [MenuItem("SignVR/Release/Recorder/Validate Product Identity")]
+        [MenuItem("SignVR/Release/Validate Product Identity")]
         public static void ValidateProductIdentity()
         {
             ValidateProductIdentity(SignVRProduct.Recorder);

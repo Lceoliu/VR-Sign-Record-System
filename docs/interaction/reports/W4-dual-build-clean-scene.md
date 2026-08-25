@@ -231,3 +231,14 @@ are relative to `signvr_unity`.
 5. Confirm `EditorBuildSettings.asset`, `OpenXRPackageSettings.asset`, existing
    Recording Take data/code, Host, and `PROGRESS.md` remain outside the W4
    integration change.
+
+## Orchestrator pre-integration corrections
+
+The Orchestrator's two-axis review made three compatibility/safety corrections
+before integration:
+
+- restored the pre-existing Recorder release menu paths;
+- removed Interaction dual-product validation from the Recorder build path;
+- changed InteractionLab generation to validate the complete in-memory scene
+  before saving it, restore an existing scene after failure, and delete a newly
+  copied scene when first-generation validation fails.

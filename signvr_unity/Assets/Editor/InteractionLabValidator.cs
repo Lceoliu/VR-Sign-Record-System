@@ -204,13 +204,25 @@ namespace SignVR.Editor.Interaction
 
         public static void ValidateLoadedScene(Scene scene)
         {
+            ValidateLoadedScene(scene, requireSavedScene: true);
+        }
+
+        internal static void ValidateLoadedSceneForGeneration(Scene scene)
+        {
+            ValidateLoadedScene(scene, requireSavedScene: false);
+        }
+
+        private static void ValidateLoadedScene(
+            Scene scene,
+            bool requireSavedScene)
+        {
             var failures = new List<string>();
             if (!scene.IsValid() || !scene.isLoaded)
             {
                 failures.Add("InteractionLab is not a valid loaded scene.");
                 ThrowIfInvalid("InteractionLab scene", failures);
             }
-            if (scene.isDirty)
+            if (requireSavedScene && scene.isDirty)
             {
                 failures.Add(
                     "InteractionLab has unsaved changes; validation must run " +
