@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Reflection;
 using Meta.XR.Movement.Retargeting;
 using Oculus.Interaction;
 using TMPro;
@@ -18,8 +19,14 @@ namespace SignVR.Recording
     internal static class RecordingRuntimeBootstrap
     {
         private const string VrRoomScenePath = "Assets/Scenes/VRroom.unity";
+        private const string VrRoomSceneName = "VRroom";
         private const string RecordingSourceName = "RecordingSource";
         private static bool registered;
+        private static readonly FieldInfo HideRayWithoutInteractableField =
+            typeof(RayInteractorRayVisual).GetField(
+                "_hideWhenNoInteractable",
+                BindingFlags.Instance | BindingFlags.NonPublic
+            );
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         private static void Register()
@@ -33,6 +40,15 @@ namespace SignVR.Recording
             SceneManager.sceneLoaded += HandleSceneLoaded;
         }
 
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+        private static void InstallActiveScene()
+        {
+            // Player startup can complete the first scene load before another
+            // subsystem subscribes to sceneLoaded. Always inspect the active
+            // scene once as well; TryInstall is idempotent.
+            TryInstall(SceneManager.GetActiveScene());
+        }
+
         private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
         {
             TryInstall(scene);
@@ -40,7 +56,7 @@ namespace SignVR.Recording
 
         private static void TryInstall(Scene scene)
         {
-            if (scene.path != VrRoomScenePath)
+            if (scene.path != VrRoomScenePath && scene.name != VrRoomSceneName)
             {
                 return;
             }
@@ -48,6 +64,7 @@ namespace SignVR.Recording
             // The desktop operator must be able to use the host console while
             // Unity keeps counting down, sampling, and receiving UDP commands.
             Application.runInBackground = true;
+            ConfigureQuestPerformance(scene);
 
             GameObject recordingSource = scene.GetRootGameObjects()
                 .FirstOrDefault(root => root.name == RecordingSourceName);
@@ -74,6 +91,7 @@ namespace SignVR.Recording
 
             recorder.ConfigureSource(provider);
             recorder.ConfigureManagedRecording();
+            provider.DebugDrawSkeleton = false;
 
             MetaBodyMotionStreamer streamer =
                 recordingSource.GetComponent<MetaBodyMotionStreamer>();
@@ -181,10 +199,9 @@ namespace SignVR.Recording
                 rootObject.AddComponent<RecordingTargetPoseLock>();
             targetPoseLock.Configure(ResolvePointingTargets(scene));
 
-            RecordingHandSkeletonVisualizer handSkeleton =
-                rootObject.AddComponent<RecordingHandSkeletonVisualizer>();
             HandVisual[] handVisuals = FindAllInScene<HandVisual>(scene);
-            handSkeleton.Configure(handVisuals);
+            RestoreTrackedHandVisuals(handVisuals);
+            ConfigureNativeHandRays(scene);
 
             Camera hmdCamera = hmd != null ? hmd.GetComponent<Camera>() : null;
             RecordingTargetVisualCues targetVisualCues =
@@ -194,14 +211,6 @@ namespace SignVR.Recording
             RecordingPointingTargetController targetController =
                 rootObject.AddComponent<RecordingPointingTargetController>();
             targetController.Configure(sentenceSequence, targetVisualCues);
-
-            RecordingIndexFingerRays fingerRays =
-                rootObject.AddComponent<RecordingIndexFingerRays>();
-            fingerRays.Configure(coordinator, targetVisualCues, hmdCamera);
-            fingerRays.SetHandVisuals(
-                FindHandVisual(handVisuals, Oculus.Interaction.Input.Handedness.Left),
-                FindHandVisual(handVisuals, Oculus.Interaction.Input.Handedness.Right)
-            );
 
             QuestDeviceGateway gateway =
                 rootObject.AddComponent<QuestDeviceGateway>();
@@ -221,6 +230,10 @@ namespace SignVR.Recording
             debugInput.Configure(coordinator, null, sentenceSequence);
 
             rootObject.SetActive(true);
+            Debug.Log(
+                "[RecordingRuntimeBootstrap] Meta tracked hand visuals and " +
+                "native hand-ray interactors are enabled."
+            );
             if (hmd != null)
             {
                 RecordingPromptBubble.EnsureCreated(
@@ -235,10 +248,31 @@ namespace SignVR.Recording
             Debug.Log(
                 "[RecordingRuntimeBootstrap] Installed take recording stack in " +
                 scene.path + ". Six fixed viewpoints, local sequence, prompt " +
-                "bubble, target cues, index rays, and physics isolation are " +
-                "active. Sentence selection is host-only. UDP control=5006, " +
-                "pose/announce=5005."
+                "bubble, target cues, native hand rays, and physics isolation are " +
+                "active. Sentence selection is host-only. UDP control=5012, " +
+                "pose/announce=5011."
             );
+        }
+
+        private static void ConfigureQuestPerformance(Scene scene)
+        {
+            Application.targetFrameRate = 72;
+            QualitySettings.vSyncCount = 0;
+
+            OVRManager manager = FindInScene<OVRManager>(scene);
+            if (manager == null)
+            {
+                return;
+            }
+
+            // Keep tracking cadence stable under GPU load. The original Meta
+            // default can supersample Quest 3 as high as 1.6x, which is far too
+            // expensive for this texture-heavy recording scene.
+            manager.quest3MinDynamicResolutionScale = 0.65f;
+            manager.quest3MaxDynamicResolutionScale = 0.8f;
+            manager.minDynamicResolutionScale = 0.65f;
+            manager.maxDynamicResolutionScale = 0.8f;
+            manager.enableDynamicResolution = true;
         }
 
         private static void DisableLegacyRecorderCanvas(Scene scene)
@@ -379,14 +413,57 @@ namespace SignVR.Recording
             return FindAllInScene<T>(scene).FirstOrDefault();
         }
 
-        private static HandVisual FindHandVisual(
-            HandVisual[] handVisuals,
-            Oculus.Interaction.Input.Handedness handedness)
+        private static void RestoreTrackedHandVisuals(HandVisual[] handVisuals)
         {
-            return handVisuals.FirstOrDefault(
-                visual => visual != null && visual.Hand != null &&
-                          visual.Hand.Handedness == handedness
-            );
+            if (handVisuals == null)
+            {
+                return;
+            }
+
+            foreach (HandVisual visual in handVisuals)
+            {
+                if (visual == null)
+                {
+                    continue;
+                }
+
+                visual.enabled = true;
+                visual.ForceOffVisibility = false;
+            }
+        }
+
+        private static void ConfigureNativeHandRays(Scene scene)
+        {
+            RayInteractor[] interactors = FindAllInScene<RayInteractor>(scene)
+                .Where(interactor => GetPath(interactor.transform).IndexOf(
+                    "HandRayInteractor",
+                    StringComparison.OrdinalIgnoreCase
+                ) >= 0)
+                .ToArray();
+
+            foreach (RayInteractor interactor in interactors)
+            {
+                interactor.enabled = true;
+                foreach (RayInteractorRayVisual visual in
+                         interactor.GetComponentsInChildren<RayInteractorRayVisual>(
+                             true
+                         ))
+                {
+                    visual.enabled = true;
+                    visual.RayVisualStartOffset = 0.025f;
+                    visual.RayVisualEndOffset = 0.02f;
+                    visual.MaxRayVisualLength = 1.5f;
+                    HideRayWithoutInteractableField?.SetValue(visual, false);
+                }
+            }
+
+            if (interactors.Length < 2)
+            {
+                Debug.LogWarning(
+                    "[RecordingRuntimeBootstrap] Expected two Meta native " +
+                    $"HandRayInteractors, found {interactors.Length}."
+                );
+            }
         }
 
         private static Transform[] ResolvePointingTargets(Scene scene)

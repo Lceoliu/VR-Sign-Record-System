@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -26,9 +27,15 @@ from .repository import RecordingRepository, safe_segment
 from .udp_service import UdpService
 
 
+# Windows can inherit a text/plain .js mapping from the registry. Browsers
+# reject Vite's ES modules unless they are served with a JavaScript MIME type.
+mimetypes.add_type("application/javascript", ".js", strict=True)
+mimetypes.add_type("application/javascript", ".mjs", strict=True)
+
+
 def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> FastAPI:
     config = settings or Settings.from_environment()
-    registry = DeviceRegistry(config.station_id)
+    registry = DeviceRegistry(config.station_id, config.allowed_device_ids)
     hub = RealtimeHub()
     repository = RecordingRepository(config.data_root, config.station_id)
     recordings = RecordingService(repository)
@@ -128,6 +135,7 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
             "station_id": config.station_id,
             "udp_port": config.udp_port,
             "control_port": config.quest_control_port,
+            "device_filter_enabled": bool(config.allowed_device_ids),
         }
 
     @app.get("/api/state")
@@ -205,21 +213,18 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         device = await registry.get(device_id)
         if device is None:
             raise HTTPException(status_code=404, detail="未找到这台 Quest 设备")
-        if device.paired_station_id and device.paired_station_id != config.station_id:
-            raise HTTPException(
-                status_code=409,
-                detail=f"这台 Quest 已绑定 {device.paired_station_id}",
-            )
         quest_station_id = config.station_id
         selected, token = await registry.select(device_id)
         cmd_id = command_id()
         packet = pair_packet(
             cmd_id=cmd_id,
+            device_id=device_id,
             host_ip=udp.host_ip_for(selected.ip),
             http_port=config.http_port,
             pose_port=config.udp_port,
             station_id=quest_station_id,
             session_token=token,
+            pairing_key=config.pairing_key,
         )
         if start_udp:
             try:
@@ -227,7 +232,11 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
             except HTTPException:
                 await registry.mark_pairing_result(device_id, False)
                 raise
-        selected = await registry.mark_pairing_result(device_id, True)
+        selected = await registry.mark_pairing_result(
+            device_id,
+            True,
+            config.station_id,
+        )
         await recordings.set_selected_device(device_id)
         await hub.publish_event({"type": "device_selected", "payload": selected.model_dump()})
         await sync_current_sentence_to_quest(device_id)
@@ -391,6 +400,8 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         device_id: str,
         request: Request,
     ) -> dict:
+        if not await registry.is_selected(device_id):
+            raise HTTPException(status_code=409, detail="该 Quest 未被本工作站选中")
         if request.headers.get("content-type", "").split(";", 1)[0] != "image/jpeg":
             raise HTTPException(status_code=415, detail="Expected image/jpeg")
         jpeg = await request.body()
@@ -414,6 +425,8 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
         pose_file: UploadFile = File(...),
         meta_file: UploadFile = File(...),
     ) -> dict:
+        if not await registry.is_selected(device_id):
+            raise HTTPException(status_code=409, detail="该 Quest 未被本工作站选中")
         # New Unity Takes carry an explicit quality contract. Keep accepting
         # legacy metadata without those fields, but never persist a Take that
         # explicitly identifies itself as simulated or interrupted.

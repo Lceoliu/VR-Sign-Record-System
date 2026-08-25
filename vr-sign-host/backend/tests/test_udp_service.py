@@ -53,6 +53,7 @@ def test_pose_packets_are_forwarded_to_console(tmp_path):
             {"device_id": "quest-test", "name": "Quest 3 Test", "control_port": 5006},
             "192.168.1.42",
         )
+        await registry.select("quest-test")
         hub = RealtimeHub()
         forwarded: list[tuple[str, dict]] = []
         hub.publish_pose = lambda device_id, packet: _record(forwarded, device_id, packet)  # type: ignore[method-assign]
@@ -81,6 +82,10 @@ def test_pose_packets_are_forwarded_to_console(tmp_path):
 
 async def _record(sink: list, device_id: str, packet: dict) -> None:
     sink.append((device_id, packet))
+
+
+async def _record_event(sink: list, event: dict) -> None:
+    sink.append(event)
 
 
 def test_only_devices_owned_by_this_station_are_auto_selected():
@@ -126,16 +131,19 @@ def test_command_wait_resolves_matching_ack(tmp_path):
             },
             "192.168.1.42",
         )
+        await registry.select("quest-test")
         service = UdpService(Settings(data_root=tmp_path), registry, RealtimeHub())
         transport = FakeDatagramTransport()
         service.transport = transport  # type: ignore[assignment]
         packet = pair_packet(
             cmd_id="pair-command",
+            device_id="quest-test",
             host_ip="192.168.1.10",
-            http_port=8000,
+            http_port=8011,
             pose_port=5005,
             station_id="station-test",
             session_token="token",
+            pairing_key="pairing-key",
         )
 
         pending = asyncio.create_task(
@@ -187,6 +195,137 @@ def test_commands_use_stable_legacy_fields_for_old_quest_builds(tmp_path):
         packet = decode_packet(transport.sent[0][0])
         assert packet["station_id"] == "station-test"
         assert packet["session_token"] == LEGACY_COMPATIBILITY_TOKEN
+
+    anyio.run(scenario)
+
+
+def test_device_allowlist_hides_foreign_announcements():
+    async def scenario() -> None:
+        registry = DeviceRegistry(
+            "station-a",
+            frozenset({"quest-allowed"}),
+        )
+
+        foreign = await registry.upsert_announcement(
+            {"device_id": "quest-foreign", "control_port": 5006},
+            "192.168.1.41",
+        )
+        allowed = await registry.upsert_announcement(
+            {"device_id": "quest-allowed", "control_port": 5006},
+            "192.168.1.42",
+        )
+
+        assert foreign is None
+        assert allowed is not None
+        assert allowed.selected is True
+        assert [device.device_id for device in await registry.list()] == [
+            "quest-allowed"
+        ]
+
+    anyio.run(scenario)
+
+
+def test_foreign_realtime_packets_and_signals_are_ignored(tmp_path):
+    async def scenario() -> None:
+        registry = DeviceRegistry()
+        for device_id, ip in (
+            ("quest-selected", "192.168.1.42"),
+            ("quest-foreign", "192.168.1.43"),
+        ):
+            await registry.upsert_announcement(
+                {"device_id": device_id, "control_port": 5006},
+                ip,
+            )
+        await registry.select("quest-selected")
+
+        hub = RealtimeHub()
+        poses: list[tuple[str, dict]] = []
+        events: list[dict] = []
+        signals: list[dict] = []
+        hub.publish_pose = lambda device_id, packet: _record(poses, device_id, packet)  # type: ignore[method-assign]
+        hub.publish_event = lambda event: _record_event(events, event)  # type: ignore[method-assign]
+        service = UdpService(Settings(data_root=tmp_path), registry, hub)
+        service.on_signal = lambda packet: _record_event(signals, packet)
+
+        await service.handle_packet(
+            encode_packet(
+                {"type": "frame", "device_id": "quest-foreign", "sequence": 1}
+            ),
+            ("192.168.1.43", 5005),
+        )
+        await service.handle_packet(
+            encode_packet(
+                {"type": "signal", "device_id": "quest-foreign", "signal": "help"}
+            ),
+            ("192.168.1.43", 5006),
+        )
+
+        assert poses == []
+        assert events == []
+        assert signals == []
+
+    anyio.run(scenario)
+
+
+def test_first_paired_announcement_refreshes_host_endpoint_once(tmp_path):
+    async def scenario() -> None:
+        registry = DeviceRegistry("station-test")
+        service = UdpService(
+            Settings(data_root=tmp_path, station_id="station-test"),
+            registry,
+            RealtimeHub(),
+        )
+        transport = FakeDatagramTransport()
+        service.transport = transport  # type: ignore[assignment]
+
+        await service.handle_packet(
+            encode_packet(
+                {
+                    "type": "announce",
+                    "device_id": "quest-test",
+                    "control_port": 5006,
+                    "paired": True,
+                    "paired_station_id": "station-test",
+                }
+            ),
+            ("192.168.1.42", 5006),
+        )
+        await asyncio.sleep(0)
+
+        assert (await registry.selected()).device_id == "quest-test"
+        assert len(transport.sent) == 1
+        refresh = decode_packet(transport.sent[0][0])
+        assert refresh["type"] == "pair"
+        assert refresh["host_ip"] == service.host_ip_for("192.168.1.42")
+
+        await service.handle_packet(
+            encode_packet(
+                {
+                    "type": "ack",
+                    "command_id": refresh["command_id"],
+                    "device_id": "quest-test",
+                    "accepted": True,
+                    "state": "ready",
+                }
+            ),
+            ("192.168.1.42", 5006),
+        )
+        await asyncio.sleep(0)
+
+        await service.handle_packet(
+            encode_packet(
+                {
+                    "type": "announce",
+                    "device_id": "quest-test",
+                    "control_port": 5006,
+                    "paired": True,
+                    "paired_station_id": "station-test",
+                }
+            ),
+            ("192.168.1.42", 5006),
+        )
+        await asyncio.sleep(0)
+        assert len(transport.sent) == 1
 
     anyio.run(scenario)
 

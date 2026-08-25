@@ -17,8 +17,10 @@ namespace SignVR.Recording
         private const string OverlayShaderResource =
             "Shaders/RecordingUiOverlay";
         private const string OverlayShaderName = "SignVR/Recording UI Overlay";
+        private const string TextOverlayMaterialResource =
+            "Fonts & Materials/LiberationSans SDF - Overlay";
         private const string TextOverlayShaderName =
-            "TextMeshPro/Distance Field Overlay";
+            "TextMeshPro/Mobile/Distance Field Overlay";
 
         [Header("Dependencies")]
         [SerializeField]
@@ -346,6 +348,11 @@ namespace SignVR.Recording
             bubbleCanvas.worldCamera = hmdCamera;
             bubbleCanvas.overrideSorting = true;
             bubbleCanvas.sortingOrder = 30000;
+            bubbleCanvas.additionalShaderChannels =
+                AdditionalCanvasShaderChannels.TexCoord1 |
+                AdditionalCanvasShaderChannels.TexCoord2 |
+                AdditionalCanvasShaderChannels.Normal |
+                AdditionalCanvasShaderChannels.Tangent;
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
             scaler.scaleFactor = 1f;
             scaler.referencePixelsPerUnit = 100f;
@@ -499,7 +506,11 @@ namespace SignVR.Recording
             Material source = statusText != null
                 ? statusText.fontSharedMaterial
                 : null;
-            Shader textOverlayShader = Shader.Find(TextOverlayShaderName);
+            Material packagedOverlayMaterial =
+                Resources.Load<Material>(TextOverlayMaterialResource);
+            Shader textOverlayShader = packagedOverlayMaterial != null
+                ? packagedOverlayMaterial.shader
+                : Shader.Find(TextOverlayShaderName);
             if (source == null || textOverlayShader == null)
             {
                 if (textOverlayShader == null)
@@ -561,34 +572,26 @@ namespace SignVR.Recording
             lastViewDistance = viewDistance;
             lastReferenceHeight = referenceHeight;
 
-            float canvasHeight = Mathf.Max(500f, referenceHeight);
-            float canvasWidth = canvasHeight * aspect;
             float safeDistance = Mathf.Max(0.35f, viewDistance);
-            float planeHeight = 2f * safeDistance * Mathf.Tan(
-                fieldOfView * 0.5f * Mathf.Deg2Rad
-            );
-            float canvasScale = planeHeight / canvasHeight;
+            float width = Mathf.Max(240f, maximumBubbleWidth);
+            float height = Mathf.Max(120f, bubbleHeight);
+            const float worldHeight = 0.105f;
+            float canvasScale = worldHeight / height;
 
             ResetCanvasRectTransform();
-            canvasRect.sizeDelta = new Vector2(canvasWidth, canvasHeight);
-            canvasRect.anchoredPosition3D = Vector3.forward * safeDistance;
+            canvasRect.sizeDelta = new Vector2(width, height);
+            canvasRect.anchoredPosition3D = new Vector3(
+                -safeDistance * 0.29f,
+                safeDistance * 0.21f,
+                safeDistance
+            );
             canvasRect.localRotation = Quaternion.identity;
             canvasRect.localScale = Vector3.one * canvasScale;
 
-            float availableWidth = Mathf.Max(240f, canvasWidth - edgeMargin * 2f);
-            float width = Mathf.Min(
-                availableWidth,
-                Mathf.Min(maximumBubbleWidth, canvasWidth * viewportWidthFraction)
-            );
-            float height = Mathf.Min(
-                bubbleHeight,
-                Mathf.Max(120f, canvasHeight - edgeMargin * 2f)
-            );
-
-            bubbleRect.anchorMin = new Vector2(0f, 1f);
-            bubbleRect.anchorMax = new Vector2(0f, 1f);
-            bubbleRect.pivot = new Vector2(0f, 1f);
-            bubbleRect.anchoredPosition = new Vector2(edgeMargin, -edgeMargin);
+            bubbleRect.anchorMin = new Vector2(0.5f, 0.5f);
+            bubbleRect.anchorMax = new Vector2(0.5f, 0.5f);
+            bubbleRect.pivot = new Vector2(0.5f, 0.5f);
+            bubbleRect.anchoredPosition = Vector2.zero;
             bubbleRect.sizeDelta = new Vector2(width, height);
             border.color = borderColor;
             border.CornerRadius = Mathf.Min(cornerRadius, height * 0.5f);

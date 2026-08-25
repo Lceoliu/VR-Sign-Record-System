@@ -28,7 +28,7 @@ class DeviceInfo(BaseModel):
     model: str = "Quest"
     app_version: str = "unknown"
     ip: str
-    control_port: int = 5006
+    control_port: int = 5012
     capabilities: list[str] = Field(default_factory=list)
     state: str = "available"
     selected: bool = False

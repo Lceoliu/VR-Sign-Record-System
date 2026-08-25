@@ -1,10 +1,35 @@
 param(
     [switch]$EnableUnityEditorSimulation,
-    [string]$UnityEditorPath
+    [string]$UnityEditorPath,
+
+    [ValidateRange(0, 65535)]
+    [int]$RequestedHttpPort = 0,
+
+    [ValidateRange(0, 65535)]
+    [int]$RequestedUdpPort = 0,
+
+    [string]$ErrorLogPath
 )
 
 $ErrorActionPreference = 'Stop'
 $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+
+trap {
+    $message = $_ | Out-String
+    if ($ErrorLogPath) {
+        try {
+            [IO.File]::WriteAllText(
+                $ErrorLogPath,
+                $message,
+                [Text.UTF8Encoding]::new($false)
+            )
+        } catch {
+            # Preserve the original firewall error if logging also fails.
+        }
+    }
+    [Console]::Error.WriteLine($message)
+    exit 1
+}
 
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
@@ -14,25 +39,21 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 $hostRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $hostRoot 'config\station.json'
-$portablePython = Join-Path $hostRoot 'runtime\python\python.exe'
-$venvPython = Join-Path $hostRoot 'backend\.venv\Scripts\python.exe'
-$python = if (Test-Path -LiteralPath $portablePython) { $portablePython } else { $venvPython }
-$httpPort = 8000
-$udpPort = 5005
+$httpPort = if ($RequestedHttpPort -gt 0) { $RequestedHttpPort } else { 8011 }
+$udpPort = if ($RequestedUdpPort -gt 0) { $RequestedUdpPort } else { 5011 }
 
 if (Test-Path -LiteralPath $configPath) {
     $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $httpPort = [int]$config.http_port
-    $udpPort = [int]$config.udp_port
+    if ($RequestedHttpPort -eq 0) {
+        $httpPort = [int]$config.http_port
+    }
+    if ($RequestedUdpPort -eq 0) {
+        $udpPort = [int]$config.udp_port
+    }
 }
-if (-not (Test-Path -LiteralPath $python)) {
-    throw "SignVR host Python was not found: $python"
-}
-
 function Add-SignVrFirewallRule {
     param(
         [Parameter(Mandatory)] [string]$DisplayName,
-        [Parameter(Mandatory)] [string]$Program,
         [Parameter(Mandatory)] [string]$Protocol,
         [Parameter(Mandatory)] [int]$LocalPort
     )
@@ -46,7 +67,6 @@ function Add-SignVrFirewallRule {
         -DisplayName $DisplayName `
         -Direction Inbound `
         -Action Allow `
-        -Program $Program `
         -Protocol $Protocol `
         -LocalPort $LocalPort `
         -RemoteAddress LocalSubnet `
@@ -55,13 +75,11 @@ function Add-SignVrFirewallRule {
 
 Add-SignVrFirewallRule `
     -DisplayName "SignVR Host HTTP $httpPort" `
-    -Program $python `
     -Protocol TCP `
     -LocalPort $httpPort
 
 Add-SignVrFirewallRule `
     -DisplayName "SignVR Host UDP $udpPort" `
-    -Program $python `
     -Protocol UDP `
     -LocalPort $udpPort
 
@@ -85,10 +103,9 @@ if ($EnableUnityEditorSimulation) {
     $blockingRules | Disable-NetFirewallRule
 
     Add-SignVrFirewallRule `
-        -DisplayName 'SignVR Unity Editor UDP 5006' `
-        -Program $UnityEditorPath `
+        -DisplayName 'SignVR Pointing Quest Control UDP 5012' `
         -Protocol UDP `
-        -LocalPort 5006
+        -LocalPort 5012
 }
 
 Write-Host 'SignVR local-network firewall rules are configured.'

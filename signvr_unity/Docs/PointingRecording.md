@@ -3,8 +3,9 @@
 ## 31 句与六个固定视角
 
 `VRroom/RecordingViewpoints` 上的 `RecordingSentenceSequence` 保存 31 条可编辑
-数据。每条数据包含句子、固定视角、目标路径和可选的顺序数字；主机配对后由
-主机选择句子，Quest 只镜像相同 `sentence_id` 的本地目标配置。
+数据。每条数据包含句子、固定视角、目标路径和可选的顺序数字。Quest 启动后
+先显示第 1 句，避免局域网首次握手前出现空白；主机配对后仍由主机选择句子，
+Quest 只镜像相同 `sentence_id` 的本地目标配置。
 
 | 视角 | 数量 | 规则 | 头显句子 |
 | --- | ---: | --- | --- |
@@ -47,15 +48,17 @@
 - 金币/盘子句同时高亮两件物体。
 - 按钮句高亮选中的 1 至 3 个按钮。
 - 电闸句高亮全部三个电闸，并在每个电闸旁显示该句的 `1/2/3` 顺序。
-- 左右食指从 `Hand_IndexTip` 发射射线，以
-  `Hand_Index3 -> Hand_IndexTip` 作为方向；命中当前目标时由青色变绿色。
+- 左右手直接使用 Meta Interaction SDK 的 `HandRayInteractor` 和
+  `RayInteractorRayVisual`。运行时将原生射线延长到 1.5 米，并允许它在固定物品
+  没有 Meta Ray Interactable 时仍然显示。
 
-高亮和命中基于目标子 Renderer 的合并 Bounds，不依赖 Collider，也不修改共享
-材质。Ready、保存、重置等非录制状态会隐藏高亮、数字和射线。
+高亮基于目标子 Renderer 的合并 Bounds，不依赖 Collider，也不修改共享材质。
+Ready、保存、重置等非录制状态会隐藏高亮和数字；原生手部射线随 Quest 手部
+追踪状态显示。
 
-手部外观复用主 Interaction SDK 的真实关节：隐藏原手网格，用父子关节
-LineRenderer 显示骨架；姿态录制仍使用同一套真实追踪源。Editor 没有真手数据
-时会显示仅用于视觉验收的模拟骨架和模拟射线，它们不会作为真实 Pose 上传。
+手部外观直接复用 Meta Interaction SDK 的 `HandVisual` 和 Quest 手部追踪数据；
+录制栈会关闭 `MetaSourceDataProvider.DebugDrawSkeleton`，也不会再生成自绘蓝色线
+手。Editor 没有 Quest 跟踪输入时不伪造手或射线。
 
 ## 固定物体与场景状态
 

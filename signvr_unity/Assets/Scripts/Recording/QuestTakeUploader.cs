@@ -26,6 +26,9 @@ namespace SignVR.Recording
         private string baseUrl;
         private string deviceId;
         private bool subscribed;
+        private float nextStoredRecordingScanTime;
+
+        private const float StoredRecordingScanIntervalSeconds = 2f;
 
         [Serializable]
         private sealed class StoredMetadata
@@ -70,6 +73,20 @@ namespace SignVR.Recording
             TryBindRecorder();
         }
 
+        private void Update()
+        {
+            if (string.IsNullOrWhiteSpace(baseUrl) ||
+                Time.unscaledTime < nextStoredRecordingScanTime)
+            {
+                return;
+            }
+
+            nextStoredRecordingScanTime =
+                Time.unscaledTime + StoredRecordingScanIntervalSeconds;
+            QueueStoredRecordings();
+            TryStartNextUpload();
+        }
+
         public void Configure(MetaBodyMotionRecorder recordingRecorder)
         {
             if (recordingRecorder == null)
@@ -104,6 +121,11 @@ namespace SignVR.Recording
         {
             baseUrl = hostBaseUrl.TrimEnd('/');
             deviceId = questDeviceId;
+            Debug.Log(
+                $"[QuestTakeUploader] Host configured: {baseUrl}; " +
+                $"device={deviceId}."
+            );
+            nextStoredRecordingScanTime = Time.unscaledTime;
             QueueStoredRecordings();
             TryStartNextUpload();
         }
@@ -111,6 +133,10 @@ namespace SignVR.Recording
         private void HandleRecordingFinalized(
             MetaBodyMotionRecorder.RecordingArtifact artifact)
         {
+            Debug.Log(
+                $"[QuestTakeUploader] Finalized {artifact.Take.TakeId}; " +
+                "queueing its local files for upload."
+            );
             if (TryCreateStoredUploadJob(
                     artifact.MetadataPath,
                     out UploadJob job,
@@ -351,6 +377,20 @@ namespace SignVR.Recording
 
                 using (request)
                 {
+                    int poseMegabytes = Mathf.CeilToInt(
+                        poseBytes.Length / (1024f * 1024f)
+                    );
+                    request.timeout = Mathf.Clamp(
+                        60 + poseMegabytes * 3,
+                        60,
+                        300
+                    );
+                    Debug.Log(
+                        $"[QuestTakeUploader] Uploading {job.TakeId} " +
+                        $"({poseBytes.Length} pose bytes, " +
+                        $"{metadataBytes.Length} metadata bytes) to {url}; " +
+                        $"timeout={request.timeout}s."
+                    );
                     if (!TryBeginRequest(
                             request,
                             out UnityWebRequestAsyncOperation operation,
@@ -370,8 +410,9 @@ namespace SignVR.Recording
                     if (!uploaded)
                     {
                         Debug.LogWarning(
-                            $"[QuestTakeUploader] Attempt {attempt} failed: " +
-                            request.error
+                            $"[QuestTakeUploader] Attempt {attempt} failed " +
+                            $"for {job.TakeId}: result={request.result}, " +
+                            $"response={request.responseCode}, error={request.error}."
                         );
                     }
                 }

@@ -69,19 +69,23 @@ def guidance_packet(*, cmd_id: str, enabled: bool) -> dict[str, Any]:
 def pair_packet(
     *,
     cmd_id: str,
+    device_id: str,
     host_ip: str,
     http_port: int,
     pose_port: int,
     station_id: str,
     session_token: str,
+    pairing_key: str,
 ) -> dict[str, Any]:
     return {
         "type": "pair",
         "version": PROTOCOL_VERSION,
         "command_id": cmd_id,
+        "device_id": device_id,
         "host_ip": host_ip,
         "http_port": http_port,
         "pose_port": pose_port,
         "station_id": station_id,
         "session_token": session_token,
+        "pairing_key": pairing_key,
     }

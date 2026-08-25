@@ -12,6 +12,9 @@ namespace SignVR.Recording
     public sealed class QuestDeviceGateway : MonoBehaviour
     {
         private const int ProtocolVersion = 3;
+        private const int ControlPort = 5012;
+        private const int HostAnnouncementPort = 5011;
+        private const string PointingPairingKey = "signvr-pointing-2026-01";
         private const string DeviceIdPlayerPrefsKey = "SignVR.DeviceId";
         private const string PairedStationPlayerPrefsKey = "SignVR.PairedStationId";
 
@@ -42,14 +45,6 @@ namespace SignVR.Recording
 
         [Header("Discovery")]
         [SerializeField]
-        [Range(1, 65535)]
-        private int controlPort = 5006;
-
-        [SerializeField]
-        [Range(1, 65535)]
-        private int hostAnnouncementPort = 5005;
-
-        [SerializeField]
         [Min(1f)]
         private float announcementIntervalSeconds = 3f;
 
@@ -58,6 +53,8 @@ namespace SignVR.Recording
         private string deviceId;
         private string pairedStationId;
         private IPAddress pairedHostAddress;
+        private int pairedHttpPort;
+        private int pairedPosePort;
         private Coroutine announcementRoutine;
         private readonly ConcurrentQueue<ReceivedDatagram> receivedDatagrams = new();
         private readonly ConcurrentQueue<string> receiveErrors = new();
@@ -118,6 +115,8 @@ namespace SignVR.Recording
             public int http_port;
             public int pose_port;
             public string station_id;
+            public string device_id;
+            public string pairing_key;
         }
 
         [Serializable]
@@ -127,6 +126,7 @@ namespace SignVR.Recording
             public int version;
             public string command_id;
             public string action;
+            public string station_id;
             public string session_id;
             public string sentence_id;
             public int sentence_index;
@@ -241,7 +241,7 @@ namespace SignVR.Recording
 
             SendPacket(
                 packet,
-                new IPEndPoint(pairedHostAddress, hostAnnouncementPort)
+                new IPEndPoint(pairedHostAddress, HostAnnouncementPort)
             );
         }
 
@@ -257,7 +257,7 @@ namespace SignVR.Recording
                 LastReceiveError = exception.Message;
                 Debug.LogError(
                     "[QuestDeviceGateway] Could not bind UDP control port " +
-                    $"{controlPort}: {exception.Message}"
+                    $"{ControlPort}: {exception.Message}"
                 );
                 enabled = false;
             }
@@ -327,8 +327,8 @@ namespace SignVR.Recording
             while (true)
             {
                 IPEndPoint target = pairedHostAddress == null
-                    ? new IPEndPoint(IPAddress.Broadcast, hostAnnouncementPort)
-                    : new IPEndPoint(pairedHostAddress, hostAnnouncementPort);
+                    ? new IPEndPoint(IPAddress.Broadcast, HostAnnouncementPort)
+                    : new IPEndPoint(pairedHostAddress, HostAnnouncementPort);
 
                 SendAnnouncement(target);
                 yield return wait;
@@ -409,21 +409,34 @@ namespace SignVR.Recording
                 packet.host_ip,
                 out IPAddress hostAddress
             );
+            bool deviceTargetValid = string.Equals(
+                packet.device_id,
+                deviceId,
+                StringComparison.OrdinalIgnoreCase
+            );
+            bool pairingKeyValid = string.Equals(
+                packet.pairing_key,
+                PointingPairingKey,
+                StringComparison.Ordinal
+            );
             bool stationValid = !string.IsNullOrWhiteSpace(packet.station_id);
-            bool stationMatches = string.IsNullOrWhiteSpace(pairedStationId) ||
-                string.Equals(
-                    pairedStationId,
-                    packet.station_id,
-                    StringComparison.Ordinal
-                );
             bool accepted = packet.version == ProtocolVersion &&
-                hostAddressValid && stationValid && stationMatches &&
+                deviceTargetValid && pairingKeyValid &&
+                hostAddressValid && stationValid &&
                 packet.http_port > 0 && packet.pose_port > 0;
 
             string message = "paired";
             if (packet.version != ProtocolVersion)
             {
                 message = "protocol_version_mismatch";
+            }
+            else if (!deviceTargetValid)
+            {
+                message = "device_id_mismatch";
+            }
+            else if (!pairingKeyValid)
+            {
+                message = "pairing_key_mismatch";
             }
             else if (!hostAddressValid)
             {
@@ -433,15 +446,16 @@ namespace SignVR.Recording
             {
                 message = "station_id_missing";
             }
-            else if (!stationMatches)
-            {
-                message = "paired_to_other_station";
-            }
-
             if (accepted)
             {
+                bool endpointChanged = pairedHostAddress == null ||
+                    !pairedHostAddress.Equals(hostAddress) ||
+                    pairedHttpPort != packet.http_port ||
+                    pairedPosePort != packet.pose_port;
                 pairedStationId = packet.station_id.Trim();
                 pairedHostAddress = hostAddress;
+                pairedHttpPort = packet.http_port;
+                pairedPosePort = packet.pose_port;
                 PlayerPrefs.SetString(
                     PairedStationPlayerPrefsKey,
                     pairedStationId
@@ -449,9 +463,15 @@ namespace SignVR.Recording
                 PlayerPrefs.Save();
                 string baseUrl = $"http://{packet.host_ip}:{packet.http_port}";
 
-                motionStreamer.ConfigureDestination(packet.host_ip, packet.pose_port);
-                takeUploader.ConfigureHost(baseUrl, deviceId);
-                previewStreamer?.ConfigureHost(baseUrl, deviceId);
+                if (endpointChanged)
+                {
+                    motionStreamer.ConfigureDestination(
+                        packet.host_ip,
+                        packet.pose_port
+                    );
+                    takeUploader.ConfigureHost(baseUrl, deviceId);
+                    previewStreamer?.ConfigureHost(baseUrl, deviceId);
+                }
                 if (sentenceSequence != null)
                 {
                     sentenceSequence.HostAuthoritative = true;
@@ -485,6 +505,26 @@ namespace SignVR.Recording
                 return;
             }
 
+            bool hostMatches = pairedHostAddress != null &&
+                remoteEndPoint.Address.Equals(pairedHostAddress);
+            bool stationMatches = !string.IsNullOrWhiteSpace(pairedStationId) &&
+                string.Equals(
+                    packet.station_id,
+                    pairedStationId,
+                    StringComparison.Ordinal
+                );
+            if (!hostMatches || !stationMatches)
+            {
+                SendAck(
+                    remoteEndPoint,
+                    packet.command_id,
+                    false,
+                    hostMatches ? "station_id_mismatch" : "host_not_paired"
+                );
+                return;
+            }
+
+            LastReceiveError = string.Empty;
             bool accepted;
             bool sentenceIndexSupplied = ContainsJsonProperty(
                 json,
@@ -500,7 +540,7 @@ namespace SignVR.Recording
                     );
                     break;
                 case "stop_take":
-                    accepted = coordinator.StopCurrentTake();
+                    accepted = StopRemoteTake();
                     break;
                 case "reset_take":
                     accepted = ResetRemoteTake(
@@ -535,7 +575,11 @@ namespace SignVR.Recording
                 remoteEndPoint,
                 packet.command_id,
                 accepted,
-                accepted ? packet.action : "command_rejected"
+                accepted
+                    ? packet.action
+                    : string.IsNullOrWhiteSpace(LastReceiveError)
+                        ? "command_rejected"
+                        : LastReceiveError
             );
         }
 
@@ -582,6 +626,29 @@ namespace SignVR.Recording
             coordinator.ResetCurrentPrompt();
             QueueSentenceSelection(packet, sentenceIndexSupplied);
             return true;
+        }
+
+        private bool StopRemoteTake()
+        {
+            if (coordinator == null)
+            {
+                return RejectCommand("recording_coordinator_missing");
+            }
+
+            // Stop is idempotent over UDP. This prevents a delayed/retried host
+            // packet from surfacing as command_rejected after a Take has
+            // already finalized or a countdown has already been cancelled.
+            if (coordinator.State == RecordingFlowState.Ready ||
+                coordinator.State == RecordingFlowState.Completed)
+            {
+                return true;
+            }
+
+            return coordinator.StopCurrentTake() ||
+                   RejectCommand(
+                       "stop_take_failed_state_" +
+                       coordinator.State.ToString().ToLowerInvariant()
+                   );
         }
 
         private bool IsRemoteSentenceSelectionValid(
@@ -720,17 +787,31 @@ namespace SignVR.Recording
                 string.IsNullOrWhiteSpace(packet.session_id) ||
                 string.IsNullOrWhiteSpace(packet.sentence_id) ||
                 string.IsNullOrWhiteSpace(packet.take_id) ||
-                packet.take_index < 1 ||
-                !recorder.IsPoseReady)
+                packet.take_index < 1)
             {
-                return false;
+                return RejectCommand(
+                    "recording_context_invalid"
+                );
+            }
+
+            if (!recorder.IsPoseReady)
+            {
+                // Meta tracking can briefly report invalid between otherwise
+                // valid frames. Accept the host command and let the recorder
+                // perform the authoritative pose check after the countdown.
+                Debug.LogWarning(
+                    "[QuestDeviceGateway] Body pose was not ready when the " +
+                    "start command arrived; validation is deferred until " +
+                    "capture begins.",
+                    this
+                );
             }
 
             if (viewpointController != null)
             {
                 if (!TrySelectRemoteViewpoint(packet, sentenceIndexSupplied))
                 {
-                    return false;
+                    return RejectCommand("viewpoint_selection_failed");
                 }
             }
 
@@ -748,7 +829,10 @@ namespace SignVR.Recording
 
             if (!promptLoaded)
             {
-                return false;
+                return RejectCommand(
+                    "prompt_load_failed_state_" +
+                    coordinator.State.ToString().ToLowerInvariant()
+                );
             }
 
             // The host owns the recording state, but the local sequence still
@@ -765,7 +849,29 @@ namespace SignVR.Recording
                 DateTime.UtcNow
             );
 
-            return coordinator.BeginRemoteTake(take, packet.countdown_seconds);
+            if (coordinator.BeginRemoteTake(take, packet.countdown_seconds))
+            {
+                return true;
+            }
+
+            string detail = !string.IsNullOrWhiteSpace(coordinator.LastError)
+                ? coordinator.LastError
+                : !string.IsNullOrWhiteSpace(recorder.LastError)
+                    ? recorder.LastError
+                    : "state_" + coordinator.State.ToString().ToLowerInvariant();
+            return RejectCommand("start_take_failed:" + detail);
+        }
+
+        private bool RejectCommand(string reason)
+        {
+            LastReceiveError = string.IsNullOrWhiteSpace(reason)
+                ? "command_rejected"
+                : reason;
+            Debug.LogWarning(
+                "[QuestDeviceGateway] Command rejected: " + LastReceiveError,
+                this
+            );
+            return false;
         }
 
         private bool TrySelectRemoteViewpoint(
@@ -872,7 +978,7 @@ namespace SignVR.Recording
                     : SystemInfo.deviceName,
                 model = SystemInfo.deviceModel,
                 app_version = Application.version,
-                control_port = controlPort,
+                control_port = ControlPort,
                 paired_station_id = pairedStationId,
                 paired = pairedHostAddress != null,
                 capabilities = previewStreamer != null && previewStreamer.isActiveAndEnabled
@@ -936,7 +1042,7 @@ namespace SignVR.Recording
 
         private void StartListener()
         {
-            listener = new UdpClient(new IPEndPoint(IPAddress.Any, controlPort));
+            listener = new UdpClient(new IPEndPoint(IPAddress.Any, ControlPort));
             listener.BeginReceive(ReceiveDatagram, listener);
             sender = new UdpClient(AddressFamily.InterNetwork)
             {

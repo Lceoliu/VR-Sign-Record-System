@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 
 from fastapi.testclient import TestClient
 
@@ -12,7 +13,7 @@ def build_app(tmp_path, *, start_udp: bool = False):
     settings = Settings(
         data_root=tmp_path,
         station_id="station-test",
-        http_port=8000,
+        http_port=8011,
         udp_port=5005,
         quest_control_port=5006,
     )
@@ -86,6 +87,20 @@ def test_health_and_fixed_sentence_catalog(tmp_path):
     ]
     assert state["sentences"][25]["sequence_numbers"] == [1, 2, 3]
     assert state["sentences"][30]["sequence_numbers"] == [3, 2, 1]
+
+
+def test_frontend_es_module_uses_javascript_mime_type(tmp_path):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        page = client.get("/")
+        script_path = re.search(r'src="([^"]+\.js)"', page.text)
+
+        assert page.status_code == 200
+        assert script_path is not None
+        script = client.get(script_path.group(1))
+
+    assert script.status_code == 200
+    assert script.headers["content-type"].startswith("application/javascript")
 
 
 def test_recording_commands_require_selected_device(tmp_path):
@@ -396,7 +411,7 @@ def test_stop_syncs_advanced_sentence_and_sync_failure_keeps_take_state(tmp_path
         assert sent_actions[-1] == "reset_take"
 
 
-def test_device_reported_by_another_station_cannot_be_selected(tmp_path):
+def test_device_reported_by_another_station_can_be_reselected(tmp_path):
     app = build_app(tmp_path)
     with TestClient(app) as client:
         import anyio
@@ -412,5 +427,30 @@ def test_device_reported_by_another_station_cannot_be_selected(tmp_path):
         )
 
         response = client.post("/api/devices/quest-other/select")
-        assert response.status_code == 409
-        assert "station-other" in response.json()["detail"]
+        assert response.status_code == 200
+        assert response.json()["selected"]["device_id"] == "quest-other"
+
+
+def test_unselected_device_cannot_upload_preview_or_take(tmp_path):
+    app = build_app(tmp_path)
+    with TestClient(app) as client:
+        preview = client.post(
+            "/api/devices/quest-other/preview-frame",
+            headers={"content-type": "image/jpeg"},
+            content=b"jpeg",
+        )
+        upload = client.post(
+            "/api/devices/quest-other/takes/upload",
+            data={
+                "session_id": "session_other",
+                "sentence_id": "sentence_001",
+                "take_id": "take_001",
+            },
+            files={
+                "pose_file": ("pose.jsonl", io.BytesIO(b"{}\n")),
+                "meta_file": ("meta.json", io.BytesIO(b"{}")),
+            },
+        )
+
+    assert preview.status_code == 409
+    assert upload.status_code == 409

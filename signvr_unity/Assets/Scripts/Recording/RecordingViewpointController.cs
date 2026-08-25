@@ -267,7 +267,10 @@ namespace SignVR.Recording
 
             if (index == currentIndex)
             {
-                return ReapplyCurrentViewpoint();
+                // A start command repeats the sentence viewpoint. Reapplying
+                // the XR origin here would visibly teleport the wearer every
+                // time recording starts and can place the eyes inside geometry.
+                return true;
             }
 
             if (!CanSwitchNow)
@@ -353,12 +356,10 @@ namespace SignVR.Recording
                 return false;
             }
 
-            if (!ReapplyCurrentViewpoint())
-            {
-                error = "The selected recording viewpoint could not be applied.";
-                return false;
-            }
-
+            // Viewpoint alignment belongs to sentence/scene selection. A Take
+            // only locks the already selected world frame; it must never move
+            // the tracked HMD again when the operator presses Start.
+            playerRig?.ReassertFixedWorldFrame();
             return true;
         }
 
@@ -395,19 +396,10 @@ namespace SignVR.Recording
                 return false;
             }
 
-            float positionError = Vector3.Distance(
-                trackedHead.position,
-                pose.position
-            );
-            if (!float.IsFinite(positionError) ||
-                positionError > TakeStartPositionTolerance)
-            {
-                error = $"头显偏离固定视角 " +
-                        $"{positionError * 100f:F1} cm，请保持站位";
-                return false;
-            }
-
-            return true;
+            // The authored pose defines the nominal scene viewpoint, not a
+            // head restraint. Natural head motion during signing is valid and
+            // is recorded relative to the fixed XR origin.
+            return IsFinite(trackedHead.position) && IsFinite(trackedHead.rotation);
         }
 
         public void SetEditorCameraPreview(bool enabled)

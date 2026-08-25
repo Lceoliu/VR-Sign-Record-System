@@ -202,8 +202,7 @@ namespace SignVR.Recording
                              snapshot.has_tracked_head &&
                              snapshot.position_tracking_valid &&
                              (Application.isEditor ||
-                              snapshot.xr_origin_world_frame_locked) &&
-                             snapshot.viewpoint_position_aligned;
+                              snapshot.xr_origin_world_frame_locked);
             return snapshot;
         }
 
@@ -242,8 +241,7 @@ namespace SignVR.Recording
             }
             else
             {
-                error = $"头显偏离固定视角 " +
-                        $"{snapshot.viewpoint_position_error_meters * 100f:F1} cm";
+                error = "固定录制坐标尚未就绪";
             }
             return false;
         }

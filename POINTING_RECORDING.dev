@@ -43,15 +43,15 @@ distinguish entries such as `按钮 A+C` or `电闸顺序 B→C→A`.
 | --- | --- |
 | `RecordingRuntimeBootstrap` | Installs the recording stack only for `VRroom`; it keeps the authored XR rig and scene. |
 | `RecordingCoordinator` | Owns countdown, recording, finalization, reset, pause handling, and completion events. |
-| `RecordingSentenceSequence` | Holds the Inspector-editable 31 entries and mirrors host selection by `sentence_id`. |
+| `RecordingSentenceSequence` | Holds the Inspector-editable 31 entries, shows entry 1 while waiting for the host, and mirrors later host selection by `sentence_id`. |
 | `RecordingPointingSentenceCatalog` | Provides the canonical Unity defaults used by the scene configurator and validation. |
 | `RecordingViewpointController` | Aligns the tracked XR view to one of six disabled world-space reference cameras. |
 | `RecordingViewpointSceneStateController` | Opens the safe in `state_02`, opens both closet doors in `state_05/06`, and restores closed poses elsewhere. |
 | `RecordingTargetPoseLock` | Keeps all catalog targets at authored poses and disables physics/grab movement. |
 | `RecordingPointingTargetController` | Resolves target paths only when the sentence changes and feeds cached transforms to the cue renderer. |
 | `RecordingTargetVisualCues` | Draws subtle pulsing bounds outlines; state 6 also displays floating `1/2/3` labels. |
-| `RecordingIndexFingerRays` | Draws both index-tip rays from real hand skeletons and reports target-bound hits without colliders. |
-| `RecordingHandSkeletonVisualizer` | Reuses the main tracked hand joints and displays a per-bone skeleton instead of the hand mesh. |
+| Meta `HandVisual` | Renders Quest's tracked left and right hands; the recording stack does not replace them with debug line art. |
+| Meta `HandRayInteractor` | Uses the Interaction SDK's native hand-ray aim and visual, including when the scene target has no Meta interactable. |
 | `RecordingPromptBubble` | Renders the rounded, depth-independent upper-left prompt bubble. |
 | `MetaBodyMotionRecorder` | Writes 30 Hz pose JSONL and atomic metadata with quality gates. |
 | `QuestDeviceGateway` | Pairs with the host and applies host-authoritative recording and `select_sentence` commands. |
@@ -104,16 +104,18 @@ the recording protocol and supervisor workflow.
 
 ## Visual cue timing
 
-- During `Ready`, targets and finger rays are hidden.
+- During `Ready`, target outlines and order labels are hidden. Native Meta hand
+  rays remain available whenever the corresponding tracked hand is active.
 - During `Countdown` and `Recording`, every target for the current sentence gets
   a subtle cyan bounds outline. A coin/plate sentence highlights both objects;
   a state-5 sentence highlights the selected non-empty button subset.
 - In state 6 all three breakers are outlined. Floating numbers are assigned to
   each breaker according to that sentence's permutation.
-- Both index rays start at `Hand_IndexTip`, use `Hand_Index3 -> Hand_IndexTip`
-  as direction, and turn green when intersecting an active target Bounds.
-- Bounds, labels, and ray hits do not require target colliders. This is required
-  because recording props are deliberately collision-free.
+- Both rays use Meta's `HandRayInteractor` pose and `RayInteractorRayVisual`.
+  Runtime bootstrap extends the visual to 1.5 m and keeps it visible even though
+  the fixed recording props deliberately have no Meta ray interactables.
+- Bounds and labels do not require target colliders. This is required because
+  recording props are deliberately collision-free.
 
 The bounds approach avoids changing shared materials. Several targets share a
 material, so mutating `sharedMaterial` would highlight unrelated objects.
@@ -229,6 +231,14 @@ cd ..
 
 Operator console: `http://127.0.0.1:8000`.
 
+For Quest HTTP uploads, the host PC's active Wi-Fi profile must allow TCP
+8000 from the local subnet. Run `scripts/setup-firewall.ps1` once from an
+Administrator PowerShell after joining the `RhythMo` network. If Windows marks
+that network Public, the script intentionally adds a narrow Public-profile
+rule for the Host HTTP/UDP ports; do not work around this by disabling the
+firewall globally. UDP pose can appear in the console even while TCP uploads
+are blocked, because they use separate transports.
+
 ## Required validation before push
 
 ```powershell
@@ -251,10 +261,14 @@ Also verify:
   XR render camera.
 - State 5 has seven and only seven button subsets.
 - State 6 has six and only six breaker permutations with visible `1/2/3` labels.
-- Editor simulation shows the rounded prompt, target outline, skeleton, and two
-  index rays without overlap or blank rendering.
+- Editor simulation shows the rounded prompt and target outline without overlap
+  or blank rendering. Native hands and hand rays require Quest tracking input.
 - An Android build installs and launches on Quest 3; the host can pair, select a
   sentence, start/stop a Take, and receive Pose/Meta.
+- The Quest local recording directory contains the `.pose.jsonl` and `.meta.json`
+  files, and the Host contains the corresponding files after the firewall rule
+  is active. The uploader scans unacknowledged completed files every two seconds
+  and leaves them local until an HTTP upload succeeds.
 
 ## Extension rules
 

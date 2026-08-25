@@ -7,13 +7,17 @@ param(
     [string]$DataRoot,
 
     [ValidateRange(1, 65535)]
-    [int]$HttpPort = 8000,
+    [int]$HttpPort = 8011,
 
     [ValidateRange(1, 65535)]
-    [int]$UdpPort = 5005,
+    [int]$UdpPort = 5011,
 
     [ValidateRange(1, 65535)]
-    [int]$QuestControlPort = 5006,
+    [int]$QuestControlPort = 5012,
+
+    [string[]]$AllowedDeviceIds = @(),
+
+    [string]$PairingKey = 'signvr-pointing-2026-01',
 
     [string]$DiscoveryBroadcast = '255.255.255.255'
 )
@@ -24,20 +28,26 @@ $OutputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
 $hostRoot = Split-Path -Parent $PSScriptRoot
 $configRoot = Join-Path $hostRoot 'config'
 $configPath = Join-Path $configRoot 'station.json'
-$resolvedDataRoot = [IO.Path]::GetFullPath($DataRoot)
+$dataRootIsAbsolute = [IO.Path]::IsPathRooted($DataRoot)
+$resolvedDataRoot = [IO.Path]::GetFullPath(
+    $(if ($dataRootIsAbsolute) { $DataRoot } else { Join-Path $hostRoot $DataRoot })
+)
+$configuredDataRoot = if ($dataRootIsAbsolute) { $resolvedDataRoot } else { $DataRoot }
 
 New-Item -ItemType Directory -Force -Path $configRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $resolvedDataRoot | Out-Null
 
 $config = [ordered]@{
     station_id = $StationId
-    data_root = $resolvedDataRoot
+    data_root = $configuredDataRoot
     http_host = '0.0.0.0'
     http_port = $HttpPort
     udp_host = '0.0.0.0'
     udp_port = $UdpPort
     quest_control_port = $QuestControlPort
     discovery_broadcast = $DiscoveryBroadcast
+    allowed_device_ids = @($AllowedDeviceIds)
+    pairing_key = $PairingKey
 }
 
 $json = $config | ConvertTo-Json
