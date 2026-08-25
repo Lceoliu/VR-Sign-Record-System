@@ -52,17 +52,28 @@ namespace SignVR.Interaction.PhaseAdapters
             adapter = phaseAdapter ??
                 throw new ArgumentNullException(nameof(phaseAdapter));
             inputCollider = targetInputCollider;
-            BindAvailability();
-            ApplyAvailability(adapter.IsEnabled);
+            if (isActiveAndEnabled)
+            {
+                BindAvailability();
+            }
+            ApplyAvailability(IsInputAvailable);
         }
 
         public ValidationResult AcceptInput()
         {
+            if (!isActiveAndEnabled)
+            {
+                return null;
+            }
             if (adapter == null)
             {
                 throw new InvalidOperationException(
                     $"{name} has no Phase 1 adapter."
                 );
+            }
+            if (!adapter.IsEnabled)
+            {
+                return null;
             }
 
             return adapter.AcceptDigit(digit);
@@ -98,6 +109,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void OnDisable()
         {
+            ApplyAvailability(false);
             UnbindAvailability();
         }
 

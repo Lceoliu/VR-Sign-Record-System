@@ -70,12 +70,19 @@ namespace SignVR.Interaction.PhaseAdapters
             interactionBehaviours = behaviours ?? Array.Empty<Behaviour>();
             inputColliders = colliders ?? Array.Empty<Collider>();
             CaptureAuthoredState();
-            BindAdapterEvents();
-            ApplyAvailability(adapter.IsEnabled);
+            if (isActiveAndEnabled)
+            {
+                BindAdapterEvents();
+            }
+            ApplyAvailability(IsInputAvailable);
         }
 
         public ValidationResult AcceptInput()
         {
+            if (!isActiveAndEnabled)
+            {
+                return null;
+            }
             if (adapter == null)
             {
                 throw new InvalidOperationException(
@@ -88,6 +95,10 @@ namespace SignVR.Interaction.PhaseAdapters
                 throw new InvalidOperationException(
                     $"{name} has no stable target ID."
                 );
+            }
+            if (!adapter.IsEnabled)
+            {
+                return null;
             }
 
             return adapter.AcceptTarget(targetId);
@@ -219,6 +230,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void OnDisable()
         {
+            ApplyAvailability(false);
             UnbindAdapterEvents();
         }
     }

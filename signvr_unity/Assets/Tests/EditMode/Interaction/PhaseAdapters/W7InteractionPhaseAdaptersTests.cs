@@ -68,7 +68,7 @@ namespace SignVR.Interaction.Editor.Tests
                 throwOnError: true
             );
             MethodInfo method = validator.GetMethod(
-                "ValidateForAutomation",
+                "SetupAndValidateForAutomationWithoutSaving",
                 BindingFlags.Public | BindingFlags.Static
             );
             Assert.That(method, Is.Not.Null);
@@ -82,6 +82,256 @@ namespace SignVR.Interaction.Editor.Tests
             {
                 ExceptionDispatchInfo.Capture(exception.InnerException).Throw();
                 throw;
+            }
+        }
+
+        [Test]
+        public void ExactMovingPartPathRejectsDecoyNamedFallbacks()
+        {
+            object root = CreateGameObject("chest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                object exact = CreateChildPath(
+                    rootTransform,
+                    "Collada visual scene group/ChestUpper_low"
+                );
+                object decoy = CreateVisual(rootTransform, "lid");
+                object hinge = CreateVisual(rootTransform, "hinge");
+                Type hingeType = RuntimeType("DeterministicHingeBinding");
+                object binding = Activator.CreateInstance(hingeType);
+                MethodInfo configure = hingeType.GetMethod("Configure");
+                MethodInfo exactPath = Type.GetType(
+                    ValidatorTypeName,
+                    throwOnError: true
+                ).GetMethod(
+                    "HasExactMovingPartPath",
+                    BindingFlags.Public | BindingFlags.Static
+                );
+
+                configure.Invoke(
+                    binding,
+                    new object[]
+                    {
+                        decoy,
+                        hinge,
+                        CreateVector3(1f, 0f, 0f),
+                        -90f
+                    }
+                );
+                Assert.That(
+                    exactPath.Invoke(
+                        null,
+                        new[]
+                        {
+                            rootTransform,
+                            binding,
+                            "Collada visual scene group/ChestUpper_low"
+                        }
+                    ),
+                    Is.False
+                );
+
+                configure.Invoke(
+                    binding,
+                    new object[]
+                    {
+                        exact,
+                        hinge,
+                        CreateVector3(1f, 0f, 0f),
+                        -90f
+                    }
+                );
+                Assert.That(
+                    exactPath.Invoke(
+                        null,
+                        new[]
+                        {
+                            rootTransform,
+                            binding,
+                            "Collada visual scene group/ChestUpper_low"
+                        }
+                    ),
+                    Is.True
+                );
+
+                object door = CreateGameObject("door");
+                SetParent(GetTransform(door), rootTransform);
+                object doorRoot = GetTransform(door);
+                object exactDoor = CreateChildPath(
+                    doorRoot,
+                    "ce5f462b0dd34333a6588509140a7fb8.fbx/RootNode/Door"
+                );
+                object decoyLeft = CreateVisual(doorRoot, "left");
+                configure.Invoke(
+                    binding,
+                    new object[]
+                    {
+                        decoyLeft,
+                        hinge,
+                        CreateVector3(0f, 1f, 0f),
+                        -90f
+                    }
+                );
+                Assert.That(
+                    exactPath.Invoke(
+                        null,
+                        new[]
+                        {
+                            doorRoot,
+                            binding,
+                            "ce5f462b0dd34333a6588509140a7fb8.fbx/" +
+                            "RootNode/Door"
+                        }
+                    ),
+                    Is.False
+                );
+                configure.Invoke(
+                    binding,
+                    new object[]
+                    {
+                        exactDoor,
+                        hinge,
+                        CreateVector3(0f, 1f, 0f),
+                        -90f
+                    }
+                );
+                Assert.That(
+                    exactPath.Invoke(
+                        null,
+                        new[]
+                        {
+                            doorRoot,
+                            binding,
+                            "ce5f462b0dd34333a6588509140a7fb8.fbx/" +
+                            "RootNode/Door"
+                        }
+                    ),
+                    Is.True
+                );
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void SceneValidatorRejectsWrongMovingPartHierarchy()
+        {
+            InvokeEditorSetup("SetupAndValidateForAutomationWithoutSaving");
+            object runtimeRoot = FindGameObject(
+                "W7PhaseInteractionAdapters"
+            );
+            object presentation = GetComponent(
+                runtimeRoot,
+                RuntimeType("InteractionDeterministicPresentation")
+            );
+            object scene = runtimeRoot.GetType().GetProperty("scene")
+                .GetValue(runtimeRoot);
+            object chest = FindGameObject("chest");
+            object decoy = CreateGameObject("lid");
+            SetParent(GetTransform(decoy), GetTransform(chest));
+            try
+            {
+                object binding = presentation.GetType()
+                    .GetProperty("ChestLid").GetValue(presentation);
+                binding.GetType().GetMethod("Configure").Invoke(
+                    binding,
+                    new object[]
+                    {
+                        GetTransform(decoy),
+                        GetTransform(chest),
+                        CreateVector3(1f, 0f, 0f),
+                        -90f
+                    }
+                );
+
+                TargetInvocationException failure = Assert.Throws<
+                    TargetInvocationException>(() =>
+                        Type.GetType(
+                            ValidatorTypeName,
+                            throwOnError: true
+                        ).GetMethod(
+                            "ValidateLoadedScene",
+                            BindingFlags.Public | BindingFlags.Static
+                        ).Invoke(null, new[] { scene })
+                    );
+
+                Assert.That(
+                    failure.InnerException.Message,
+                    Does.Contain("Chest lid MovingPart")
+                );
+            }
+            finally
+            {
+                DestroyImmediate(decoy);
+                Type.GetType(
+                    ValidatorTypeName,
+                    throwOnError: true
+                ).GetMethod(
+                    "SetupLoadedScene",
+                    BindingFlags.Public | BindingFlags.Static
+                ).Invoke(null, new[] { scene });
+            }
+        }
+
+        [Test]
+        public void FailedSetupRollsBackChangesToExistingObjects()
+        {
+            InvokeEditorSetup("SetupAndValidateForAutomationWithoutSaving");
+            object backspace = FindGameObject("W7SafeBackspace");
+            object labelTransform = FindChild(
+                GetTransform(backspace),
+                "Label"
+            );
+            object label = GetComponent(
+                GetGameObject(labelTransform),
+                Type.GetType(
+                    "UnityEngine.TextMesh, UnityEngine.TextRenderingModule",
+                    throwOnError: true
+                )
+            );
+            object poison = CreateGameObject("W7RollbackPoison");
+            try
+            {
+                label.GetType().GetProperty("text")
+                    .SetValue(label, "WRONG");
+                AddComponent(
+                    poison,
+                    RuntimeType("InteractionTriggerRelay")
+                );
+                object scene = poison.GetType().GetProperty("scene")
+                    .GetValue(poison);
+
+                TargetInvocationException failure = Assert.Throws<
+                    TargetInvocationException>(() =>
+                        Type.GetType(
+                            ValidatorTypeName,
+                            throwOnError: true
+                        ).GetMethod(
+                            "SetupLoadedScene",
+                            BindingFlags.Public | BindingFlags.Static
+                        ).Invoke(null, new[] { scene })
+                    );
+
+                Assert.That(
+                    failure.InnerException,
+                    Is.TypeOf<InvalidOperationException>()
+                );
+                Assert.That(
+                    label.GetType().GetProperty("text").GetValue(label),
+                    Is.EqualTo("WRONG"),
+                    "A failed setup must Undo changes to existing objects."
+                );
+            }
+            finally
+            {
+                DestroyImmediate(poison);
+                label.GetType().GetProperty("text").SetValue(label, "*");
+                InvokeEditorSetup(
+                    "SetupAndValidateForAutomationWithoutSaving"
+                );
             }
         }
 
@@ -284,6 +534,193 @@ namespace SignVR.Interaction.Editor.Tests
                     accepted.GetType().GetProperty("Accepted")
                         .GetValue(accepted),
                     Is.True
+                );
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void DisabledTargetAndKeypadBindingsCloseAndRejectInputs()
+        {
+            object root = CreateGameObject("W7DisabledInputBoundaryTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                Type coordinatorType = RuntimeType(
+                    "InteractionPhaseCoordinator"
+                );
+                object coordinator = AddComponent(root, coordinatorType);
+                Array adapters = CreateSixAdapters(rootTransform);
+                coordinatorType.GetMethod("ConfigureAdapters").Invoke(
+                    coordinator,
+                    new object[] { adapters }
+                );
+                coordinatorType.GetMethod("Configure").Invoke(
+                    coordinator,
+                    new[] { CreateRunPlan() }
+                );
+                coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
+                SynchronizePhase(coordinator, 1);
+
+                object targetObject = CreateGameObject("box_stool");
+                SetParent(GetTransform(targetObject), rootTransform);
+                object targetCollider = AddComponent(
+                    targetObject,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object target = AddComponent(
+                    targetObject,
+                    RuntimeType("InteractionTargetBinding")
+                );
+                target.GetType().GetMethod("Configure").Invoke(
+                    target,
+                    new object[]
+                    {
+                        "box_stool",
+                        adapters.GetValue(0),
+                        null,
+                        TypedArray(
+                            UnityPhysicsType("Collider"),
+                            targetCollider
+                        )
+                    }
+                );
+
+                object digit = CreateKeypadBinding(
+                    rootTransform,
+                    "InteractionDigitBinding",
+                    adapters.GetValue(0),
+                    out object digitCollider,
+                    1
+                );
+                object backspace = CreateKeypadBinding(
+                    rootTransform,
+                    "InteractionPasswordBackspaceBinding",
+                    adapters.GetValue(0),
+                    out object backspaceCollider
+                );
+                object submit = CreateKeypadBinding(
+                    rootTransform,
+                    "InteractionPasswordSubmitBinding",
+                    adapters.GetValue(0),
+                    out object submitCollider
+                );
+
+                AssertDisabledInputBoundary(
+                    coordinator,
+                    target,
+                    targetCollider
+                );
+                AssertDisabledInputBoundary(
+                    coordinator,
+                    digit,
+                    digitCollider
+                );
+                AssertDisabledInputBoundary(
+                    coordinator,
+                    backspace,
+                    backspaceCollider
+                );
+                AssertDisabledInputBoundary(
+                    coordinator,
+                    submit,
+                    submitCollider
+                );
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void DisabledConfigureCannotResubscribeOrReopenInputsUntilEnable()
+        {
+            object root = CreateGameObject("W7DisabledConfigureBoundaryTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                Type coordinatorType = RuntimeType(
+                    "InteractionPhaseCoordinator"
+                );
+                object coordinator = AddComponent(root, coordinatorType);
+                Array adapters = CreateSixAdapters(rootTransform);
+                object phaseOneAdapter = adapters.GetValue(0);
+                coordinatorType.GetMethod("ConfigureAdapters").Invoke(
+                    coordinator,
+                    new object[] { adapters }
+                );
+                coordinatorType.GetMethod("Configure").Invoke(
+                    coordinator,
+                    new[] { CreateRunPlan() }
+                );
+                coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
+                SynchronizePhase(coordinator, 1);
+
+                object targetObject = CreateGameObject("box_stool");
+                SetParent(GetTransform(targetObject), rootTransform);
+                object targetCollider = AddComponent(
+                    targetObject,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object targetBehaviour = AddComponent(
+                    targetObject,
+                    RuntimeType("InteractionFeedbackPresenter")
+                );
+                object target = AddComponent(
+                    targetObject,
+                    RuntimeType("InteractionTargetBinding")
+                );
+                ReconfigureBinding(
+                    target,
+                    phaseOneAdapter,
+                    targetCollider,
+                    targetBehaviour
+                );
+
+                object digit = CreateKeypadBinding(
+                    rootTransform,
+                    "InteractionDigitBinding",
+                    phaseOneAdapter,
+                    out object digitCollider,
+                    1
+                );
+                object backspace = CreateKeypadBinding(
+                    rootTransform,
+                    "InteractionPasswordBackspaceBinding",
+                    phaseOneAdapter,
+                    out object backspaceCollider
+                );
+                object submit = CreateKeypadBinding(
+                    rootTransform,
+                    "InteractionPasswordSubmitBinding",
+                    phaseOneAdapter,
+                    out object submitCollider
+                );
+
+                AssertDisabledConfigureBoundary(
+                    target,
+                    phaseOneAdapter,
+                    targetCollider,
+                    targetBehaviour
+                );
+                AssertDisabledConfigureBoundary(
+                    digit,
+                    phaseOneAdapter,
+                    digitCollider
+                );
+                AssertDisabledConfigureBoundary(
+                    backspace,
+                    phaseOneAdapter,
+                    backspaceCollider
+                );
+                AssertDisabledConfigureBoundary(
+                    submit,
+                    phaseOneAdapter,
+                    submitCollider
                 );
             }
             finally
@@ -725,7 +1162,7 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void DisabledPresentationDoesNotRespondToCoordinatorResults()
+        public void DisabledPresentationRebuildsFromAuthorityWhenEnabled()
         {
             object root = CreateGameObject("W7DisabledPresentationTest");
             try
@@ -766,11 +1203,429 @@ namespace SignVR.Interaction.Editor.Tests
                     RotationAngleFromIdentity(buttonA),
                     Is.LessThan(0.001f)
                 );
+
+                presentation.GetType().GetProperty("enabled")
+                    .SetValue(presentation, true);
+
+                Assert.That(
+                    RotationAngleFromIdentity(buttonA),
+                    Is.GreaterThan(0.1f),
+                    "OnEnable must rebuild missed progress from W7 authority."
+                );
             }
             finally
             {
                 DestroyImmediate(root);
             }
+        }
+
+        [Test]
+        public void ReenabledPresentationRestoresMissedDoorButtonsAndKey()
+        {
+            object root = CreateGameObject("W7PresentationRehydrateTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                Type coordinatorType = RuntimeType(
+                    "InteractionPhaseCoordinator"
+                );
+                object coordinator = AddComponent(root, coordinatorType);
+                Array adapters = CreateSixAdapters(rootTransform);
+                coordinatorType.GetMethod("ConfigureAdapters").Invoke(
+                    coordinator,
+                    new object[] { adapters }
+                );
+
+                object lid = CreateVisual(rootTransform, "ChestLid");
+                object hinge = CreateVisual(rootTransform, "ChestHinge");
+                Type hingeType = RuntimeType("DeterministicHingeBinding");
+                object chestHinge = Activator.CreateInstance(hingeType);
+                hingeType.GetMethod("Configure").Invoke(
+                    chestHinge,
+                    new object[]
+                    {
+                        lid,
+                        hinge,
+                        CreateVector3(1f, 0f, 0f),
+                        -90f
+                    }
+                );
+
+                object[] buttonTransforms =
+                {
+                    CreateVisual(rootTransform, "blue"),
+                    CreateVisual(rootTransform, "red"),
+                    CreateVisual(rootTransform, "yellow"),
+                    CreateVisual(rootTransform, "green")
+                };
+                Array chestButtons = CreateTargetStateBindings(
+                    buttonTransforms,
+                    new[] { "blue", "red", "yellow", "green" }
+                );
+
+                object key = CreateGameObject("key_a");
+                SetParent(GetTransform(key), rootTransform);
+                object keyBody = AddComponent(
+                    key,
+                    UnityPhysicsType("Rigidbody")
+                );
+                object keyCollider = AddComponent(
+                    key,
+                    UnityPhysicsType("BoxCollider")
+                );
+                Type keyType = RuntimeType("PlannedKeyReleaseBinding");
+                object keyBinding = Activator.CreateInstance(keyType);
+                keyType.GetMethod("Configure").Invoke(
+                    keyBinding,
+                    new object[]
+                    {
+                        "key_a",
+                        key,
+                        TypedArray(
+                            UnityPhysicsType("Rigidbody"),
+                            keyBody
+                        ),
+                        Array.CreateInstance(UnityType("Behaviour"), 0),
+                        TypedArray(
+                            UnityPhysicsType("Collider"),
+                            keyCollider
+                        )
+                    }
+                );
+
+                Type presentationType = RuntimeType(
+                    "InteractionDeterministicPresentation"
+                );
+                Type stateType = RuntimeType(
+                    "DeterministicTargetStateBinding"
+                );
+                object presentation = AddComponent(root, presentationType);
+                Array noStates = Array.CreateInstance(stateType, 0);
+                presentationType.GetMethod("Configure").Invoke(
+                    presentation,
+                    new object[]
+                    {
+                        coordinator,
+                        Activator.CreateInstance(hingeType),
+                        chestHinge,
+                        Activator.CreateInstance(hingeType),
+                        Activator.CreateInstance(hingeType),
+                        Activator.CreateInstance(hingeType),
+                        chestButtons,
+                        noStates,
+                        noStates,
+                        TypedArray(keyType, keyBinding)
+                    }
+                );
+
+                coordinatorType.GetMethod("Configure").Invoke(
+                    coordinator,
+                    new[] { CreateRunPlan() }
+                );
+                coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
+                SynchronizePhase(coordinator, 4);
+                presentationType.GetProperty("enabled")
+                    .SetValue(presentation, false);
+
+                foreach (string targetId in
+                         new[] { "blue", "red", "yellow", "green" })
+                {
+                    AcceptTarget(coordinator, 4, targetId);
+                }
+
+                Assert.That(
+                    RotationAngleFromIdentity(lid),
+                    Is.LessThan(0.001f)
+                );
+                foreach (object button in buttonTransforms)
+                {
+                    Assert.That(
+                        RotationAngleFromIdentity(button),
+                        Is.LessThan(0.001f)
+                    );
+                }
+                Assert.That(
+                    keyCollider.GetType().GetProperty("enabled")
+                        .GetValue(keyCollider),
+                    Is.False
+                );
+
+                presentationType.GetProperty("enabled")
+                    .SetValue(presentation, true);
+
+                Assert.That(
+                    RotationAngleFromIdentity(lid),
+                    Is.GreaterThan(0.1f)
+                );
+                foreach (object button in buttonTransforms)
+                {
+                    Assert.That(
+                        RotationAngleFromIdentity(button),
+                        Is.GreaterThan(0.1f)
+                    );
+                }
+                Assert.That(
+                    keyBody.GetType().GetProperty("isKinematic")
+                        .GetValue(keyBody),
+                    Is.False
+                );
+                Assert.That(
+                    keyCollider.GetType().GetProperty("enabled")
+                        .GetValue(keyCollider),
+                    Is.True
+                );
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        private static void InvokeEditorSetup(string methodName)
+        {
+            MethodInfo method = Type.GetType(
+                ValidatorTypeName,
+                throwOnError: true
+            ).GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.Static
+            );
+            Assert.That(method, Is.Not.Null);
+            try
+            {
+                method.Invoke(null, null);
+            }
+            catch (TargetInvocationException exception)
+                when (exception.InnerException != null)
+            {
+                ExceptionDispatchInfo.Capture(exception.InnerException).Throw();
+                throw;
+            }
+        }
+
+        private static void AssertDisabledInputBoundary(
+            object coordinator,
+            object binding,
+            object collider)
+        {
+            object previousResult = coordinator.GetType()
+                .GetProperty("LastResult").GetValue(coordinator);
+            binding.GetType().GetProperty("enabled")
+                .SetValue(binding, false);
+
+            Assert.That(
+                collider.GetType().GetProperty("enabled").GetValue(collider),
+                Is.False
+            );
+            Assert.That(
+                binding.GetType().GetMethod("AcceptInput")
+                    .Invoke(binding, null),
+                Is.Null
+            );
+            binding.GetType().GetMethod("Poke").Invoke(binding, null);
+            Assert.That(
+                coordinator.GetType().GetProperty("LastResult")
+                    .GetValue(coordinator),
+                Is.SameAs(previousResult),
+                "A disabled UnityEvent seam must not reach the Core session."
+            );
+
+            binding.GetType().GetProperty("enabled")
+                .SetValue(binding, true);
+            Assert.That(
+                collider.GetType().GetProperty("enabled").GetValue(collider),
+                Is.True
+            );
+            Assert.That(
+                binding.GetType().GetMethod("AcceptInput")
+                    .Invoke(binding, null),
+                Is.Not.Null,
+                "OnEnable must restore the current snapshot-gated input."
+            );
+        }
+
+        private static void AssertDisabledConfigureBoundary(
+            object binding,
+            object adapter,
+            object collider,
+            object interactionBehaviour = null)
+        {
+            binding.GetType().GetProperty("enabled")
+                .SetValue(binding, false);
+            ReconfigureBinding(
+                binding,
+                adapter,
+                collider,
+                interactionBehaviour
+            );
+
+            Assert.That(
+                collider.GetType().GetProperty("enabled").GetValue(collider),
+                Is.False,
+                "Configure must not reopen a disabled binding collider."
+            );
+            if (interactionBehaviour != null)
+            {
+                Assert.That(
+                    interactionBehaviour.GetType().GetProperty("enabled")
+                        .GetValue(interactionBehaviour),
+                    Is.False,
+                    "Configure must not reopen disabled interaction behaviour."
+                );
+            }
+            Assert.That(
+                binding.GetType().GetMethod("AcceptInput")
+                    .Invoke(binding, null),
+                Is.Null
+            );
+
+            adapter.GetType().GetMethod("Disable").Invoke(adapter, null);
+            adapter.GetType().GetMethod("Enable").Invoke(adapter, null);
+            Assert.That(
+                collider.GetType().GetProperty("enabled").GetValue(collider),
+                Is.False,
+                "A disabled Configure must not subscribe to availability."
+            );
+            if (interactionBehaviour != null)
+            {
+                Assert.That(
+                    interactionBehaviour.GetType().GetProperty("enabled")
+                        .GetValue(interactionBehaviour),
+                    Is.False
+                );
+            }
+
+            binding.GetType().GetProperty("enabled")
+                .SetValue(binding, true);
+            Assert.That(
+                collider.GetType().GetProperty("enabled").GetValue(collider),
+                Is.True,
+                "OnEnable must subscribe and restore adapter availability."
+            );
+            if (interactionBehaviour != null)
+            {
+                Assert.That(
+                    interactionBehaviour.GetType().GetProperty("enabled")
+                        .GetValue(interactionBehaviour),
+                    Is.True
+                );
+            }
+            Assert.That(
+                binding.GetType().GetMethod("AcceptInput")
+                    .Invoke(binding, null),
+                Is.Not.Null
+            );
+        }
+
+        private static void ReconfigureBinding(
+            object binding,
+            object adapter,
+            object collider,
+            object interactionBehaviour = null)
+        {
+            MethodInfo configure = binding.GetType().GetMethod("Configure");
+            switch (binding.GetType().Name)
+            {
+                case "InteractionTargetBinding":
+                    configure.Invoke(
+                        binding,
+                        new object[]
+                        {
+                            "box_stool",
+                            adapter,
+                            interactionBehaviour == null
+                                ? null
+                                : TypedArray(
+                                    UnityType("Behaviour"),
+                                    interactionBehaviour
+                                ),
+                            TypedArray(UnityPhysicsType("Collider"), collider)
+                        }
+                    );
+                    break;
+                case "InteractionDigitBinding":
+                    configure.Invoke(binding, new[] { (object)1, adapter, collider });
+                    break;
+                default:
+                    configure.Invoke(binding, new[] { adapter, collider });
+                    break;
+            }
+        }
+
+        private static object CreateKeypadBinding(
+            object parent,
+            string typeName,
+            object adapter,
+            out object collider,
+            int? digit = null)
+        {
+            object button = CreateGameObject(typeName);
+            SetParent(GetTransform(button), parent);
+            collider = AddComponent(button, UnityPhysicsType("BoxCollider"));
+            object binding = AddComponent(button, RuntimeType(typeName));
+            MethodInfo configure = binding.GetType().GetMethod("Configure");
+            if (digit.HasValue)
+            {
+                configure.Invoke(
+                    binding,
+                    new[] { (object)digit.Value, adapter, collider }
+                );
+            }
+            else
+            {
+                configure.Invoke(binding, new[] { adapter, collider });
+            }
+            return binding;
+        }
+
+        private static object CreateChildPath(object parent, string path)
+        {
+            object current = parent;
+            foreach (string segment in path.Split('/'))
+            {
+                object child = CreateGameObject(segment);
+                object transform = GetTransform(child);
+                SetParent(transform, current);
+                current = transform;
+            }
+            return current;
+        }
+
+        private static object FindGameObject(string name)
+        {
+            object result = UnityType("GameObject").GetMethod(
+                "Find",
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types: new[] { typeof(string) },
+                modifiers: null
+            ).Invoke(null, new object[] { name });
+            Assert.That(result, Is.Not.Null, $"Missing GameObject '{name}'.");
+            return result;
+        }
+
+        private static object FindChild(object transform, string path)
+        {
+            object result = transform.GetType().GetMethod(
+                "Find",
+                new[] { typeof(string) }
+            ).Invoke(transform, new object[] { path });
+            Assert.That(result, Is.Not.Null, $"Missing child '{path}'.");
+            return result;
+        }
+
+        private static object GetGameObject(object component)
+        {
+            return component.GetType().GetProperty("gameObject")
+                .GetValue(component);
+        }
+
+        private static object GetComponent(object gameObject, Type type)
+        {
+            return gameObject.GetType().GetMethod(
+                "GetComponent",
+                new[] { typeof(Type) }
+            ).Invoke(gameObject, new object[] { type });
         }
 
         private static Array CreateSixAdapters(object parent)

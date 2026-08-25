@@ -53,6 +53,9 @@ namespace SignVR.Interaction.PhaseAdapters
         public PhaseExecutionSnapshot LifecycleSnapshot =>
             session?.LifecycleSnapshot;
 
+        public InteractionTaskPresentationSnapshot PresentationSnapshot =>
+            session?.PresentationSnapshot;
+
         public IReadOnlyList<InteractionPhaseAdapter> PhaseAdapters =>
             phaseAdapters;
 

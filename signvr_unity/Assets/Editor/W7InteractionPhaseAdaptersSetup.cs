@@ -92,6 +92,17 @@ namespace SignVR.Editor.Interaction
             SetupAndSaveLoadedScene(OpenInteractionScene());
         }
 
+        public static void SetupAndValidateForAutomationWithoutSaving()
+        {
+            Scene scene = OpenInteractionScene();
+            SetupLoadedScene(scene);
+            ValidateLoadedScene(scene);
+            Debug.Log(
+                "[W7InteractionPhaseAdaptersSetup] Unsaved clean setup " +
+                "and validation passed."
+            );
+        }
+
         private static void SetupAndSaveLoadedScene(Scene scene)
         {
             SetupLoadedScene(scene);
@@ -121,6 +132,26 @@ namespace SignVR.Editor.Interaction
         public static void SetupLoadedScene(Scene scene)
         {
             RequireInteractionScene(scene);
+            PreflightScene(scene);
+
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName("Configure W7 phase adapters");
+            try
+            {
+                SetupLoadedSceneUnchecked(scene);
+                ValidateLoadedScene(scene);
+                Undo.CollapseUndoOperations(undoGroup);
+            }
+            catch
+            {
+                Undo.RevertAllDownToGroup(undoGroup);
+                throw;
+            }
+        }
+
+        private static void SetupLoadedSceneUnchecked(Scene scene)
+        {
             Transform runtimeAnchor = FindUniquePath(
                 scene,
                 InteractionLabContract.SceneRootName + "/" +
@@ -151,6 +182,7 @@ namespace SignVR.Editor.Interaction
             InteractionPhaseCoordinator coordinator =
                 GetOrAdd<InteractionPhaseCoordinator>(runtimeRoot.gameObject);
             InteractionPhaseAdapter[] adapters = EnsureSixAdapters(runtimeRoot);
+            RecordForUndo(coordinator);
             coordinator.ConfigureAdapters(adapters);
             Transform[] allowedInteractorRoots =
                 ResolveBareHandInteractorRoots(scene, coordinator);
@@ -180,6 +212,10 @@ namespace SignVR.Editor.Interaction
                     GetOrAdd<InteractionTargetBinding>(
                         authoredTarget.gameObject
                     );
+                Behaviour[] interactionBehaviours =
+                    FindInteractionBehaviours(authoredTarget);
+                RecordForUndo(binding);
+                RecordForUndo(interactionBehaviours);
                 Collider proxyCollider = null;
                 if (spec.CreateTriggerProxy)
                 {
@@ -195,7 +231,7 @@ namespace SignVR.Editor.Interaction
                 binding.Configure(
                     spec.TargetId,
                     adapterByPhase[spec.InputPhaseId],
-                    FindInteractionBehaviours(authoredTarget),
+                    interactionBehaviours,
                     proxyCollider != null
                         ? new[] { proxyCollider }
                         : Array.Empty<Collider>()
@@ -240,7 +276,9 @@ namespace SignVR.Editor.Interaction
             );
             AudioSource feedbackAudio =
                 GetOrAdd<AudioSource>(feedbackRenderer.gameObject);
+            RecordForUndo(feedbackAudio);
             feedbackAudio.playOnAwake = false;
+            RecordForUndo(feedback);
             feedback.Configure(coordinator, feedbackRenderer, feedbackAudio);
 
             InteractionPlanHintPresenter hints =
@@ -255,6 +293,9 @@ namespace SignVR.Editor.Interaction
                 "W7ChestOrderHint",
                 GetFrontPoint(chest, 0.12f) + Vector3.up * 0.28f
             );
+            RecordForUndo(hints);
+            RecordForUndo(safeHint.gameObject);
+            RecordForUndo(chestHint.gameObject);
             hints.Configure(coordinator, safeHint, chestHint);
 
             InteractionDeterministicPresentation presentation =
@@ -283,6 +324,7 @@ namespace SignVR.Editor.Interaction
                 bindingByTarget,
                 new[] { "key_a", "key_b", "motorbike_key" }
             );
+            RecordForUndo(presentation);
             presentation.Configure(
                 coordinator,
                 safeDoor,
@@ -300,6 +342,160 @@ namespace SignVR.Editor.Interaction
             EditorUtility.SetDirty(feedback);
             EditorUtility.SetDirty(hints);
             EditorUtility.SetDirty(presentation);
+        }
+
+        private static void PreflightScene(Scene scene)
+        {
+            FindUniquePath(
+                scene,
+                InteractionLabContract.SceneRootName + "/" +
+                InteractionLabContract.RuntimeSystemsAnchorName
+            );
+            FindUniquePath(
+                scene,
+                InteractionLabContract.SceneRootName + "/" +
+                InteractionLabContract.AnchorsRootName +
+                "/PhaseContentAnchor"
+            );
+            FindUniquePath(
+                scene,
+                InteractionLabContract.SceneRootName + "/" +
+                InteractionLabContract.AnchorsRootName +
+                "/InteractionUiAnchor"
+            );
+
+            foreach (TargetSpec spec in TargetSpecs)
+            {
+                Transform target = RequireTarget(
+                    scene,
+                    spec.ScenePath,
+                    spec.TargetId
+                );
+                if (spec.CreateTriggerProxy || spec.InputPhaseId == 2)
+                {
+                    GetBounds(target);
+                }
+            }
+
+            Transform safe = RequireTarget(scene, "safe", "safe");
+            Transform safeDoor = RequireRelativeTarget(
+                safe,
+                SafeDoorPath,
+                "safe door"
+            );
+            RequireRelativeTarget(
+                safeDoor.parent,
+                "RecordingSafeDoorLeftHinge",
+                "safe door hinge"
+            );
+            GetBounds(safe);
+
+            Transform chest = RequireTarget(scene, "chest", "chest");
+            Transform chestLid = RequireRelativeTarget(
+                chest,
+                ChestLidPath,
+                "chest lid"
+            );
+            if (chestLid.parent == null)
+            {
+                throw new InvalidOperationException(
+                    "The exact chest lid has no hinge parent."
+                );
+            }
+            GetBounds(chest);
+            GetBounds(chestLid);
+
+            Transform closet = RequireTarget(scene, "closet", "closet");
+            Transform closetLeft = RequireRelativeTarget(
+                closet,
+                ClosetLeftDoorPath,
+                "closet left door"
+            );
+            Transform closetRight = RequireRelativeTarget(
+                closet,
+                ClosetRightDoorPath,
+                "closet right door"
+            );
+            RequireRelativeTarget(
+                closetLeft.parent,
+                "RecordingClosetLeftHinge",
+                "closet left hinge"
+            );
+            RequireRelativeTarget(
+                closetRight.parent,
+                "RecordingClosetRightHinge",
+                "closet right hinge"
+            );
+
+            Transform door = RequireTarget(scene, "door", "final door");
+            Transform finalPanel = RequireRelativeTarget(
+                door,
+                FinalDoorPanelPath,
+                "final door panel"
+            );
+            if (finalPanel.parent == null)
+            {
+                throw new InvalidOperationException(
+                    "The exact final door panel has no hinge parent."
+                );
+            }
+            GetBounds(finalPanel);
+
+            InteractionPhaseCoordinator[] coordinators = Enumerate(scene)
+                .Select(item =>
+                    item.GetComponent<InteractionPhaseCoordinator>())
+                .Where(item => item != null)
+                .ToArray();
+            if (coordinators.Length > 1)
+            {
+                throw new InvalidOperationException(
+                    "Preflight found multiple W7 phase coordinators."
+                );
+            }
+            InteractionPhaseCoordinator existingCoordinator =
+                coordinators.SingleOrDefault();
+            Transform[] handRoots = ResolveBareHandInteractorRoots(
+                scene,
+                existingCoordinator
+            );
+            if (!AreValidBareHandRoots(handRoots))
+            {
+                throw new InvalidOperationException(
+                    "Preflight requires exact left/right hand-only " +
+                    "interactor roots."
+                );
+            }
+        }
+
+        private static Transform RequireTarget(
+            Scene scene,
+            string path,
+            string label)
+        {
+            Transform target = FindTarget(scene, path);
+            if (target == null)
+            {
+                throw new InvalidOperationException(
+                    $"Preflight target '{label}' is missing at '{path}'."
+                );
+            }
+            return target;
+        }
+
+        private static Transform RequireRelativeTarget(
+            Transform root,
+            string relativePath,
+            string label)
+        {
+            Transform target = root?.Find(relativePath);
+            if (target == null)
+            {
+                throw new InvalidOperationException(
+                    $"Preflight {label} is missing at exact path " +
+                    $"'{relativePath}'."
+                );
+            }
+            return target;
         }
 
         public static void ValidateLoadedScene(Scene scene)
@@ -568,7 +764,7 @@ namespace SignVR.Editor.Interaction
                     "Deterministic presentation must reference the coordinator."
                 );
             }
-            ValidatePresentation(presentation, failures);
+            ValidatePresentation(scene, presentation, failures);
 
             if (failures.Count > 0)
             {
@@ -619,6 +815,7 @@ namespace SignVR.Editor.Interaction
                 "W7Target_" + targetId,
                 PrimitiveType.Cube
             );
+            RecordForUndo(proxy.transform);
             proxy.transform.SetPositionAndRotation(
                 new Vector3(
                     bounds.center.x,
@@ -629,9 +826,11 @@ namespace SignVR.Editor.Interaction
             );
             proxy.transform.localScale = new Vector3(0.08f, 0.08f, 0.025f);
             BoxCollider collider = proxy.GetComponent<BoxCollider>();
+            RecordForUndo(collider);
             collider.isTrigger = true;
             InteractionTriggerRelay relay =
                 GetOrAdd<InteractionTriggerRelay>(proxy);
+            RecordForUndo(relay);
             relay.Configure(binding, allowedInteractorRoots);
             EditorUtility.SetDirty(relay);
             return collider;
@@ -655,6 +854,7 @@ namespace SignVR.Editor.Interaction
                     $"W7SafeDigit_{digit}",
                     PrimitiveType.Cube
                 );
+                RecordForUndo(button.transform);
                 button.transform.SetPositionAndRotation(
                     origin + new Vector3(
                         (column - 1) * 0.085f,
@@ -666,12 +866,15 @@ namespace SignVR.Editor.Interaction
                 button.transform.localScale =
                     new Vector3(0.065f, 0.055f, 0.025f);
                 BoxCollider collider = button.GetComponent<BoxCollider>();
+                RecordForUndo(collider);
                 collider.isTrigger = true;
                 InteractionDigitBinding digitBinding =
                     GetOrAdd<InteractionDigitBinding>(button);
+                RecordForUndo(digitBinding);
                 digitBinding.Configure(digit, adapter, collider);
                 InteractionTriggerRelay digitRelay =
                     GetOrAdd<InteractionTriggerRelay>(button);
+                RecordForUndo(digitRelay);
                 digitRelay.Configure(
                     digitBinding,
                     allowedInteractorRoots
@@ -686,6 +889,7 @@ namespace SignVR.Editor.Interaction
                 "W7SafeBackspace",
                 PrimitiveType.Cube
             );
+            RecordForUndo(backspace.transform);
             backspace.transform.SetPositionAndRotation(
                 origin + new Vector3(-0.085f, -0.1125f, 0f),
                 Quaternion.identity
@@ -694,12 +898,15 @@ namespace SignVR.Editor.Interaction
                 new Vector3(0.065f, 0.055f, 0.025f);
             BoxCollider backspaceCollider =
                 backspace.GetComponent<BoxCollider>();
+            RecordForUndo(backspaceCollider);
             backspaceCollider.isTrigger = true;
             InteractionPasswordBackspaceBinding backspaceBinding =
                 GetOrAdd<InteractionPasswordBackspaceBinding>(backspace);
+            RecordForUndo(backspaceBinding);
             backspaceBinding.Configure(adapter, backspaceCollider);
             InteractionTriggerRelay backspaceRelay =
                 GetOrAdd<InteractionTriggerRelay>(backspace);
+            RecordForUndo(backspaceRelay);
             backspaceRelay.Configure(
                 backspaceBinding,
                 allowedInteractorRoots
@@ -713,6 +920,7 @@ namespace SignVR.Editor.Interaction
                 "W7SafeSubmit",
                 PrimitiveType.Cube
             );
+            RecordForUndo(submit.transform);
             submit.transform.SetPositionAndRotation(
                 origin + new Vector3(0.085f, -0.1125f, 0f),
                 Quaternion.identity
@@ -720,12 +928,15 @@ namespace SignVR.Editor.Interaction
             submit.transform.localScale =
                 new Vector3(0.065f, 0.055f, 0.025f);
             BoxCollider submitCollider = submit.GetComponent<BoxCollider>();
+            RecordForUndo(submitCollider);
             submitCollider.isTrigger = true;
             InteractionPasswordSubmitBinding submitBinding =
                 GetOrAdd<InteractionPasswordSubmitBinding>(submit);
+            RecordForUndo(submitBinding);
             submitBinding.Configure(adapter, submitCollider);
             InteractionTriggerRelay submitRelay =
                 GetOrAdd<InteractionTriggerRelay>(submit);
+            RecordForUndo(submitRelay);
             submitRelay.Configure(submitBinding, allowedInteractorRoots);
             EnsureButtonLabel(submit.transform, "#");
             EditorUtility.SetDirty(submitBinding);
@@ -752,6 +963,7 @@ namespace SignVR.Editor.Interaction
                     "W7ChestButton_" + targetId,
                     PrimitiveType.Cube
                 );
+                RecordForUndo(button.transform);
                 button.transform.SetPositionAndRotation(
                     origin + new Vector3((index - 1.5f) * 0.09f, 0f, 0f),
                     Quaternion.identity
@@ -759,9 +971,11 @@ namespace SignVR.Editor.Interaction
                 button.transform.localScale =
                     new Vector3(0.07f, 0.07f, 0.03f);
                 BoxCollider collider = button.GetComponent<BoxCollider>();
+                RecordForUndo(collider);
                 collider.isTrigger = true;
                 InteractionTargetBinding binding =
                     GetOrAdd<InteractionTargetBinding>(button);
+                RecordForUndo(binding);
                 binding.Configure(
                     targetId,
                     adapter,
@@ -770,6 +984,7 @@ namespace SignVR.Editor.Interaction
                 );
                 InteractionTriggerRelay relay =
                     GetOrAdd<InteractionTriggerRelay>(button);
+                RecordForUndo(relay);
                 relay.Configure(binding, allowedInteractorRoots);
                 EnsureButtonLabel(button.transform, targetId.ToUpperInvariant());
                 bindingByTarget.Add(targetId, binding);
@@ -802,6 +1017,7 @@ namespace SignVR.Editor.Interaction
                     proxyRoot,
                     "W7Placement_" + plateId
                 );
+                RecordForUndo(placementRoot);
                 placementRoot.SetPositionAndRotation(
                     bounds.center + Vector3.up * 0.035f,
                     Quaternion.identity
@@ -810,6 +1026,7 @@ namespace SignVR.Editor.Interaction
                 BoxCollider collider = GetOrAdd<BoxCollider>(
                     placementRoot.gameObject
                 );
+                RecordForUndo(collider);
                 collider.isTrigger = true;
                 collider.size = new Vector3(
                     Mathf.Clamp(bounds.size.x, 0.12f, 0.32f),
@@ -817,6 +1034,7 @@ namespace SignVR.Editor.Interaction
                     Mathf.Clamp(bounds.size.z, 0.12f, 0.32f)
                 );
                 Transform snap = EnsureChild(placementRoot, "SnapPoint");
+                RecordForUndo(snap);
                 snap.SetPositionAndRotation(
                     bounds.center + Vector3.up * 0.055f,
                     plate.rotation
@@ -825,6 +1043,7 @@ namespace SignVR.Editor.Interaction
                     GetOrAdd<InteractionPlacementBinding>(
                         placementRoot.gameObject
                     );
+                RecordForUndo(placement);
                 placement.Configure(plateId, adapter, collider, snap);
                 EditorUtility.SetDirty(placement);
             }
@@ -837,10 +1056,15 @@ namespace SignVR.Editor.Interaction
                 "W7InteractionFeedbackBeacon",
                 PrimitiveType.Sphere
             );
+            RecordForUndo(beacon.transform);
             beacon.transform.localPosition = new Vector3(0f, 1.45f, 1.1f);
             beacon.transform.localRotation = Quaternion.identity;
             beacon.transform.localScale = Vector3.one * 0.09f;
-            Object.DestroyImmediate(beacon.GetComponent<Collider>());
+            Collider collider = beacon.GetComponent<Collider>();
+            if (collider != null)
+            {
+                Undo.DestroyObjectImmediate(collider);
+            }
             return beacon.GetComponent<Renderer>();
         }
 
@@ -850,8 +1074,10 @@ namespace SignVR.Editor.Interaction
             Vector3 worldPosition)
         {
             Transform root = EnsureChild(parent, name);
+            RecordForUndo(root);
             root.SetPositionAndRotation(worldPosition, Quaternion.identity);
             TextMesh text = GetOrAdd<TextMesh>(root.gameObject);
+            RecordForUndo(text);
             text.text = string.Empty;
             text.anchor = TextAnchor.MiddleCenter;
             text.alignment = TextAlignment.Center;
@@ -867,10 +1093,12 @@ namespace SignVR.Editor.Interaction
             string label)
         {
             Transform labelRoot = EnsureChild(button, "Label");
+            RecordForUndo(labelRoot);
             labelRoot.localPosition = new Vector3(0f, 0f, -0.55f);
             labelRoot.localRotation = Quaternion.identity;
             labelRoot.localScale = Vector3.one;
             TextMesh text = GetOrAdd<TextMesh>(labelRoot.gameObject);
+            RecordForUndo(text);
             text.text = label;
             text.anchor = TextAnchor.MiddleCenter;
             text.alignment = TextAlignment.Center;
@@ -894,13 +1122,7 @@ namespace SignVR.Editor.Interaction
         private static DeterministicHingeBinding CreateChestLidBinding(
             Transform chest)
         {
-            Transform lid = chest?.Find(ChestLidPath) ??
-                FindNamedDescendant(
-                    chest,
-                    "lid",
-                    "cover",
-                    "top"
-                );
+            Transform lid = chest?.Find(ChestLidPath);
             if (lid == null)
             {
                 return new DeterministicHingeBinding();
@@ -937,8 +1159,7 @@ namespace SignVR.Editor.Interaction
             Scene scene)
         {
             Transform door = FindTarget(scene, "door");
-            Transform left = door?.Find(FinalDoorPanelPath) ??
-                FindNamedDescendant(door, "left");
+            Transform left = door?.Find(FinalDoorPanelPath);
             if (left == null)
             {
                 return new DeterministicHingeBinding();
@@ -1019,6 +1240,23 @@ namespace SignVR.Editor.Interaction
                 .Where(item => item != null)
                 .Distinct()
                 .ToArray();
+            if (!AreValidBareHandRoots(roots))
+            {
+                failures.Add(
+                    "Coordinator requires exactly the left/right hand-only " +
+                    "interactor roots; controller roots are forbidden."
+                );
+            }
+        }
+
+        private static bool AreValidBareHandRoots(
+            IEnumerable<Transform> configuredRoots)
+        {
+            Transform[] roots = (configuredRoots ??
+                    Enumerable.Empty<Transform>())
+                .Where(item => item != null)
+                .Distinct()
+                .ToArray();
             bool hasLeft = roots.Any(item =>
                 item.name.IndexOf("left", StringComparison.OrdinalIgnoreCase) >= 0
             );
@@ -1036,13 +1274,7 @@ namespace SignVR.Editor.Interaction
                     StringComparison.OrdinalIgnoreCase
                 ) < 0
             );
-            if (roots.Length != 2 || !hasLeft || !hasRight || !allHandOnly)
-            {
-                failures.Add(
-                    "Coordinator requires exactly the left/right hand-only " +
-                    "interactor roots; controller roots are forbidden."
-                );
-            }
+            return roots.Length == 2 && hasLeft && hasRight && allHandOnly;
         }
 
         private static void ValidateRelay(
@@ -1090,6 +1322,7 @@ namespace SignVR.Editor.Interaction
         }
 
         private static void ValidatePresentation(
+            Scene scene,
             InteractionDeterministicPresentation presentation,
             ICollection<string> failures)
         {
@@ -1102,11 +1335,15 @@ namespace SignVR.Editor.Interaction
             {
                 failures.Add("Safe-door deterministic hinge is not bound.");
             }
-            if (!presentation.ChestLid.IsConfigured)
+            Transform chest = FindTarget(scene, "chest");
+            if (!HasExactMovingPartPath(
+                    chest,
+                    presentation.ChestLid,
+                    ChestLidPath))
             {
                 failures.Add(
-                    "Chest lid could not be identified by name. Manually bind " +
-                    "the lid and hinge in InteractionDeterministicPresentation."
+                    "Chest lid MovingPart must equal the frozen exact path '" +
+                    ChestLidPath + "'."
                 );
             }
             if (!presentation.CabinetLeftDoor.IsConfigured ||
@@ -1114,11 +1351,15 @@ namespace SignVR.Editor.Interaction
             {
                 failures.Add("Both cabinet deterministic hinges must be bound.");
             }
-            if (!presentation.FinalLeftDoor.IsConfigured)
+            Transform door = FindTarget(scene, "door");
+            if (!HasExactMovingPartPath(
+                    door,
+                    presentation.FinalLeftDoor,
+                    FinalDoorPanelPath))
             {
                 failures.Add(
-                    "Final left-door child could not be identified by name. " +
-                    "Manually bind its moving panel and hinge."
+                    "Final door MovingPart must equal the frozen exact path '" +
+                    FinalDoorPanelPath + "'."
                 );
             }
             ValidateIds(
@@ -1145,6 +1386,46 @@ namespace SignVR.Editor.Interaction
                 "planned key release bindings",
                 failures
             );
+        }
+
+        public static bool HasExactMovingPartPath(
+            Transform targetRoot,
+            DeterministicHingeBinding binding,
+            string expectedRelativePath)
+        {
+            if (targetRoot == null || binding == null ||
+                string.IsNullOrWhiteSpace(expectedRelativePath))
+            {
+                return false;
+            }
+
+            if (!binding.IsConfigured)
+            {
+                return false;
+            }
+            Transform movingPart = binding.MovingPart;
+            Transform exact = targetRoot.Find(expectedRelativePath);
+            return movingPart != null && exact != null &&
+                movingPart == exact &&
+                string.Equals(
+                    GetRelativeHierarchyPath(targetRoot, movingPart),
+                    expectedRelativePath,
+                    StringComparison.Ordinal
+                );
+        }
+
+        private static string GetRelativeHierarchyPath(
+            Transform root,
+            Transform target)
+        {
+            var names = new Stack<string>();
+            Transform current = target;
+            while (current != null && current != root)
+            {
+                names.Push(current.name);
+                current = current.parent;
+            }
+            return current == root ? string.Join("/", names) : null;
         }
 
         private static void ValidateIds(
@@ -1199,8 +1480,9 @@ namespace SignVR.Editor.Interaction
             }
             catch (InvalidOperationException)
             {
-                Transform[] serializedRoots = coordinator
-                    .AllowedInteractorRoots
+                Transform[] serializedRoots = (coordinator == null
+                        ? Array.Empty<Transform>()
+                        : coordinator.AllowedInteractorRoots)
                     .Where(item => item != null)
                     .Distinct()
                     .ToArray();
@@ -1261,61 +1543,6 @@ namespace SignVR.Editor.Interaction
                 ));
         }
 
-        private static Transform FindNamedDescendant(
-            Transform root,
-            params string[] tokens)
-        {
-            if (root == null)
-            {
-                return null;
-            }
-            Transform[] matches = root
-                .GetComponentsInChildren<Transform>(true)
-                .Where(item => item != root)
-                .Where(item => tokens.Any(token =>
-                    MatchesNameToken(item.name, token)
-                ))
-                .ToArray();
-            return matches.Length == 1 ? matches[0] : null;
-        }
-
-        private static bool MatchesNameToken(string value, string token)
-        {
-            if (string.IsNullOrWhiteSpace(value) ||
-                string.IsNullOrWhiteSpace(token))
-            {
-                return false;
-            }
-
-            int start = value.IndexOf(
-                token,
-                StringComparison.OrdinalIgnoreCase
-            );
-            while (start >= 0)
-            {
-                int end = start + token.Length;
-                bool beforeBoundary = start == 0 ||
-                    !char.IsLetterOrDigit(value[start - 1]) ||
-                    (char.IsLower(value[start - 1]) &&
-                     char.IsUpper(value[start]));
-                bool afterBoundary = end == value.Length ||
-                    !char.IsLetterOrDigit(value[end]) ||
-                    (char.IsLower(value[end - 1]) &&
-                     char.IsUpper(value[end]));
-                if (beforeBoundary && afterBoundary)
-                {
-                    return true;
-                }
-
-                start = value.IndexOf(
-                    token,
-                    start + 1,
-                    StringComparison.OrdinalIgnoreCase
-                );
-            }
-            return false;
-        }
-
         private static Transform EnsureWorldHinge(
             Transform parent,
             string name,
@@ -1326,6 +1553,7 @@ namespace SignVR.Editor.Interaction
                 return null;
             }
             Transform hinge = EnsureChild(parent, name);
+            RecordForUndo(hinge);
             hinge.SetPositionAndRotation(worldPosition, Quaternion.identity);
             hinge.localScale = Vector3.one;
             return hinge;
@@ -1388,6 +1616,7 @@ namespace SignVR.Editor.Interaction
             Transform child = parent.Find(name);
             if (child != null)
             {
+                RecordForUndo(child);
                 return child;
             }
             var gameObject = new GameObject(name);
@@ -1404,6 +1633,7 @@ namespace SignVR.Editor.Interaction
             Transform existing = parent.Find(name);
             if (existing != null)
             {
+                RecordForUndo(existing);
                 return existing.gameObject;
             }
             GameObject gameObject = GameObject.CreatePrimitive(primitiveType);
@@ -1416,8 +1646,33 @@ namespace SignVR.Editor.Interaction
         private static T GetOrAdd<T>(GameObject gameObject)
             where T : Component
         {
-            return gameObject.GetComponent<T>() ??
-                Undo.AddComponent<T>(gameObject);
+            T existing = gameObject.GetComponent<T>();
+            if (existing != null)
+            {
+                RecordForUndo(existing);
+                return existing;
+            }
+            return Undo.AddComponent<T>(gameObject);
+        }
+
+        private static void RecordForUndo(Object target)
+        {
+            if (target != null)
+            {
+                Undo.RecordObject(target, "Configure W7 phase adapters");
+            }
+        }
+
+        private static void RecordForUndo(IEnumerable<Object> targets)
+        {
+            if (targets == null)
+            {
+                return;
+            }
+            foreach (Object target in targets)
+            {
+                RecordForUndo(target);
+            }
         }
 
         private static IEnumerable<GameObject> Enumerate(Scene scene)

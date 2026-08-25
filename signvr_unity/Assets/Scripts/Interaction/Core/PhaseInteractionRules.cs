@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 namespace SignVR.Interaction.Core
 {
@@ -132,7 +133,11 @@ namespace SignVR.Interaction.Core
             PhaseValidationError error,
             string targetId = null,
             string releasedTargetId = null,
-            bool phaseGivenUp = false)
+            bool phaseGivenUp = false,
+            PhaseInputKind? inputKind = null,
+            string inputTargetId = null,
+            string inputSecondaryTargetId = null,
+            int? inputDigitValue = null)
         {
             PhaseId = phaseId;
             Accepted = accepted;
@@ -146,6 +151,10 @@ namespace SignVR.Interaction.Core
             TargetId = targetId;
             ReleasedTargetId = releasedTargetId;
             PhaseGivenUp = phaseGivenUp;
+            InputKind = inputKind;
+            InputTargetId = inputTargetId;
+            InputSecondaryTargetId = inputSecondaryTargetId;
+            InputDigitValue = inputDigitValue;
         }
 
         public int PhaseId { get; }
@@ -176,6 +185,104 @@ namespace SignVR.Interaction.Core
         public string ReleasedTargetId { get; }
 
         public bool PhaseGivenUp { get; }
+
+        /// <summary>
+        /// The original input that produced this result. These fields are
+        /// independent from TargetId, which remains the feedback target.
+        /// Non-input results such as GiveUp leave all four values null.
+        /// </summary>
+        public PhaseInputKind? InputKind { get; }
+
+        public string InputTargetId { get; }
+
+        public string InputSecondaryTargetId { get; }
+
+        public int? InputDigitValue { get; }
+
+        internal ValidationResult WithInput(PhaseInput input)
+        {
+            if (input == null)
+            {
+                throw new ArgumentNullException(nameof(input));
+            }
+
+            return new ValidationResult(
+                PhaseId,
+                Accepted,
+                InteractionError,
+                ProgressReset,
+                PhaseCompleted,
+                Progress,
+                RequiredProgress,
+                FeedbackCue,
+                Error,
+                TargetId,
+                ReleasedTargetId,
+                PhaseGivenUp,
+                input.Kind,
+                input.TargetId,
+                input.SecondaryTargetId,
+                input.DigitValue
+            );
+        }
+    }
+
+    /// <summary>
+    /// Immutable task-presentation state derived from accepted W7 inputs.
+    /// It contains no Run or Phase lifecycle transition state; W1 remains the
+    /// sole lifecycle authority through PhaseExecutionSnapshot.
+    /// </summary>
+    public sealed class InteractionTaskPresentationSnapshot
+    {
+        private readonly ReadOnlyCollection<string> chestButtonTargetIds;
+        private readonly ReadOnlyCollection<string> cabinetButtonTargetIds;
+        private readonly ReadOnlyCollection<string> breakerTargetIds;
+
+        internal InteractionTaskPresentationSnapshot(
+            bool safeDoorOpened,
+            bool chestOpened,
+            bool cabinetUnlocked,
+            bool finalDoorOpened,
+            string releasedKeyTargetId,
+            IEnumerable<string> chestButtons,
+            IEnumerable<string> cabinetButtons,
+            IEnumerable<string> breakers)
+        {
+            SafeDoorOpened = safeDoorOpened;
+            ChestOpened = chestOpened;
+            CabinetUnlocked = cabinetUnlocked;
+            FinalDoorOpened = finalDoorOpened;
+            ReleasedKeyTargetId = releasedKeyTargetId;
+            chestButtonTargetIds = Copy(chestButtons);
+            cabinetButtonTargetIds = Copy(cabinetButtons);
+            breakerTargetIds = Copy(breakers);
+        }
+
+        public bool SafeDoorOpened { get; }
+
+        public bool ChestOpened { get; }
+
+        public bool CabinetUnlocked { get; }
+
+        public bool FinalDoorOpened { get; }
+
+        public string ReleasedKeyTargetId { get; }
+
+        public IReadOnlyList<string> ChestButtonTargetIds =>
+            chestButtonTargetIds;
+
+        public IReadOnlyList<string> CabinetButtonTargetIds =>
+            cabinetButtonTargetIds;
+
+        public IReadOnlyList<string> BreakerTargetIds => breakerTargetIds;
+
+        private static ReadOnlyCollection<string> Copy(
+            IEnumerable<string> values)
+        {
+            return new List<string>(
+                values ?? Array.Empty<string>()
+            ).AsReadOnly();
+        }
     }
 
     public static class PhaseRuleRouting
@@ -223,6 +330,17 @@ namespace SignVR.Interaction.Core
             new HashSet<string>(StringComparer.Ordinal);
         private ValidationResult lastResult;
         private int phaseSixProgress;
+        private bool safeDoorOpened;
+        private bool chestOpened;
+        private bool cabinetUnlocked;
+        private bool finalDoorOpened;
+        private string releasedKeyTargetId;
+        private readonly List<string> presentationChestButtons =
+            new List<string>();
+        private readonly List<string> presentationCabinetButtons =
+            new List<string>();
+        private readonly List<string> presentationBreakers =
+            new List<string>();
 
         public event Action<ValidationResult> ResultProduced;
 
@@ -246,6 +364,18 @@ namespace SignVR.Interaction.Core
 
         public ValidationResult LastResult => lastResult;
 
+        public InteractionTaskPresentationSnapshot PresentationSnapshot =>
+            new InteractionTaskPresentationSnapshot(
+                safeDoorOpened,
+                chestOpened,
+                cabinetUnlocked,
+                finalDoorOpened,
+                releasedKeyTargetId,
+                presentationChestButtons,
+                presentationCabinetButtons,
+                presentationBreakers
+            );
+
         public void Configure(RunPlan runPlan)
         {
             if (runPlan == null)
@@ -255,7 +385,7 @@ namespace SignVR.Interaction.Core
 
             ValidatePlanShape(runPlan);
             plan = runPlan;
-            ResetProgress();
+            ResetAllTaskState();
             lifecycleSnapshot = null;
             locallyEnabled = false;
             phaseTaskLocked = false;
@@ -284,7 +414,7 @@ namespace SignVR.Interaction.Core
             lifecycleSnapshot = null;
             locallyEnabled = false;
             phaseTaskLocked = false;
-            ResetProgress();
+            ResetAllTaskState();
         }
 
         public void Abort()
@@ -335,13 +465,13 @@ namespace SignVR.Interaction.Core
 
                 if (snapshot.PhaseId > lifecycleSnapshot.PhaseId)
                 {
-                    ResetProgress();
+                    ResetTaskProgress();
                     phaseTaskLocked = false;
                 }
             }
             else
             {
-                ResetProgress();
+                ResetTaskProgress();
                 phaseTaskLocked = false;
             }
 
@@ -383,11 +513,17 @@ namespace SignVR.Interaction.Core
                 ));
             }
 
-            ResetProgress();
+            ResetTaskProgress();
+            ResetPresentationProgress(phaseId);
             phaseTaskLocked = true;
             string releasedKey = phaseId == 4
                 ? plan.Phases[3].TaskVariant.TargetIds[0]
                 : null;
+            if (phaseId == 4)
+            {
+                chestOpened = true;
+                releasedKeyTargetId = releasedKey;
+            }
             PhaseFeedbackCue cue = phaseId == 4
                 ? PhaseFeedbackCue.ChestOpened
                 : PhaseFeedbackCue.PhaseGivenUp;
@@ -416,40 +552,40 @@ namespace SignVR.Interaction.Core
             ValidationResult gate = ValidateGate(phaseId);
             if (gate != null)
             {
-                return Publish(gate);
+                return PublishInput(gate, input);
             }
 
             if (phaseId == 1)
             {
-                return Publish(AcceptPhaseOne(input));
+                return PublishInput(AcceptPhaseOne(input), input);
             }
 
             if (phaseId == 2)
             {
-                return Publish(AcceptPhaseTwo(input));
+                return PublishInput(AcceptPhaseTwo(input), input);
             }
 
             if (phaseId == 3)
             {
-                return Publish(AcceptPhaseThree(input));
+                return PublishInput(AcceptPhaseThree(input), input);
             }
 
             if (phaseId == 4)
             {
-                return Publish(AcceptPhaseFour(input));
+                return PublishInput(AcceptPhaseFour(input), input);
             }
 
             if (phaseId == 5)
             {
-                return Publish(AcceptPhaseFive(input));
+                return PublishInput(AcceptPhaseFive(input), input);
             }
 
             if (phaseId == 6)
             {
-                return Publish(AcceptPhaseSix(input));
+                return PublishInput(AcceptPhaseSix(input), input);
             }
 
-            return Publish(new ValidationResult(
+            return PublishInput(new ValidationResult(
                 phaseId,
                 false,
                 true,
@@ -459,7 +595,7 @@ namespace SignVR.Interaction.Core
                 0,
                 PhaseFeedbackCue.None,
                 PhaseValidationError.InvalidInput
-            ));
+            ), input);
         }
 
         private ValidationResult AcceptPhaseTwo(PhaseInput input)
@@ -562,6 +698,7 @@ namespace SignVR.Interaction.Core
                 ))
             {
                 phaseFourProgress = 0;
+                presentationChestButtons.Clear();
                 return new ValidationResult(
                     4,
                     false,
@@ -577,6 +714,10 @@ namespace SignVR.Interaction.Core
             }
 
             phaseFourProgress++;
+            AddPresentationTarget(
+                presentationChestButtons,
+                input.TargetId
+            );
             if (phaseFourProgress < order.Count)
             {
                 return new ValidationResult(
@@ -595,6 +736,8 @@ namespace SignVR.Interaction.Core
 
             string releasedKey =
                 plan.Phases[3].TaskVariant.TargetIds[0];
+            chestOpened = true;
+            releasedKeyTargetId = releasedKey;
             phaseTaskLocked = true;
             phaseFourProgress = 0;
             return new ValidationResult(
@@ -632,6 +775,7 @@ namespace SignVR.Interaction.Core
                 }
 
                 phaseFiveKeyAccepted = true;
+                cabinetUnlocked = true;
                 return new ValidationResult(
                     5,
                     true,
@@ -654,6 +798,10 @@ namespace SignVR.Interaction.Core
             }
 
             int progress = phaseFiveButtons.Count + 1;
+            AddPresentationTarget(
+                presentationCabinetButtons,
+                input.TargetId
+            );
             if (phaseFiveButtons.Count < plannedButtons.Count)
             {
                 return new ValidationResult(
@@ -692,6 +840,7 @@ namespace SignVR.Interaction.Core
             int requiredProgress)
         {
             phaseFiveButtons.Clear();
+            presentationCabinetButtons.Clear();
             return new ValidationResult(
                 5,
                 false,
@@ -714,6 +863,7 @@ namespace SignVR.Interaction.Core
                 phaseSixProgress < 0 || phaseSixProgress >= order.Count)
             {
                 phaseSixProgress = 0;
+                presentationBreakers.Clear();
                 return InvalidPlanResult(6);
             }
             string expectedTarget = order[phaseSixProgress];
@@ -725,6 +875,7 @@ namespace SignVR.Interaction.Core
                 ))
             {
                 phaseSixProgress = 0;
+                presentationBreakers.Clear();
                 return new ValidationResult(
                     6,
                     false,
@@ -740,6 +891,10 @@ namespace SignVR.Interaction.Core
             }
 
             phaseSixProgress++;
+            AddPresentationTarget(
+                presentationBreakers,
+                input.TargetId
+            );
             if (phaseSixProgress < order.Count)
             {
                 return new ValidationResult(
@@ -758,6 +913,7 @@ namespace SignVR.Interaction.Core
 
             phaseSixProgress = 0;
             phaseTaskLocked = true;
+            finalDoorOpened = true;
             return new ValidationResult(
                 6,
                 true,
@@ -876,6 +1032,7 @@ namespace SignVR.Interaction.Core
             }
 
             phaseTaskLocked = true;
+            safeDoorOpened = true;
             return new ValidationResult(
                 1,
                 true,
@@ -896,7 +1053,7 @@ namespace SignVR.Interaction.Core
             PhaseValidationError error =
                 PhaseValidationError.UnexpectedTarget)
         {
-            ResetProgress();
+            ResetTaskProgress();
             return new ValidationResult(
                 1,
                 false,
@@ -1052,7 +1209,53 @@ namespace SignVR.Interaction.Core
             return result;
         }
 
-        private void ResetProgress()
+        private ValidationResult PublishInput(
+            ValidationResult result,
+            PhaseInput input)
+        {
+            return Publish(result.WithInput(input));
+        }
+
+        private static void AddPresentationTarget(
+            ICollection<string> targets,
+            string targetId)
+        {
+            if (!targets.Contains(targetId))
+            {
+                targets.Add(targetId);
+            }
+        }
+
+        private void ResetPresentationProgress(int phaseId)
+        {
+            if (phaseId == 4)
+            {
+                presentationChestButtons.Clear();
+            }
+            else if (phaseId == 5)
+            {
+                presentationCabinetButtons.Clear();
+            }
+            else if (phaseId == 6)
+            {
+                presentationBreakers.Clear();
+            }
+        }
+
+        private void ResetAllTaskState()
+        {
+            ResetTaskProgress();
+            safeDoorOpened = false;
+            chestOpened = false;
+            cabinetUnlocked = false;
+            finalDoorOpened = false;
+            releasedKeyTargetId = null;
+            presentationChestButtons.Clear();
+            presentationCabinetButtons.Clear();
+            presentationBreakers.Clear();
+        }
+
+        private void ResetTaskProgress()
         {
             phaseOneBoxAccepted = false;
             safeDigits.Clear();

@@ -610,6 +610,138 @@ namespace SignVR.Interaction.Core.Tests
             Assert.That(resumed.Progress, Is.EqualTo(2));
         }
 
+        [Test]
+        public void ResultsPreserveOriginalInputMetadataIncludingGateFailure()
+        {
+            var session = new InteractionPhaseSession();
+            RunPlan plan = CreatePlan();
+            InteractionRunStateMachine lifecycle = CoreTestData.StartRunning();
+            var published = new List<ValidationResult>();
+            session.ResultProduced += published.Add;
+            session.Configure(plan);
+            session.Enable();
+
+            ValidationResult gateFailure = session.AcceptInput(
+                2,
+                PhaseInput.Pair("coin_dragon", "plate_dragon")
+            );
+
+            Assert.That(
+                gateFailure.Error,
+                Is.EqualTo(PhaseValidationError.LifecycleSnapshotRequired)
+            );
+            Assert.That(
+                gateFailure.TargetId,
+                Is.Null,
+                "Feedback target and attempted input must remain distinct."
+            );
+            Assert.That(gateFailure.InputKind, Is.EqualTo(PhaseInputKind.Pair));
+            Assert.That(gateFailure.InputTargetId, Is.EqualTo("coin_dragon"));
+            Assert.That(
+                gateFailure.InputSecondaryTargetId,
+                Is.EqualTo("plate_dragon")
+            );
+            Assert.That(gateFailure.InputDigitValue, Is.Null);
+            Assert.That(published, Is.EqualTo(new[] { gateFailure }));
+
+            session.Synchronize(lifecycle.CurrentPhase);
+            ValidationResult target = session.AcceptInput(
+                1,
+                PhaseInput.Target("box_stool")
+            );
+            ValidationResult digit = session.AcceptInput(
+                1,
+                PhaseInput.Digit(7)
+            );
+            ValidationResult backspace = session.AcceptInput(
+                1,
+                PhaseInput.Backspace()
+            );
+            ValidationResult submit = session.AcceptInput(
+                1,
+                PhaseInput.Submit()
+            );
+            ValidationResult giveUp = session.GiveUpCurrentPhase(
+                lifecycle.CurrentPhase
+            );
+
+            Assert.That(target.InputKind, Is.EqualTo(PhaseInputKind.Target));
+            Assert.That(target.InputTargetId, Is.EqualTo("box_stool"));
+            Assert.That(target.InputSecondaryTargetId, Is.Null);
+            Assert.That(target.InputDigitValue, Is.Null);
+            Assert.That(digit.InputKind, Is.EqualTo(PhaseInputKind.Digit));
+            Assert.That(digit.InputDigitValue, Is.EqualTo(7));
+            Assert.That(backspace.InputKind, Is.EqualTo(
+                PhaseInputKind.Backspace
+            ));
+            Assert.That(submit.InputKind, Is.EqualTo(PhaseInputKind.Submit));
+            Assert.That(
+                giveUp.Error,
+                Is.EqualTo(PhaseValidationError.GiveUpUnavailable)
+            );
+            Assert.That(giveUp.InputKind, Is.Null);
+            Assert.That(giveUp.InputTargetId, Is.Null);
+            Assert.That(giveUp.InputSecondaryTargetId, Is.Null);
+            Assert.That(giveUp.InputDigitValue, Is.Null);
+            Assert.That(published.Count, Is.EqualTo(6));
+            Assert.That(published[5], Is.SameAs(giveUp));
+        }
+
+        [Test]
+        public void PresentationSnapshotRetainsAuthoritativeVisualState()
+        {
+            var harness = new SessionHarness(CreatePlan(
+                "001", "004", "013", "016", "025", "026"
+            ));
+            AdvanceToPhase(harness, 4);
+
+            harness.Session.AcceptInput(4, PhaseInput.Target("blue"));
+            InteractionTaskPresentationSnapshot partial =
+                harness.Session.PresentationSnapshot;
+
+            Assert.That(partial.ChestOpened, Is.False);
+            Assert.That(
+                partial.ChestButtonTargetIds,
+                Is.EqualTo(new[] { "blue" })
+            );
+
+            foreach (string targetId in
+                     new[] { "red", "yellow", "green" })
+            {
+                harness.Session.AcceptInput(
+                    4,
+                    PhaseInput.Target(targetId)
+                );
+            }
+            harness.AdvanceCompletedPhase();
+            harness.Session.AcceptInput(5, PhaseInput.Target("key_a"));
+            harness.Session.AcceptInput(5, PhaseInput.Target("button_a"));
+            harness.Session.AcceptInput(5, PhaseInput.Target("button_b"));
+
+            InteractionTaskPresentationSnapshot completed =
+                harness.Session.PresentationSnapshot;
+
+            Assert.That(completed.SafeDoorOpened, Is.True);
+            Assert.That(completed.ChestOpened, Is.True);
+            Assert.That(completed.ReleasedKeyTargetId, Is.EqualTo("key_a"));
+            Assert.That(
+                completed.ChestButtonTargetIds,
+                Is.EqualTo(new[] { "blue", "red", "yellow", "green" })
+            );
+            Assert.That(completed.CabinetUnlocked, Is.True);
+            Assert.That(
+                completed.CabinetButtonTargetIds,
+                Is.EquivalentTo(new[] { "button_a", "button_b" })
+            );
+
+            harness.Session.AcceptInput(5, PhaseInput.Target("button_b"));
+            InteractionTaskPresentationSnapshot reset =
+                harness.Session.PresentationSnapshot;
+
+            Assert.That(reset.CabinetUnlocked, Is.True);
+            Assert.That(reset.CabinetButtonTargetIds, Is.Empty);
+        }
+
         private static void AssertPhaseFiveButtonReset(
             string sentenceId,
             string initiallyCorrect,

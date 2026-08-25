@@ -451,6 +451,7 @@ namespace SignVR.Interaction.PhaseAdapters
         private void OnEnable()
         {
             Bind();
+            RebuildFromAuthority();
         }
 
         public void Configure(
@@ -486,7 +487,69 @@ namespace SignVR.Interaction.PhaseAdapters
                 Array.Empty<PlannedKeyReleaseBinding>();
             CaptureAuthoredState();
             Bind();
+            RebuildFromAuthority();
+        }
+
+        /// <summary>
+        /// Reconstructs deterministic visuals from the current W1 lifecycle
+        /// snapshot and W7 task-progress snapshot. No lifecycle state is
+        /// inferred or advanced here.
+        /// </summary>
+        public void RebuildFromAuthority()
+        {
+            if (!isActiveAndEnabled)
+            {
+                return;
+            }
+
             ResetPresentation();
+            RunPlan plan = coordinator?.Plan;
+            if (plan == null)
+            {
+                return;
+            }
+
+            PrepareKeysForPlan(plan);
+            if (coordinator.LifecycleSnapshot == null)
+            {
+                return;
+            }
+
+            InteractionTaskPresentationSnapshot snapshot =
+                coordinator.PresentationSnapshot;
+            if (snapshot == null)
+            {
+                return;
+            }
+
+            ActivateStates(
+                chestButtons,
+                snapshot.ChestButtonTargetIds
+            );
+            ActivateStates(
+                cabinetButtons,
+                snapshot.CabinetButtonTargetIds
+            );
+            ActivateStates(breakers, snapshot.BreakerTargetIds);
+
+            if (snapshot.SafeDoorOpened)
+            {
+                safeDoor.Open();
+            }
+            if (snapshot.ChestOpened)
+            {
+                chestLid.Open();
+                ReleasePlannedKey(snapshot.ReleasedKeyTargetId);
+            }
+            if (snapshot.CabinetUnlocked)
+            {
+                cabinetLeftDoor.Open();
+                cabinetRightDoor.Open();
+            }
+            if (snapshot.FinalDoorOpened)
+            {
+                finalLeftDoor.Open();
+            }
         }
 
         public void ResetPresentation()
@@ -542,7 +605,11 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void HandleRunConfigured(RunPlan plan)
         {
-            ResetPresentation();
+            RebuildFromAuthority();
+        }
+
+        private void PrepareKeysForPlan(RunPlan plan)
+        {
             string plannedKey = plan.Phases[3].TaskVariant.TargetIds[0];
             for (int index = 0; index < plannedKeys.Length; index++)
             {
@@ -556,6 +623,37 @@ namespace SignVR.Interaction.PhaseAdapters
                     plannedKey,
                     StringComparison.Ordinal
                 ));
+            }
+        }
+
+        private static void ActivateStates(
+            DeterministicTargetStateBinding[] bindings,
+            IReadOnlyList<string> activeTargetIds)
+        {
+            if (bindings == null || activeTargetIds == null)
+            {
+                return;
+            }
+            for (int targetIndex = 0;
+                targetIndex < activeTargetIds.Count;
+                targetIndex++)
+            {
+                string targetId = activeTargetIds[targetIndex];
+                for (int bindingIndex = 0;
+                    bindingIndex < bindings.Length;
+                    bindingIndex++)
+                {
+                    DeterministicTargetStateBinding binding =
+                        bindings[bindingIndex];
+                    if (binding != null && string.Equals(
+                        binding.TargetId,
+                        targetId,
+                        StringComparison.Ordinal))
+                    {
+                        binding.Activate();
+                        break;
+                    }
+                }
             }
         }
 
