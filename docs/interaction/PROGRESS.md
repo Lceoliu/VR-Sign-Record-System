@@ -10,7 +10,7 @@ Overall state: W3 final hardening and second parallel implementation batch activ
 | W3 | Host Interaction API, repository, webcam Study mode, backend/frontend tests | Contract V1 | `W3 Host Interaction Mode` · `01a03916-2d85-7842-9c70-b1b7abcb1184` · worktree `b57e` | In progress | Not reviewed |
 | W4 | Dual build entry and clean Interaction scene bootstrap | Contract V1 | `W4 Dual Build and Clean Scene` · `01a03917-bd12-7740-81c3-d3d5dd00d49f` · worktree `c99f` | Complete | Reviewed, integrated, scene generated; Unity EditMode 2/2 passed |
 | W5 | Independent ghost player, bubble, Replay, immediate-hit pointing | W1,W2,W4 | `W5 Instruction Presentation` · `01a03949-d3cc-7810-afe1-89cbc2a5eefc` · worktree `7d6d` | In progress | Not reviewed |
-| W6 | Local capture and Quest–Host client | W1,W3,W4 | unassigned | Blocked | Not started |
+| W6 | Local capture and Quest–Host client | W1,W3,W4 | `W6 Quest Capture and Host Client` · `01a03950-0130-73f2-bc09-62fd206a7348` · worktree `13c9` | In progress | Contract-first implementation while W3 finishes hardening |
 | W7 | Six simplified interaction adapters | W1,W4 | `W7 Six Phase Interaction Adapters` · `01a03949-d3c9-77b1-837b-ddbf9d097eba` · worktree `69ef` | In progress | Not reviewed |
 | W8 | Local Unity/Host integration and batched Quest validation package | W2..W7 | Orchestrator | Blocked | Not started |
 
@@ -33,3 +33,4 @@ Overall state: W3 final hardening and second parallel implementation batch activ
 - 2026-08-25: W1 reviewed and integrated. Unity 6000.5.6f1 compiled the new Core and passed all 23 filtered EditMode tests.
 - 2026-08-25: W4 completed a two-axis review, restored Recorder compatibility, added pre-save scene validation, and integrated the dual build/clean-scene tooling. Unity generated and validated `Assets/Scenes/InteractionLab.unity`; the W4 filter passed 2/2 and repeated generation preserved the scene SHA-256 exactly.
 - 2026-08-25: W5 and W7 dispatched from integrated baseline `335befa` into independent Codex worktrees. Their prompts prohibit Git and scene-YAML edits and allocate non-overlapping presentation versus phase-adapter ownership.
+- 2026-08-25: W6 dispatched contract-first from the integrated Unity baseline. It owns Quest Run control, local atomic capture and the Host client, with explicit event seams for later W5/W7 integration and no Host/scene overlap.
