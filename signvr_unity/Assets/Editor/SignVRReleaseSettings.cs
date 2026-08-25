@@ -6,6 +6,12 @@ using UnityEngine;
 
 namespace SignVR.EditorTools
 {
+    internal enum SignVRProduct
+    {
+        Recorder,
+        Interaction
+    }
+
     public static class SignVRReleaseSettings
     {
         [Serializable]
@@ -20,23 +26,43 @@ namespace SignVR.EditorTools
         public const string CompanyName = "SignVR";
         public const string ProductName = "SignVR Recorder";
         public const string ApplicationIdentifier = "com.signvr.recorder";
+        public const string InteractionProductName = "SignVR Interaction";
+        public const string InteractionApplicationIdentifier =
+            "com.signvr.interaction";
         public const string BundleVersion = "1.0.0";
         public const int AndroidVersionCode = 1;
 
-        [MenuItem("SignVR/Release/Apply Product Identity")]
+        [MenuItem("SignVR/Release/Recorder/Apply Product Identity")]
         public static void ApplyProductIdentity()
         {
+            ApplyProductIdentity(SignVRProduct.Recorder);
+        }
+
+        [MenuItem("SignVR/Release/Interaction/Apply Product Identity")]
+        public static void ApplyInteractionProductIdentity()
+        {
+            ApplyProductIdentity(SignVRProduct.Interaction);
+        }
+
+        internal static void ApplyProductIdentity(SignVRProduct product)
+        {
+            GetIdentity(
+                product,
+                out string productName,
+                out string applicationIdentifier
+            );
+
             PlayerSettings.companyName = CompanyName;
-            PlayerSettings.productName = ProductName;
+            PlayerSettings.productName = productName;
             PlayerSettings.bundleVersion = BundleVersion;
             PlayerSettings.SetApplicationIdentifier(
                 NamedBuildTarget.Android,
-                ApplicationIdentifier
+                applicationIdentifier
             );
             PlayerSettings.Android.bundleVersionCode = AndroidVersionCode;
 
             Debug.Log(
-                $"[SignVRReleaseSettings] Applied {ApplicationIdentifier} " +
+                $"[SignVRReleaseSettings] Applied {applicationIdentifier} " +
                 $"version {BundleVersion} ({AndroidVersionCode})."
             );
         }
@@ -96,24 +122,55 @@ namespace SignVR.EditorTools
             }
         }
 
-        [MenuItem("SignVR/Release/Validate Product Identity")]
+        [MenuItem("SignVR/Release/Recorder/Validate Product Identity")]
         public static void ValidateProductIdentity()
         {
+            ValidateProductIdentity(SignVRProduct.Recorder);
+        }
+
+        [MenuItem("SignVR/Release/Interaction/Validate Product Identity")]
+        public static void ValidateInteractionProductIdentity()
+        {
+            ValidateProductIdentity(SignVRProduct.Interaction);
+        }
+
+        internal static void ValidateProductIdentity(SignVRProduct product)
+        {
+            GetIdentity(
+                product,
+                out string productName,
+                out string expectedApplicationIdentifier
+            );
             string applicationIdentifier = PlayerSettings.GetApplicationIdentifier(
                 NamedBuildTarget.Android
             );
             if (PlayerSettings.companyName != CompanyName ||
-                PlayerSettings.productName != ProductName ||
+                PlayerSettings.productName != productName ||
                 PlayerSettings.bundleVersion != BundleVersion ||
-                applicationIdentifier != ApplicationIdentifier ||
+                applicationIdentifier != expectedApplicationIdentifier ||
                 PlayerSettings.Android.bundleVersionCode != AndroidVersionCode)
             {
                 throw new InvalidOperationException(
-                    "SignVR product identity does not match the release constants."
+                    $"SignVR {product} product identity does not match the " +
+                    "release constants."
                 );
             }
 
-            Debug.Log("[SignVRReleaseSettings] Product identity is valid.");
+            Debug.Log(
+                $"[SignVRReleaseSettings] {product} product identity is valid."
+            );
+        }
+
+        internal static string GetProductName(SignVRProduct product)
+        {
+            GetIdentity(product, out string productName, out _);
+            return productName;
+        }
+
+        internal static string GetApplicationIdentifier(SignVRProduct product)
+        {
+            GetIdentity(product, out _, out string applicationIdentifier);
+            return applicationIdentifier;
         }
 
         private static string RequireEnvironment(string name)
@@ -127,6 +184,30 @@ namespace SignVR.EditorTools
             }
 
             return value;
+        }
+
+        private static void GetIdentity(
+            SignVRProduct product,
+            out string productName,
+            out string applicationIdentifier)
+        {
+            switch (product)
+            {
+                case SignVRProduct.Recorder:
+                    productName = ProductName;
+                    applicationIdentifier = ApplicationIdentifier;
+                    return;
+                case SignVRProduct.Interaction:
+                    productName = InteractionProductName;
+                    applicationIdentifier = InteractionApplicationIdentifier;
+                    return;
+                default:
+                    throw new ArgumentOutOfRangeException(
+                        nameof(product),
+                        product,
+                        "Unknown SignVR product."
+                    );
+            }
         }
     }
 }
