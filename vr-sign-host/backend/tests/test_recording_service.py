@@ -64,6 +64,8 @@ def test_stale_countdown_cannot_start_a_new_take_early(tmp_path):
             "batch-a", "round_001", first_take_id, first_take_index
         )
         assert first_packet["countdown_seconds"] == 2.0
+        assert first_packet["host_unix_ms"] > 0
+        assert first_packet["start_at_unix_ms"] >= first_packet["host_unix_ms"]
         await service.reset()
         second_take_id, second_take_index, _ = repository.reserve_take(
             "batch-a", "round_001", "sentence_001"
@@ -145,6 +147,7 @@ def test_stop_during_countdown_keeps_sentence_and_releases_take(tmp_path):
         stopped, packet, _ = await service.stop()
 
         assert packet["action"] == "stop_take"
+        assert packet["host_unix_ms"] > 0
         assert stopped.recording_status is RecordingStatus.READY
         assert stopped.current_sentence_index == 0
         assert stopped.current_take is None

@@ -244,7 +244,6 @@ class UdpService:
                 pose_port=self.settings.udp_port,
                 station_id=device.paired_station_id or self.settings.station_id,
                 session_token=token,
-                pairing_key=self.settings.pairing_key,
             )
             ack = await self.send_to_device_and_wait(device_id, packet)
             if bool(ack.get("accepted")):

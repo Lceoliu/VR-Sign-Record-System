@@ -3,6 +3,7 @@ using System.Linq;
 using System.Reflection;
 using Meta.XR.Movement.Retargeting;
 using Oculus.Interaction;
+using Oculus.Interaction.Input;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -111,7 +112,6 @@ namespace SignVR.Recording
                 rootObject.AddComponent<QuestTakeUploader>();
             QuestPreviewStreamer preview =
                 rootObject.AddComponent<QuestPreviewStreamer>();
-            preview.ConfigureDisabled();
 
             VRPlayerRig playerRig = FindInScene<VRPlayerRig>(scene);
             RecordingViewpointController viewpointController =
@@ -201,9 +201,10 @@ namespace SignVR.Recording
 
             HandVisual[] handVisuals = FindAllInScene<HandVisual>(scene);
             RestoreTrackedHandVisuals(handVisuals);
-            ConfigureNativeHandRays(scene);
+            ConfigureNativeHandRays(scene, leftHand, rightHand);
 
             Camera hmdCamera = hmd != null ? hmd.GetComponent<Camera>() : null;
+            preview.ConfigureHeadsetView(hmdCamera, enableJpegStreaming: true);
             RecordingTargetVisualCues targetVisualCues =
                 rootObject.AddComponent<RecordingTargetVisualCues>();
             targetVisualCues.Configure(coordinator, hmdCamera);
@@ -432,8 +433,12 @@ namespace SignVR.Recording
             }
         }
 
-        private static void ConfigureNativeHandRays(Scene scene)
+        private static void ConfigureNativeHandRays(
+            Scene scene,
+            OVRHand leftHand,
+            OVRHand rightHand)
         {
+            Hand[] interactionHands = FindAllInScene<Hand>(scene);
             RayInteractor[] interactors = FindAllInScene<RayInteractor>(scene)
                 .Where(interactor => GetPath(interactor.transform).IndexOf(
                     "HandRayInteractor",
@@ -444,13 +449,55 @@ namespace SignVR.Recording
             foreach (RayInteractor interactor in interactors)
             {
                 interactor.enabled = true;
+                string path = GetPath(interactor.transform);
+                bool isLeftHand = path.IndexOf(
+                    "Left",
+                    StringComparison.OrdinalIgnoreCase
+                ) >= 0;
+                OVRHand hand = isLeftHand ? leftHand : rightHand;
+                Hand interactionHand = interactionHands.FirstOrDefault(
+                    candidate => candidate.Handedness == (
+                        isLeftHand ? Handedness.Left : Handedness.Right
+                    )
+                );
+                OVRSkeleton skeleton = hand != null
+                    ? hand.GetComponent<OVRSkeleton>() ??
+                      hand.GetComponentInChildren<OVRSkeleton>(true)
+                    : null;
+                if (interactionHand != null || skeleton != null)
+                {
+                    GameObject originObject = new GameObject(
+                        isLeftHand
+                            ? "SignVR Left IndexTip Ray Origin"
+                            : "SignVR Right IndexTip Ray Origin"
+                    );
+                    SceneManager.MoveGameObjectToScene(originObject, scene);
+                    originObject.transform.SetParent(
+                        interactionHand != null
+                            ? interactionHand.transform
+                            : skeleton.transform,
+                        false
+                    );
+                    originObject
+                        .AddComponent<RecordingIndexTipRayOrigin>()
+                        .Configure(skeleton, interactionHand, interactor);
+                }
+                else
+                {
+                    Debug.LogWarning(
+                        "[RecordingRuntimeBootstrap] Cannot bind a hand ray " +
+                        "to its index fingertip because both Interaction SDK " +
+                        "Hand and OVRSkeleton are missing."
+                    );
+                }
+
                 foreach (RayInteractorRayVisual visual in
                          interactor.GetComponentsInChildren<RayInteractorRayVisual>(
                              true
                          ))
                 {
                     visual.enabled = true;
-                    visual.RayVisualStartOffset = 0.025f;
+                    visual.RayVisualStartOffset = 0f;
                     visual.RayVisualEndOffset = 0.02f;
                     visual.MaxRayVisualLength = 1.5f;
                     HideRayWithoutInteractableField?.SetValue(visual, false);

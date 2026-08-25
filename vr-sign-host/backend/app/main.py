@@ -224,7 +224,6 @@ def create_app(*, settings: Settings | None = None, start_udp: bool = True) -> F
             pose_port=config.udp_port,
             station_id=quest_station_id,
             session_token=token,
-            pairing_key=config.pairing_key,
         )
         if start_udp:
             try:

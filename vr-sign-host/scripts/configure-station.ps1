@@ -17,8 +17,6 @@ param(
 
     [string[]]$AllowedDeviceIds = @(),
 
-    [string]$PairingKey = 'signvr-pointing-2026-01',
-
     [string]$DiscoveryBroadcast = '255.255.255.255'
 )
 
@@ -47,7 +45,6 @@ $config = [ordered]@{
     quest_control_port = $QuestControlPort
     discovery_broadcast = $DiscoveryBroadcast
     allowed_device_ids = @($AllowedDeviceIds)
-    pairing_key = $PairingKey
 }
 
 $json = $config | ConvertTo-Json

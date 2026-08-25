@@ -37,6 +37,7 @@ sysinfo.txt
 # Performance Testing 包的运行产物
 /Assets/Resources/PerformanceTestRunInfo.json*
 /Assets/Resources/PerformanceTestRunSettings.json*
+/Assets/Resources/DevAgentSettings.asset*
 
 # Unity Android native build cache
 .utmp/

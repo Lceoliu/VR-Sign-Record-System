@@ -90,6 +90,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
     private string outputPath;
     private string metadataPath;
     private DateTime recordingStartedUtc;
+    private DateTime recordingStoppedUtc;
     private RecordingTakeContext currentTake;
     private RecordingSpatialSnapshot currentSpatialSnapshot;
     private bool currentTakeUsesSimulatedPose;
@@ -570,6 +571,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         string spatialError = string.Empty;
         if (spatialMetadataProvider == null ||
             !spatialMetadataProvider.TryCaptureValidatedSnapshot(
+                take.StartedAtUtc,
                 out spatialSnapshot,
                 out spatialError))
         {
@@ -646,7 +648,8 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         isRecording = true;
         hasRecorded = true;
         currentTake = take;
-        recordingStartedUtc = DateTime.UtcNow;
+        recordingStartedUtc = take.StartedAtUtc;
+        spatialSnapshot.captured_utc = recordingStartedUtc.ToString("O");
         currentTakeUsesSimulatedPose = useEditorSimulation;
         expectedJointCount = useEditorSimulation ? 0 : probeJointCount;
         currentSpatialSnapshot = spatialSnapshot;
@@ -758,17 +761,24 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         StopRecordingInternal("completed", string.Empty);
     }
 
-    public void StopRecordingAsInterrupted()
+    public void StopRecording(DateTime stoppedAtUtc)
+    {
+        StopRecordingInternal("completed", string.Empty, stoppedAtUtc);
+    }
+
+    public void StopRecordingAsInterrupted(DateTime? stoppedAtUtc = null)
     {
         StopRecordingInternal(
             "interrupted_by_retake",
-            "reset_current_sentence"
+            "reset_current_sentence",
+            stoppedAtUtc
         );
     }
 
     private void StopRecordingInternal(
         string captureStatus,
-        string resetReason)
+        string resetReason,
+        DateTime? stoppedAtUtc = null)
     {
         if (!isRecording)
         {
@@ -776,6 +786,10 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
         }
 
         isRecording = false;
+        DateTime resolvedStoppedAtUtc = stoppedAtUtc ?? EstimateHostUtcNow();
+        recordingStoppedUtc = resolvedStoppedAtUtc.Kind == DateTimeKind.Utc
+            ? resolvedStoppedAtUtc
+            : resolvedStoppedAtUtc.ToUniversalTime();
 
         string finalCaptureStatus = captureStatus;
         string finalResetReason = resetReason;
@@ -832,6 +846,15 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             $"Status: {finalCaptureStatus}. Samples: {sampleIndex}. " +
             $"File: {outputPath}"
         );
+    }
+
+    private DateTime EstimateHostUtcNow()
+    {
+        double elapsedSeconds = Math.Max(
+            0d,
+            Time.realtimeSinceStartupAsDouble - recordingStartTime
+        );
+        return recordingStartedUtc + TimeSpan.FromSeconds(elapsedSeconds);
     }
 
     public void StopRecordingForPassthrough()
@@ -897,7 +920,7 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             review_status = "candidate",
             reset_reason = resetReason,
             utc_started = recordingStartedUtc.ToString("O"),
-            utc_stopped = DateTime.UtcNow.ToString("O"),
+            utc_stopped = recordingStoppedUtc.ToString("O"),
             pose_frame_count = sampleIndex,
             valid_pose_frame_count = validPoseFrameCount,
             valid_pose_ratio = validPoseRatio,
@@ -908,7 +931,8 @@ public sealed class MetaBodyMotionRecorder : MonoBehaviour
             hand_capture_quality = handCaptureQuality,
             spatial_context = currentSpatialSnapshot ??
                               RecordingSpatialSnapshot.CreateUnavailable(
-                                  "VRroom-world-v1"
+                                  "VRroom-world-v1",
+                                  recordingStartedUtc
                               ),
             editor_simulation = Application.isEditor,
             pose_source_simulated = currentTakeUsesSimulatedPose

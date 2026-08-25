@@ -10,7 +10,7 @@ $configPath = Join-Path $hostRoot 'config\station.json'
 $runtimePython = Join-Path $hostRoot 'runtime\python\python.exe'
 $runtimeVersionPath = Join-Path $hostRoot 'portable-runtime.version'
 $firewallScript = Join-Path $PSScriptRoot 'setup-firewall.ps1'
-$stationId = 'SignVR-Pointing-01'
+$stationId = "SignVR-$env:COMPUTERNAME"
 $httpHost = '0.0.0.0'
 $httpPort = 8011
 $udpHost = '0.0.0.0'
@@ -18,8 +18,7 @@ $udpPort = 5011
 $questControlPort = 5012
 $discoveryBroadcast = '255.255.255.255'
 $sentenceCatalog = $null
-$allowedDeviceIds = @('e610fa41060a431e9932d18aa15bd866')
-$pairingKey = 'signvr-pointing-2026-01'
+$allowedDeviceIds = @()
 $dataRoot = Join-Path $hostRoot 'data'
 
 if (Test-Path -LiteralPath $configPath) {
@@ -52,9 +51,6 @@ if (Test-Path -LiteralPath $configPath) {
                 ForEach-Object { ([string]$_).Trim() } |
                 Where-Object { $_ }
         )
-    }
-    if ($config.pairing_key) {
-        $pairingKey = [string]$config.pairing_key
     }
     if ($config.data_root) {
         $dataRootValue = [string]$config.data_root
@@ -280,7 +276,6 @@ $env:SIGNVR_UDP_PORT = [string]$udpPort
 $env:SIGNVR_QUEST_CONTROL_PORT = [string]$questControlPort
 $env:SIGNVR_DISCOVERY_BROADCAST = $discoveryBroadcast
 $env:SIGNVR_ALLOWED_DEVICE_IDS = $allowedDeviceIds -join ','
-$env:SIGNVR_PAIRING_KEY = $pairingKey
 if ($sentenceCatalog) {
     $env:SIGNVR_SENTENCE_CATALOG = $sentenceCatalog
 } else {

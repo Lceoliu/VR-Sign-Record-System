@@ -75,7 +75,6 @@ def pair_packet(
     pose_port: int,
     station_id: str,
     session_token: str,
-    pairing_key: str,
 ) -> dict[str, Any]:
     return {
         "type": "pair",
@@ -87,5 +86,4 @@ def pair_packet(
         "pose_port": pose_port,
         "station_id": station_id,
         "session_token": session_token,
-        "pairing_key": pairing_key,
     }

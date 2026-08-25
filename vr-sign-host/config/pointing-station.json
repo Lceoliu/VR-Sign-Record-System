@@ -1,5 +1,5 @@
 {
-  "station_id": "SignVR-Pointing-01",
+  "station_id": "",
   "data_root": "data",
   "http_host": "0.0.0.0",
   "http_port": 8011,
@@ -7,8 +7,5 @@
   "udp_port": 5011,
   "quest_control_port": 5012,
   "discovery_broadcast": "255.255.255.255",
-  "allowed_device_ids": [
-    "e610fa41060a431e9932d18aa15bd866"
-  ],
-  "pairing_key": "signvr-pointing-2026-01"
+  "allowed_device_ids": []
 }

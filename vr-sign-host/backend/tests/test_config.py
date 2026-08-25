@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import app.config as config_module
@@ -37,9 +38,10 @@ def test_device_allowlist_is_normalized(monkeypatch):
     assert settings.allowed_device_ids == frozenset({"quest-a", "quest-b"})
 
 
-def test_pairing_key_can_be_configured(monkeypatch):
-    monkeypatch.setenv("SIGNVR_PAIRING_KEY", " station-secret ")
+def test_portable_defaults_do_not_pin_a_device_or_shared_secret():
+    config_path = Path(__file__).resolve().parents[2] / "config" / "pointing-station.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
 
-    settings = Settings.from_environment()
-
-    assert settings.pairing_key == "station-secret"
+    assert config["station_id"] == ""
+    assert config["allowed_device_ids"] == []
+    assert "pairing_key" not in config

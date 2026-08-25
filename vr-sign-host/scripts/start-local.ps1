@@ -16,7 +16,9 @@ $python = if (Test-Path -LiteralPath $portablePython) { $portablePython } else {
 
 if (Test-Path -LiteralPath $configPath) {
     $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $env:SIGNVR_STATION_ID = [string]$config.station_id
+    if ($config.station_id) {
+        $env:SIGNVR_STATION_ID = [string]$config.station_id
+    }
     if ($config.data_root) {
         $dataRootValue = [string]$config.data_root
         $dataRootPath = if ([IO.Path]::IsPathRooted($dataRootValue)) {
@@ -39,9 +41,6 @@ if (Test-Path -LiteralPath $configPath) {
                 Where-Object { $_ }
         ) -join ','
     }
-    if ($config.pairing_key) {
-        $env:SIGNVR_PAIRING_KEY = [string]$config.pairing_key
-    }
     if ($config.sentence_catalog) {
         $catalogValue = [string]$config.sentence_catalog
         $catalogPath = if ([IO.Path]::IsPathRooted($catalogValue)) {
@@ -54,8 +53,11 @@ if (Test-Path -LiteralPath $configPath) {
         )
     }
 } elseif (-not $env:SIGNVR_STATION_ID) {
-    $env:SIGNVR_STATION_ID = 'development'
     Write-Warning 'No config/station.json was found; using the development data directory.'
+}
+
+if (-not $env:SIGNVR_STATION_ID) {
+    $env:SIGNVR_STATION_ID = "SignVR-$env:COMPUTERNAME"
 }
 
 if (-not $env:SIGNVR_SENTENCE_CATALOG) {

@@ -304,7 +304,7 @@ namespace SignVR.Recording
             return true;
         }
 
-        public bool StopCurrentTake()
+        public bool StopCurrentTake(DateTime? stoppedAtUtc = null)
         {
             if (State == RecordingFlowState.Reviewing)
             {
@@ -331,7 +331,14 @@ namespace SignVR.Recording
                 return false;
             }
 
-            recorder.StopRecording();
+            if (stoppedAtUtc.HasValue)
+            {
+                recorder.StopRecording(stoppedAtUtc.Value);
+            }
+            else
+            {
+                recorder.StopRecording();
+            }
             StopActiveRoutine();
             if (State == RecordingFlowState.Finalizing)
             {
@@ -425,7 +432,7 @@ namespace SignVR.Recording
             ResetCurrentPrompt();
         }
 
-        public void ResetCurrentPrompt()
+        public void ResetCurrentPrompt(DateTime? stoppedAtUtc = null)
         {
             StopActiveRoutine();
             stateMachine.BeginReset();
@@ -434,7 +441,7 @@ namespace SignVR.Recording
 
             if (recorder != null && recorder.IsRecording)
             {
-                recorder.StopRecordingAsInterrupted();
+                recorder.StopRecordingAsInterrupted(stoppedAtUtc);
             }
 
             CurrentTake = default;
