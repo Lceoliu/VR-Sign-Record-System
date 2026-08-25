@@ -17,21 +17,19 @@ $captureFile = $captureFiles[0]
 $source = [System.IO.File]::ReadAllText($captureFile)
 if ($source.Contains('GetAndroidSdkRootPath()')) {
     Write-Host 'Meta XR Unity 6000.5 compatibility patch is already applied.'
-    return
-}
+} else {
+    $oldConstructor = 'new OVRADBTool(AndroidExternalToolsSettings.sdkRootPath);'
+    if (-not $source.Contains($oldConstructor)) {
+        throw 'The Meta XR source layout changed; refusing to patch an unknown version.'
+    }
 
-$oldConstructor = 'new OVRADBTool(AndroidExternalToolsSettings.sdkRootPath);'
-if (-not $source.Contains($oldConstructor)) {
-    throw 'The Meta XR source layout changed; refusing to patch an unknown version.'
-}
+    $source = $source.Replace(
+        $oldConstructor,
+        'new OVRADBTool(GetAndroidSdkRootPath());'
+    )
 
-$source = $source.Replace(
-    $oldConstructor,
-    'new OVRADBTool(GetAndroidSdkRootPath());'
-)
-
-$anchor = '        static private Thread captureThread = null;'
-$helper = @'
+    $anchor = '        static private Thread captureThread = null;'
+    $helper = @'
 
 #if UNITY_EDITOR_WIN || UNITY_EDITOR_OSX
         private static string GetAndroidSdkRootPath()
@@ -64,14 +62,36 @@ $helper = @'
 
 '@
 
-if (-not $source.Contains($anchor)) {
-    throw 'The Meta XR source anchor was not found; no file was changed.'
+    if (-not $source.Contains($anchor)) {
+        throw 'The Meta XR source anchor was not found; no file was changed.'
+    }
+
+    $source = $source.Replace($anchor, $helper + $anchor)
+    [System.IO.File]::WriteAllText(
+        $captureFile,
+        $source,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+    Write-Host "Patched $captureFile"
 }
 
-$source = $source.Replace($anchor, $helper + $anchor)
-[System.IO.File]::WriteAllText(
-    $captureFile,
-    $source,
-    [System.Text.UTF8Encoding]::new($false)
-)
-Write-Host "Patched $captureFile"
+$movementPackages = @(Get-ChildItem -LiteralPath $packageCache -Directory -Filter 'com.meta.xr.sdk.movement@*')
+foreach ($movementPackage in $movementPackages) {
+    $metadata = @{
+        'AGENTS.md.meta' = "fileFormatVersion: 2`nguid: 71adf0a1b56e4f8d98c57346fbf60c71`n"
+        'GEMINI.md.meta' = "fileFormatVersion: 2`nguid: c5db01e945ec41f6b368042df2060f1a`n"
+        'opencode.jsonc.meta' = "fileFormatVersion: 2`nguid: 49e35de56c774cc8bea8bcd423bf8acd`n"
+    }
+
+    foreach ($entry in $metadata.GetEnumerator()) {
+        $metaPath = Join-Path $movementPackage.FullName $entry.Key
+        if (-not (Test-Path -LiteralPath $metaPath)) {
+            [System.IO.File]::WriteAllText(
+                $metaPath,
+                $entry.Value,
+                [System.Text.UTF8Encoding]::new($false)
+            )
+            Write-Host "Created $metaPath"
+        }
+    }
+}

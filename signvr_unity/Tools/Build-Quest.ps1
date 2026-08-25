@@ -9,11 +9,19 @@ $logPath = Join-Path $projectRoot 'Logs\AndroidBuild.log'
 
 & (Join-Path $PSScriptRoot 'Apply-MetaXrUnity6000Patch.ps1')
 
-& $UnityPath `
-    -batchmode `
-    -quit `
-    -projectPath $projectRoot `
-    -executeMethod SignVR.Editor.CommandLineBuild.BuildAndroid `
-    -buildPath $BuildPath `
-    -logFile $logPath
-exit $LASTEXITCODE
+$unityArguments = @(
+    '-batchmode'
+    '-quit'
+    '-projectPath', $projectRoot
+    '-executeMethod', 'SignVR.Editor.CommandLineBuild.BuildAndroid'
+    '-buildPath', $BuildPath
+    '-logFile', $logPath
+)
+
+$unityProcess = Start-Process `
+    -FilePath $UnityPath `
+    -ArgumentList $unityArguments `
+    -WindowStyle Hidden `
+    -Wait `
+    -PassThru
+exit $unityProcess.ExitCode
