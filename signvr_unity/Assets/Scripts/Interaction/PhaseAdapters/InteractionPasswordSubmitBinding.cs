@@ -17,12 +17,32 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private bool availabilitySubscribed;
 
+        [SerializeField, HideInInspector]
+        private Collider authoredInputCollider;
+
+        [SerializeField, HideInInspector]
+        private bool authoredColliderEnabled;
+
+        [SerializeField, HideInInspector]
+        private bool authoredColliderStateCaptured;
+
+#if UNITY_INCLUDE_TESTS
+        private readonly InteractionSubscriptionDiagnostic
+            subscriptionDiagnostic =
+                new InteractionSubscriptionDiagnostic();
+#endif
+
         public PhaseOneInteractionAdapter Adapter => adapter;
 
         public Collider InputCollider => inputCollider;
 
         public bool IsInputAvailable =>
             isActiveAndEnabled && adapter != null && adapter.IsEnabled;
+
+#if UNITY_INCLUDE_TESTS
+        public InteractionSubscriptionDiagnostic SubscriptionDiagnostic =>
+            subscriptionDiagnostic;
+#endif
 
         private void OnEnable()
         {
@@ -34,11 +54,26 @@ namespace SignVR.Interaction.PhaseAdapters
             PhaseOneInteractionAdapter phaseAdapter,
             Collider targetInputCollider = null)
         {
-            UnbindAvailability();
-            adapter = phaseAdapter ??
+            PhaseOneInteractionAdapter nextAdapter = phaseAdapter ??
                 throw new ArgumentNullException(nameof(phaseAdapter));
+            bool colliderChanged = !ReferenceEquals(
+                inputCollider,
+                targetInputCollider
+            );
+            bool manageRuntimeSubscriptions =
+                Application.isPlaying && isActiveAndEnabled;
+            if (manageRuntimeSubscriptions)
+            {
+                UnbindAvailability();
+            }
+            if (colliderChanged)
+            {
+                ReleaseInputOwnership();
+            }
+            adapter = nextAdapter;
             inputCollider = targetInputCollider;
-            if (isActiveAndEnabled)
+            CaptureInputOwnership();
+            if (manageRuntimeSubscriptions)
             {
                 BindAvailability();
             }
@@ -77,7 +112,8 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void BindAvailability()
         {
-            if (availabilitySubscribed || adapter == null)
+            if (!Application.isPlaying || !isActiveAndEnabled ||
+                availabilitySubscribed || adapter == null)
             {
                 return;
             }
@@ -87,10 +123,34 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void ApplyAvailability(bool available)
         {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordInvocation();
+#endif
             if (inputCollider != null)
             {
                 inputCollider.enabled = available;
             }
+        }
+
+        private void CaptureInputOwnership()
+        {
+            if (authoredColliderStateCaptured || inputCollider == null)
+            {
+                return;
+            }
+            authoredInputCollider = inputCollider;
+            authoredColliderEnabled = inputCollider.enabled;
+            authoredColliderStateCaptured = true;
+        }
+
+        private void ReleaseInputOwnership()
+        {
+            if (authoredColliderStateCaptured && authoredInputCollider != null)
+            {
+                authoredInputCollider.enabled = authoredColliderEnabled;
+            }
+            authoredInputCollider = null;
+            authoredColliderStateCaptured = false;
         }
 
         private void OnDisable()
@@ -106,6 +166,12 @@ namespace SignVR.Interaction.PhaseAdapters
                 adapter.AvailabilityChanged -= ApplyAvailability;
             }
             availabilitySubscribed = false;
+        }
+
+        private void OnDestroy()
+        {
+            UnbindAvailability();
+            ReleaseInputOwnership();
         }
     }
 }

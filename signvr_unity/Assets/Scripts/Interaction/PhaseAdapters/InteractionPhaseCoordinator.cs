@@ -200,7 +200,8 @@ namespace SignVR.Interaction.PhaseAdapters
                 session = new InteractionPhaseSession();
             }
 
-            if (!sessionSubscribed && isActiveAndEnabled)
+            if (Application.isPlaying && !sessionSubscribed &&
+                isActiveAndEnabled)
             {
                 session.ResultProduced += HandleSessionResult;
                 sessionSubscribed = true;

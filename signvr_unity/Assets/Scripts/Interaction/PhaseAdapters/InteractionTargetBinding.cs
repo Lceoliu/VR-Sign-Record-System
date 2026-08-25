@@ -23,13 +23,49 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private bool availabilitySubscribed;
         private bool resetSubscribed;
-        private bool authoredStateCaptured;
+
+#if UNITY_INCLUDE_TESTS
+        private readonly InteractionSubscriptionDiagnostic
+            subscriptionDiagnostic =
+                new InteractionSubscriptionDiagnostic();
+#endif
+
+        [SerializeField, HideInInspector]
+        private bool authoredPoseAndPhysicsCaptured;
+
+        [SerializeField, HideInInspector]
         private Vector3 authoredLocalPosition;
+
+        [SerializeField, HideInInspector]
         private Quaternion authoredLocalRotation;
+
+        [SerializeField, HideInInspector]
         private Vector3 authoredLocalScale;
+
+        [SerializeField, HideInInspector]
         private Rigidbody[] bodies = Array.Empty<Rigidbody>();
+
+        [SerializeField, HideInInspector]
         private bool[] authoredBodyKinematic = Array.Empty<bool>();
+
+        [SerializeField, HideInInspector]
         private bool[] authoredBodyGravity = Array.Empty<bool>();
+
+        [SerializeField, HideInInspector]
+        private bool authoredInputStateCaptured;
+
+        [SerializeField, HideInInspector]
+        private Behaviour[] authoredInteractionBehaviours =
+            Array.Empty<Behaviour>();
+
+        [SerializeField, HideInInspector]
+        private bool[] authoredBehaviourEnabled = Array.Empty<bool>();
+
+        [SerializeField, HideInInspector]
+        private Collider[] authoredInputColliders = Array.Empty<Collider>();
+
+        [SerializeField, HideInInspector]
+        private bool[] authoredColliderEnabled = Array.Empty<bool>();
 
         public string TargetId => targetId;
 
@@ -41,9 +77,14 @@ namespace SignVR.Interaction.PhaseAdapters
 
         public bool IsInputAvailable => isActiveAndEnabled && IsAvailable;
 
+#if UNITY_INCLUDE_TESTS
+        public InteractionSubscriptionDiagnostic SubscriptionDiagnostic =>
+            subscriptionDiagnostic;
+#endif
+
         private void Awake()
         {
-            CaptureAuthoredState();
+            CaptureAuthoredPoseAndPhysics();
         }
 
         private void OnEnable()
@@ -58,19 +99,41 @@ namespace SignVR.Interaction.PhaseAdapters
             Behaviour[] behaviours = null,
             Collider[] colliders = null)
         {
-            UnbindAdapterEvents();
-            targetId = string.IsNullOrWhiteSpace(stableTargetId)
+            string nextTargetId = string.IsNullOrWhiteSpace(stableTargetId)
                 ? throw new ArgumentException(
                     "A stable target ID is required.",
                     nameof(stableTargetId)
                 )
                 : stableTargetId.Trim();
-            adapter = phaseAdapter ??
+            InteractionPhaseAdapter nextAdapter = phaseAdapter ??
                 throw new ArgumentNullException(nameof(phaseAdapter));
-            interactionBehaviours = behaviours ?? Array.Empty<Behaviour>();
-            inputColliders = colliders ?? Array.Empty<Collider>();
-            CaptureAuthoredState();
-            if (isActiveAndEnabled)
+            Behaviour[] nextBehaviours = behaviours ??
+                Array.Empty<Behaviour>();
+            Collider[] nextColliders = colliders ?? Array.Empty<Collider>();
+            bool inputBindingsChanged =
+                !HaveSameReferences(
+                    interactionBehaviours,
+                    nextBehaviours
+                ) ||
+                !HaveSameReferences(inputColliders, nextColliders);
+            bool manageRuntimeSubscriptions =
+                Application.isPlaying && isActiveAndEnabled;
+            if (manageRuntimeSubscriptions)
+            {
+                UnbindAdapterEvents();
+            }
+            if (inputBindingsChanged)
+            {
+                RestoreAuthoredInputState();
+                authoredInputStateCaptured = false;
+            }
+            targetId = nextTargetId;
+            adapter = nextAdapter;
+            interactionBehaviours = nextBehaviours;
+            inputColliders = nextColliders;
+            CaptureAuthoredPoseAndPhysics();
+            CaptureAuthoredInputState();
+            if (manageRuntimeSubscriptions)
             {
                 BindAdapterEvents();
             }
@@ -122,19 +185,20 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void BindAdapterEvents()
         {
-            if (adapter == null)
+            if (!Application.isPlaying || !isActiveAndEnabled ||
+                adapter == null)
             {
                 return;
             }
 
             if (!availabilitySubscribed)
             {
-                adapter.AvailabilityChanged += ApplyAvailability;
+                adapter.AvailabilityChanged += HandleAvailabilityChanged;
                 availabilitySubscribed = true;
             }
             if (!resetSubscribed)
             {
-                adapter.ResetPerformed += RestoreAuthoredState;
+                adapter.ResetPerformed += HandleResetPerformed;
                 resetSubscribed = true;
             }
         }
@@ -143,19 +207,19 @@ namespace SignVR.Interaction.PhaseAdapters
         {
             if (availabilitySubscribed && adapter != null)
             {
-                adapter.AvailabilityChanged -= ApplyAvailability;
+                adapter.AvailabilityChanged -= HandleAvailabilityChanged;
             }
             if (resetSubscribed && adapter != null)
             {
-                adapter.ResetPerformed -= RestoreAuthoredState;
+                adapter.ResetPerformed -= HandleResetPerformed;
             }
             availabilitySubscribed = false;
             resetSubscribed = false;
         }
 
-        private void CaptureAuthoredState()
+        private void CaptureAuthoredPoseAndPhysics()
         {
-            if (authoredStateCaptured)
+            if (authoredPoseAndPhysicsCaptured)
             {
                 return;
             }
@@ -166,7 +230,14 @@ namespace SignVR.Interaction.PhaseAdapters
             bodies = GetComponentsInChildren<Rigidbody>(true);
             authoredBodyKinematic = new bool[bodies.Length];
             authoredBodyGravity = new bool[bodies.Length];
-            for (int index = 0; index < bodies.Length; index++)
+            int bodyCount = Math.Min(
+                bodies?.Length ?? 0,
+                Math.Min(
+                    authoredBodyKinematic?.Length ?? 0,
+                    authoredBodyGravity?.Length ?? 0
+                )
+            );
+            for (int index = 0; index < bodyCount; index++)
             {
                 Rigidbody body = bodies[index];
                 if (body == null)
@@ -176,12 +247,50 @@ namespace SignVR.Interaction.PhaseAdapters
                 authoredBodyKinematic[index] = body.isKinematic;
                 authoredBodyGravity[index] = body.useGravity;
             }
-            authoredStateCaptured = true;
+            authoredPoseAndPhysicsCaptured = true;
         }
 
-        private void RestoreAuthoredState()
+        private void CaptureAuthoredInputState()
         {
-            if (!authoredStateCaptured)
+            if (authoredInputStateCaptured)
+            {
+                return;
+            }
+
+            authoredInteractionBehaviours =
+                (Behaviour[])interactionBehaviours.Clone();
+            authoredBehaviourEnabled =
+                new bool[authoredInteractionBehaviours.Length];
+            for (int index = 0;
+                index < authoredInteractionBehaviours.Length;
+                index++)
+            {
+                Behaviour behaviour = authoredInteractionBehaviours[index];
+                if (behaviour != null)
+                {
+                    authoredBehaviourEnabled[index] = behaviour.enabled;
+                }
+            }
+
+            authoredInputColliders = (Collider[])inputColliders.Clone();
+            authoredColliderEnabled =
+                new bool[authoredInputColliders.Length];
+            for (int index = 0;
+                index < authoredInputColliders.Length;
+                index++)
+            {
+                Collider inputCollider = authoredInputColliders[index];
+                if (inputCollider != null)
+                {
+                    authoredColliderEnabled[index] = inputCollider.enabled;
+                }
+            }
+            authoredInputStateCaptured = true;
+        }
+
+        private void RestoreAuthoredPoseAndPhysics()
+        {
+            if (!authoredPoseAndPhysicsCaptured)
             {
                 return;
             }
@@ -191,7 +300,14 @@ namespace SignVR.Interaction.PhaseAdapters
                 authoredLocalRotation
             );
             transform.localScale = authoredLocalScale;
-            for (int index = 0; index < bodies.Length; index++)
+            int bodyCount = Math.Min(
+                bodies?.Length ?? 0,
+                Math.Min(
+                    authoredBodyKinematic?.Length ?? 0,
+                    authoredBodyGravity?.Length ?? 0
+                )
+            );
+            for (int index = 0; index < bodyCount; index++)
             {
                 Rigidbody body = bodies[index];
                 if (body == null)
@@ -203,6 +319,84 @@ namespace SignVR.Interaction.PhaseAdapters
                 body.isKinematic = authoredBodyKinematic[index];
                 body.useGravity = authoredBodyGravity[index];
             }
+        }
+
+        private void RestoreAuthoredInputState()
+        {
+            if (!authoredInputStateCaptured)
+            {
+                return;
+            }
+
+            int behaviourCount = Math.Min(
+                authoredInteractionBehaviours?.Length ?? 0,
+                authoredBehaviourEnabled?.Length ?? 0
+            );
+            for (int index = 0; index < behaviourCount; index++)
+            {
+                Behaviour behaviour = authoredInteractionBehaviours[index];
+                if (behaviour != null && behaviour != this)
+                {
+                    behaviour.enabled = authoredBehaviourEnabled[index];
+                }
+            }
+
+            int colliderCount = Math.Min(
+                authoredInputColliders?.Length ?? 0,
+                authoredColliderEnabled?.Length ?? 0
+            );
+            for (int index = 0; index < colliderCount; index++)
+            {
+                Collider inputCollider = authoredInputColliders[index];
+                if (inputCollider != null)
+                {
+                    inputCollider.enabled = authoredColliderEnabled[index];
+                }
+            }
+        }
+
+        private void RestoreAuthoredStateForTeardown()
+        {
+            UnbindAdapterEvents();
+            RestoreAuthoredPoseAndPhysics();
+            RestoreAuthoredInputState();
+        }
+
+        private static bool HaveSameReferences<T>(T[] left, T[] right)
+            where T : UnityEngine.Object
+        {
+            if (ReferenceEquals(left, right))
+            {
+                return true;
+            }
+            if (left == null || right == null || left.Length != right.Length)
+            {
+                return false;
+            }
+            for (int index = 0; index < left.Length; index++)
+            {
+                if (!ReferenceEquals(left[index], right[index]))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private void HandleAvailabilityChanged(bool available)
+        {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordAvailabilityChanged();
+#endif
+            ApplyAvailability(available);
+        }
+
+        private void HandleResetPerformed()
+        {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordResetPerformed();
+#endif
+            RestoreAuthoredPoseAndPhysics();
         }
 
         private void ApplyAvailability(bool available)
@@ -232,6 +426,11 @@ namespace SignVR.Interaction.PhaseAdapters
         {
             ApplyAvailability(false);
             UnbindAdapterEvents();
+        }
+
+        private void OnDestroy()
+        {
+            RestoreAuthoredStateForTeardown();
         }
     }
 }

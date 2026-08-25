@@ -47,11 +47,22 @@ namespace SignVR.Interaction.PhaseAdapters
         private Coroutine flashRoutine;
         private bool subscribed;
 
+#if UNITY_INCLUDE_TESTS
+        private readonly InteractionSubscriptionDiagnostic
+            subscriptionDiagnostic =
+                new InteractionSubscriptionDiagnostic();
+#endif
+
         public Renderer FeedbackRenderer => feedbackRenderer;
 
         public InteractionPhaseCoordinator Coordinator => coordinator;
 
         public AudioSource FeedbackAudioSource => audioSource;
+
+#if UNITY_INCLUDE_TESTS
+        public InteractionSubscriptionDiagnostic SubscriptionDiagnostic =>
+            subscriptionDiagnostic;
+#endif
 
         private void Awake()
         {
@@ -69,15 +80,36 @@ namespace SignVR.Interaction.PhaseAdapters
             Renderer targetRenderer,
             AudioSource targetAudioSource = null)
         {
-            Unbind();
-            coordinator = targetCoordinator ??
+            InteractionPhaseCoordinator nextCoordinator = targetCoordinator ??
                 throw new ArgumentNullException(nameof(targetCoordinator));
-            feedbackRenderer = targetRenderer ??
+            Renderer nextRenderer = targetRenderer ??
                 throw new ArgumentNullException(nameof(targetRenderer));
-            audioSource = targetAudioSource;
-            Bind();
+            bool manageRuntimeSubscriptions =
+                Application.isPlaying && isActiveAndEnabled;
+            if (manageRuntimeSubscriptions)
+            {
+                Unbind();
+            }
             ResetFeedback();
+            coordinator = nextCoordinator;
+            feedbackRenderer = nextRenderer;
+            audioSource = targetAudioSource;
+            if (manageRuntimeSubscriptions)
+            {
+                Bind();
+            }
+            ApplyColor(idleColor);
         }
+
+#if UNITY_INCLUDE_TESTS
+        public void ConfigureTestAudioClips(
+            AudioClip targetAcceptedClip,
+            AudioClip targetErrorClip)
+        {
+            acceptedClip = targetAcceptedClip;
+            errorClip = targetErrorClip;
+        }
+#endif
 
         public void ResetFeedback()
         {
@@ -86,18 +118,24 @@ namespace SignVR.Interaction.PhaseAdapters
                 StopCoroutine(flashRoutine);
                 flashRoutine = null;
             }
+            if (audioSource != null)
+            {
+                audioSource.Stop();
+            }
             ApplyColor(idleColor);
         }
 
         private void Bind()
         {
-            if (subscribed || coordinator == null || !isActiveAndEnabled)
+            if (!Application.isPlaying || subscribed || coordinator == null ||
+                !isActiveAndEnabled)
             {
                 return;
             }
 
+            coordinator.RunConfigured += HandleRunConfigured;
             coordinator.ResultProduced += HandleResult;
-            coordinator.RunReset += ResetFeedback;
+            coordinator.RunReset += HandleRunReset;
             subscribed = true;
         }
 
@@ -105,14 +143,34 @@ namespace SignVR.Interaction.PhaseAdapters
         {
             if (subscribed && coordinator != null)
             {
+                coordinator.RunConfigured -= HandleRunConfigured;
                 coordinator.ResultProduced -= HandleResult;
-                coordinator.RunReset -= ResetFeedback;
+                coordinator.RunReset -= HandleRunReset;
             }
             subscribed = false;
         }
 
+        private void HandleRunConfigured(RunPlan runPlan)
+        {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordRunConfigured();
+#endif
+            ResetFeedback();
+        }
+
+        private void HandleRunReset()
+        {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordRunReset();
+#endif
+            ResetFeedback();
+        }
+
         private void HandleResult(ValidationResult result)
         {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordResultProduced();
+#endif
             if (!isActiveAndEnabled)
             {
                 return;
@@ -169,6 +227,7 @@ namespace SignVR.Interaction.PhaseAdapters
         private void OnDestroy()
         {
             Unbind();
+            ResetFeedback();
         }
     }
 }

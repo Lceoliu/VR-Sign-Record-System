@@ -19,19 +19,32 @@ namespace SignVR.Interaction.PhaseAdapters
         private RunPlan plan;
         private bool subscribed;
 
+#if UNITY_INCLUDE_TESTS
+        private readonly InteractionSubscriptionDiagnostic
+            subscriptionDiagnostic =
+                new InteractionSubscriptionDiagnostic();
+#endif
+
         public TextMesh SafePasswordText => safePasswordText;
         public TextMesh ChestOrderText => chestOrderText;
         public InteractionPhaseCoordinator Coordinator => coordinator;
 
+#if UNITY_INCLUDE_TESTS
+        public InteractionSubscriptionDiagnostic SubscriptionDiagnostic =>
+            subscriptionDiagnostic;
+#endif
+
         private void Awake()
         {
-            Bind();
             HideHints();
+            Bind();
+            RebuildFromAuthority();
         }
 
         private void OnEnable()
         {
             Bind();
+            RebuildFromAuthority();
         }
 
         public void Configure(
@@ -39,25 +52,39 @@ namespace SignVR.Interaction.PhaseAdapters
             TextMesh targetSafePasswordText,
             TextMesh targetChestOrderText)
         {
-            Unbind();
-            coordinator = targetCoordinator ??
+            InteractionPhaseCoordinator nextCoordinator = targetCoordinator ??
                 throw new ArgumentNullException(nameof(targetCoordinator));
-            safePasswordText = targetSafePasswordText ??
+            TextMesh nextSafePasswordText = targetSafePasswordText ??
                 throw new ArgumentNullException(nameof(targetSafePasswordText));
-            chestOrderText = targetChestOrderText ??
+            TextMesh nextChestOrderText = targetChestOrderText ??
                 throw new ArgumentNullException(nameof(targetChestOrderText));
-            Bind();
+            bool manageRuntimeSubscriptions =
+                Application.isPlaying && isActiveAndEnabled;
+            if (manageRuntimeSubscriptions)
+            {
+                Unbind();
+            }
             HideHints();
+            coordinator = nextCoordinator;
+            safePasswordText = nextSafePasswordText;
+            chestOrderText = nextChestOrderText;
+            plan = coordinator.Plan;
+            if (manageRuntimeSubscriptions)
+            {
+                Bind();
+            }
+            RebuildFromAuthority();
         }
 
         private void Bind()
         {
-            if (subscribed || coordinator == null || !isActiveAndEnabled)
+            if (!Application.isPlaying || subscribed || coordinator == null ||
+                !isActiveAndEnabled)
             {
                 return;
             }
             coordinator.RunConfigured += HandleRunConfigured;
-            coordinator.RunReset += HideHints;
+            coordinator.RunReset += HandleRunReset;
             coordinator.ResultProduced += HandleResult;
             subscribed = true;
         }
@@ -67,7 +94,7 @@ namespace SignVR.Interaction.PhaseAdapters
             if (subscribed && coordinator != null)
             {
                 coordinator.RunConfigured -= HandleRunConfigured;
-                coordinator.RunReset -= HideHints;
+                coordinator.RunReset -= HandleRunReset;
                 coordinator.ResultProduced -= HandleResult;
             }
             subscribed = false;
@@ -75,31 +102,50 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void HandleRunConfigured(RunPlan runPlan)
         {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordRunConfigured();
+#endif
             plan = runPlan;
-            HideHints();
+            RebuildFromAuthority();
+        }
+
+        private void HandleRunReset()
+        {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordRunReset();
+#endif
+            RebuildFromAuthority();
         }
 
         private void HandleResult(ValidationResult result)
         {
-            if (!isActiveAndEnabled || plan == null || result == null)
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordResultProduced();
+#endif
+            if (!isActiveAndEnabled || result == null)
+            {
+                return;
+            }
+            RebuildFromAuthority();
+        }
+
+        public void RebuildFromAuthority()
+        {
+            HideHints();
+            if (!isActiveAndEnabled || coordinator == null)
             {
                 return;
             }
 
-            if (result.PhaseId == 1 &&
-                (result.ProgressReset || result.PhaseCompleted ||
-                 result.PhaseGivenUp))
+            plan = coordinator.Plan;
+            InteractionTaskPresentationSnapshot snapshot =
+                coordinator.PresentationSnapshot;
+            if (plan == null || snapshot == null)
             {
-                HideSafePassword();
-            }
-            if (result.PhaseId == 4 &&
-                (result.PhaseCompleted || result.PhaseGivenUp))
-            {
-                HideChestOrder();
+                return;
             }
 
-            if (result.FeedbackCue ==
-                PhaseFeedbackCue.SafePasswordRevealed)
+            if (snapshot.SafePasswordVisible)
             {
                 safePasswordText.text = string.Join(
                     string.Empty,
@@ -107,9 +153,7 @@ namespace SignVR.Interaction.PhaseAdapters
                 );
                 safePasswordText.gameObject.SetActive(true);
             }
-            else if (result.FeedbackCue ==
-                     PhaseFeedbackCue.ChestOrderUnlocked ||
-                     (result.PhaseId == 3 && result.PhaseGivenUp))
+            if (snapshot.ChestOrderVisible)
             {
                 chestOrderText.text = string.Join(
                     "  ",
@@ -121,7 +165,6 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void HideHints()
         {
-            plan = coordinator != null ? coordinator.Plan : null;
             HideSafePassword();
             HideChestOrder();
         }
@@ -151,6 +194,7 @@ namespace SignVR.Interaction.PhaseAdapters
         private void OnDestroy()
         {
             Unbind();
+            HideHints();
         }
     }
 }

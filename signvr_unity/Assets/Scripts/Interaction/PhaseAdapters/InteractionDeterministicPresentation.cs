@@ -37,8 +37,13 @@ namespace SignVR.Interaction.PhaseAdapters
             Vector3 localAxis,
             float openAngle)
         {
-            movingPart = targetMovingPart;
-            hinge = targetHinge;
+            Transform nextMovingPart = targetMovingPart ??
+                throw new ArgumentNullException(nameof(targetMovingPart));
+            Transform nextHinge = targetHinge ??
+                throw new ArgumentNullException(nameof(targetHinge));
+            Reset();
+            movingPart = nextMovingPart;
+            hinge = nextHinge;
             hingeLocalAxis = localAxis;
             openAngleDegrees = openAngle;
             CaptureClosedPose();
@@ -125,14 +130,17 @@ namespace SignVR.Interaction.PhaseAdapters
             Transform targetTransform,
             Vector3 localEulerOffset)
         {
-            targetId = string.IsNullOrWhiteSpace(stableTargetId)
+            string nextTargetId = string.IsNullOrWhiteSpace(stableTargetId)
                 ? throw new ArgumentException(
                     "A stable target ID is required.",
                     nameof(stableTargetId)
                 )
                 : stableTargetId.Trim();
-            target = targetTransform ??
+            Transform nextTarget = targetTransform ??
                 throw new ArgumentNullException(nameof(targetTransform));
+            Reset();
+            targetId = nextTargetId;
+            target = nextTarget;
             activatedLocalEulerOffset = localEulerOffset;
             CaptureIdlePose();
         }
@@ -200,8 +208,17 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private bool authoredActive;
         private bool authoredStateCaptured;
+        private Vector3 authoredRootLocalPosition;
+        private Quaternion authoredRootLocalRotation;
         private bool[] authoredBodyKinematic = Array.Empty<bool>();
         private bool[] authoredBodyGravity = Array.Empty<bool>();
+        private Vector3[] authoredBodyLocalPositions = Array.Empty<Vector3>();
+        private Quaternion[] authoredBodyLocalRotations =
+            Array.Empty<Quaternion>();
+        private Vector3[] authoredBodyLinearVelocities =
+            Array.Empty<Vector3>();
+        private Vector3[] authoredBodyAngularVelocities =
+            Array.Empty<Vector3>();
         private bool[] authoredBehaviourEnabled = Array.Empty<bool>();
         private bool[] authoredColliderEnabled = Array.Empty<bool>();
 
@@ -219,16 +236,24 @@ namespace SignVR.Interaction.PhaseAdapters
             Behaviour[] behaviours,
             Collider[] colliders)
         {
-            targetId = string.IsNullOrWhiteSpace(stableTargetId)
+            string nextTargetId = string.IsNullOrWhiteSpace(stableTargetId)
                 ? throw new ArgumentException(
                     "A stable key target ID is required.",
                     nameof(stableTargetId)
                 )
                 : stableTargetId.Trim();
-            targetRoot = root ?? throw new ArgumentNullException(nameof(root));
-            bodies = targetBodies ?? Array.Empty<Rigidbody>();
-            interactionBehaviours = behaviours ?? Array.Empty<Behaviour>();
-            interactionColliders = colliders ?? Array.Empty<Collider>();
+            GameObject nextTargetRoot = root ??
+                throw new ArgumentNullException(nameof(root));
+            Rigidbody[] nextBodies = targetBodies ?? Array.Empty<Rigidbody>();
+            Behaviour[] nextBehaviours = behaviours ??
+                Array.Empty<Behaviour>();
+            Collider[] nextColliders = colliders ?? Array.Empty<Collider>();
+            RestoreAuthoredState();
+            targetId = nextTargetId;
+            targetRoot = nextTargetRoot;
+            bodies = nextBodies;
+            interactionBehaviours = nextBehaviours;
+            interactionColliders = nextColliders;
             authoredStateCaptured = false;
             CaptureAuthoredState();
         }
@@ -269,8 +294,55 @@ namespace SignVR.Interaction.PhaseAdapters
                 {
                     continue;
                 }
-                body.isKinematic = authoredBodyKinematic[index];
+                StopAndLock(body);
+            }
+            targetRoot.transform.SetLocalPositionAndRotation(
+                authoredRootLocalPosition,
+                authoredRootLocalRotation
+            );
+            int bodyCount = Math.Min(
+                bodies.Length,
+                Math.Min(
+                    authoredBodyKinematic.Length,
+                    Math.Min(
+                        authoredBodyGravity.Length,
+                        Math.Min(
+                            authoredBodyLocalPositions.Length,
+                            Math.Min(
+                                authoredBodyLocalRotations.Length,
+                                Math.Min(
+                                    authoredBodyLinearVelocities.Length,
+                                    authoredBodyAngularVelocities.Length
+                                )
+                            )
+                        )
+                    )
+                )
+            );
+            for (int index = 0; index < bodyCount; index++)
+            {
+                Rigidbody body = bodies[index];
+                if (body == null)
+                {
+                    continue;
+                }
+                body.transform.SetLocalPositionAndRotation(
+                    authoredBodyLocalPositions[index],
+                    authoredBodyLocalRotations[index]
+                );
                 body.useGravity = authoredBodyGravity[index];
+                if (authoredBodyKinematic[index])
+                {
+                    body.isKinematic = true;
+                }
+                else
+                {
+                    body.isKinematic = false;
+                    body.linearVelocity =
+                        authoredBodyLinearVelocities[index];
+                    body.angularVelocity =
+                        authoredBodyAngularVelocities[index];
+                }
             }
             for (int index = 0;
                 index < interactionBehaviours.Length;
@@ -303,8 +375,14 @@ namespace SignVR.Interaction.PhaseAdapters
             }
 
             authoredActive = targetRoot.activeSelf;
+            authoredRootLocalPosition = targetRoot.transform.localPosition;
+            authoredRootLocalRotation = targetRoot.transform.localRotation;
             authoredBodyKinematic = new bool[bodies.Length];
             authoredBodyGravity = new bool[bodies.Length];
+            authoredBodyLocalPositions = new Vector3[bodies.Length];
+            authoredBodyLocalRotations = new Quaternion[bodies.Length];
+            authoredBodyLinearVelocities = new Vector3[bodies.Length];
+            authoredBodyAngularVelocities = new Vector3[bodies.Length];
             for (int index = 0; index < bodies.Length; index++)
             {
                 Rigidbody body = bodies[index];
@@ -314,6 +392,12 @@ namespace SignVR.Interaction.PhaseAdapters
                 }
                 authoredBodyKinematic[index] = body.isKinematic;
                 authoredBodyGravity[index] = body.useGravity;
+                authoredBodyLocalPositions[index] =
+                    body.transform.localPosition;
+                authoredBodyLocalRotations[index] =
+                    body.transform.localRotation;
+                authoredBodyLinearVelocities[index] = body.linearVelocity;
+                authoredBodyAngularVelocities[index] = body.angularVelocity;
             }
 
             authoredBehaviourEnabled =
@@ -348,12 +432,15 @@ namespace SignVR.Interaction.PhaseAdapters
                 {
                     continue;
                 }
-                body.isKinematic = !released;
-                body.useGravity = released;
-                if (!released)
+                if (released)
                 {
-                    body.linearVelocity = Vector3.zero;
-                    body.angularVelocity = Vector3.zero;
+                    body.isKinematic = false;
+                    body.useGravity = true;
+                }
+                else
+                {
+                    StopAndLock(body);
+                    body.useGravity = false;
                 }
             }
 
@@ -378,6 +465,14 @@ namespace SignVR.Interaction.PhaseAdapters
                     collider.enabled = released;
                 }
             }
+        }
+
+        private static void StopAndLock(Rigidbody body)
+        {
+            body.isKinematic = false;
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            body.isKinematic = true;
         }
     }
 
@@ -427,6 +522,12 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private bool subscribed;
 
+#if UNITY_INCLUDE_TESTS
+        private readonly InteractionSubscriptionDiagnostic
+            subscriptionDiagnostic =
+                new InteractionSubscriptionDiagnostic();
+#endif
+
         public DeterministicHingeBinding SafeDoor => safeDoor;
         public DeterministicHingeBinding ChestLid => chestLid;
         public DeterministicHingeBinding CabinetLeftDoor => cabinetLeftDoor;
@@ -441,6 +542,11 @@ namespace SignVR.Interaction.PhaseAdapters
         public IReadOnlyList<PlannedKeyReleaseBinding> PlannedKeys =>
             plannedKeys;
         public InteractionPhaseCoordinator Coordinator => coordinator;
+
+#if UNITY_INCLUDE_TESTS
+        public InteractionSubscriptionDiagnostic SubscriptionDiagnostic =>
+            subscriptionDiagnostic;
+#endif
 
         private void Awake()
         {
@@ -466,27 +572,50 @@ namespace SignVR.Interaction.PhaseAdapters
             DeterministicTargetStateBinding[] breakerBindings,
             PlannedKeyReleaseBinding[] keyBindings)
         {
-            Unbind();
-            coordinator = targetCoordinator ??
+            InteractionPhaseCoordinator nextCoordinator = targetCoordinator ??
                 throw new ArgumentNullException(nameof(targetCoordinator));
-            safeDoor = safeDoorBinding ?? new DeterministicHingeBinding();
-            chestLid = chestLidBinding ?? new DeterministicHingeBinding();
-            cabinetLeftDoor = cabinetLeftBinding ??
+            DeterministicHingeBinding nextSafeDoor = safeDoorBinding ??
                 new DeterministicHingeBinding();
-            cabinetRightDoor = cabinetRightBinding ??
+            DeterministicHingeBinding nextChestLid = chestLidBinding ??
                 new DeterministicHingeBinding();
-            finalLeftDoor = finalLeftBinding ??
+            DeterministicHingeBinding nextCabinetLeft = cabinetLeftBinding ??
                 new DeterministicHingeBinding();
-            chestButtons = chestButtonBindings ??
+            DeterministicHingeBinding nextCabinetRight = cabinetRightBinding ??
+                new DeterministicHingeBinding();
+            DeterministicHingeBinding nextFinalLeft = finalLeftBinding ??
+                new DeterministicHingeBinding();
+            DeterministicTargetStateBinding[] nextChestButtons =
+                chestButtonBindings ??
                 Array.Empty<DeterministicTargetStateBinding>();
-            cabinetButtons = cabinetButtonBindings ??
+            DeterministicTargetStateBinding[] nextCabinetButtons =
+                cabinetButtonBindings ??
                 Array.Empty<DeterministicTargetStateBinding>();
-            breakers = breakerBindings ??
+            DeterministicTargetStateBinding[] nextBreakers = breakerBindings ??
                 Array.Empty<DeterministicTargetStateBinding>();
-            plannedKeys = keyBindings ??
+            PlannedKeyReleaseBinding[] nextKeys = keyBindings ??
                 Array.Empty<PlannedKeyReleaseBinding>();
+            bool manageRuntimeSubscriptions =
+                Application.isPlaying && isActiveAndEnabled;
+            if (manageRuntimeSubscriptions)
+            {
+                Unbind();
+            }
+            ResetPresentation();
+            coordinator = nextCoordinator;
+            safeDoor = nextSafeDoor;
+            chestLid = nextChestLid;
+            cabinetLeftDoor = nextCabinetLeft;
+            cabinetRightDoor = nextCabinetRight;
+            finalLeftDoor = nextFinalLeft;
+            chestButtons = nextChestButtons;
+            cabinetButtons = nextCabinetButtons;
+            breakers = nextBreakers;
+            plannedKeys = nextKeys;
             CaptureAuthoredState();
-            Bind();
+            if (manageRuntimeSubscriptions)
+            {
+                Bind();
+            }
             RebuildFromAuthority();
         }
 
@@ -582,12 +711,13 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void Bind()
         {
-            if (subscribed || coordinator == null || !isActiveAndEnabled)
+            if (!Application.isPlaying || subscribed || coordinator == null ||
+                !isActiveAndEnabled)
             {
                 return;
             }
             coordinator.RunConfigured += HandleRunConfigured;
-            coordinator.RunReset += ResetPresentation;
+            coordinator.RunReset += HandleRunReset;
             coordinator.ResultProduced += HandleResult;
             subscribed = true;
         }
@@ -597,7 +727,7 @@ namespace SignVR.Interaction.PhaseAdapters
             if (subscribed && coordinator != null)
             {
                 coordinator.RunConfigured -= HandleRunConfigured;
-                coordinator.RunReset -= ResetPresentation;
+                coordinator.RunReset -= HandleRunReset;
                 coordinator.ResultProduced -= HandleResult;
             }
             subscribed = false;
@@ -605,7 +735,18 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void HandleRunConfigured(RunPlan plan)
         {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordRunConfigured();
+#endif
             RebuildFromAuthority();
+        }
+
+        private void HandleRunReset()
+        {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordRunReset();
+#endif
+            ResetPresentation();
         }
 
         private void PrepareKeysForPlan(RunPlan plan)
@@ -659,6 +800,9 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void HandleResult(ValidationResult result)
         {
+#if UNITY_INCLUDE_TESTS
+            subscriptionDiagnostic.RecordResultProduced();
+#endif
             if (!isActiveAndEnabled || result == null)
             {
                 return;
@@ -785,6 +929,7 @@ namespace SignVR.Interaction.PhaseAdapters
         private void OnDestroy()
         {
             Unbind();
+            ResetPresentation();
         }
     }
 

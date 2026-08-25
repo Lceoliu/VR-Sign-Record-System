@@ -31,6 +31,12 @@ namespace SignVR.Editor.Interaction
             "Collada visual scene group/ChestUpper_low";
         private const string FinalDoorPanelPath =
             "ce5f462b0dd34333a6588509140a7fb8.fbx/RootNode/Door";
+        private const string TestScenePathPrefix =
+            "Assets/__W7InteractionPhaseAdaptersTests_";
+        private const string TestScenePathSuffix =
+            "/InteractionLab_W7Test.unity";
+        private const string TestSceneMarkerName =
+            "__W7_TEST_OWNED_INTERACTION_SCENE__";
 
         private static readonly TargetSpec[] TargetSpecs =
         {
@@ -129,9 +135,149 @@ namespace SignVR.Editor.Interaction
             );
         }
 
+        /// <summary>
+        /// Marks a strict, test-created temporary InteractionLab asset copy.
+        /// Canonical scenes and arbitrary scene paths fail closed.
+        /// </summary>
+        public static void MarkTestOwnedSceneForAutomation(Scene scene)
+        {
+            RequireTestScenePath(scene);
+            int markerCount = scene.GetRootGameObjects().Count(item =>
+                string.Equals(
+                    item.name,
+                    TestSceneMarkerName,
+                    StringComparison.Ordinal
+                ));
+            if (markerCount != 0)
+            {
+                throw new InvalidOperationException(
+                    "The test-owned scene marker must be created exactly once."
+                );
+            }
+
+            var marker = new GameObject(TestSceneMarkerName);
+            SceneManager.MoveGameObjectToScene(marker, scene);
+        }
+
+        public static void SetupAndValidateTestOwnedSceneWithoutSaving(
+            Scene scene)
+        {
+            RequireTestOwnedScene(scene);
+            SetupSceneTransactional(scene);
+            ValidateSceneContents(scene);
+        }
+
+        public static void SetupTestOwnedSceneForAutomation(Scene scene)
+        {
+            RequireTestOwnedScene(scene);
+            SetupSceneTransactional(scene);
+        }
+
+        public static void ValidateTestOwnedSceneForAutomation(Scene scene)
+        {
+            RequireTestOwnedScene(scene);
+            ValidateSceneContents(scene);
+        }
+
+        /// <summary>
+        /// Removes only W7-owned objects and components from the loaded scene.
+        /// Tests use this on an unsaved, in-memory InteractionLab instance so
+        /// setup cannot pass because of wiring already serialized in the asset.
+        /// </summary>
+        public static void StripW7OwnedWiringForTests(Scene scene)
+        {
+            RequireTestOwnedScene(scene);
+            GameObject[] sceneObjects = Enumerate(scene).ToArray();
+
+            foreach (GameObject sceneObject in sceneObjects)
+            {
+                Component[] components = sceneObject.GetComponents<Component>();
+                foreach (Component component in components)
+                {
+                    if (component != null && IsW7OwnedComponent(component))
+                    {
+                        Object.DestroyImmediate(component);
+                    }
+                }
+            }
+
+            GameObject[] ownedRoots = sceneObjects
+                .Where(item => item != null &&
+                    IsW7OwnedObjectName(item.name) &&
+                    !HasW7OwnedAncestor(item.transform.parent))
+                .ToArray();
+            foreach (GameObject ownedRoot in ownedRoots)
+            {
+                Object.DestroyImmediate(ownedRoot);
+            }
+        }
+
+        public static int CountW7OwnedWiringForTests(Scene scene)
+        {
+            RequireTestOwnedScene(scene);
+            int count = 0;
+            foreach (GameObject sceneObject in Enumerate(scene))
+            {
+                if (IsW7OwnedObjectName(sceneObject.name))
+                {
+                    count++;
+                }
+                count += sceneObject.GetComponents<Component>()
+                    .Count(component => component != null &&
+                        IsW7OwnedComponent(component));
+            }
+            return count;
+        }
+
+        public static GameObject FindGameObjectInSceneForTests(
+            Scene scene,
+            string exactName)
+        {
+            GameObject[] matches = FindGameObjectsInSceneForTests(
+                scene,
+                exactName
+            );
+            if (matches.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Expected one scene object named '{exactName}'; found " +
+                    $"{matches.Length}."
+                );
+            }
+            return matches[0];
+        }
+
+        public static GameObject[] FindGameObjectsInSceneForTests(
+            Scene scene,
+            string exactName)
+        {
+            RequireTestOwnedScene(scene);
+            if (string.IsNullOrWhiteSpace(exactName))
+            {
+                throw new ArgumentException(
+                    "An exact scene object name is required.",
+                    nameof(exactName)
+                );
+            }
+
+            GameObject[] matches = Enumerate(scene)
+                .Where(item => string.Equals(
+                    item.name,
+                    exactName,
+                    StringComparison.Ordinal
+                ))
+                .ToArray();
+            return matches;
+        }
+
         public static void SetupLoadedScene(Scene scene)
         {
             RequireInteractionScene(scene);
+            SetupSceneTransactional(scene);
+        }
+
+        private static void SetupSceneTransactional(Scene scene)
+        {
             PreflightScene(scene);
 
             Undo.IncrementCurrentGroup();
@@ -140,7 +286,7 @@ namespace SignVR.Editor.Interaction
             try
             {
                 SetupLoadedSceneUnchecked(scene);
-                ValidateLoadedScene(scene);
+                ValidateSceneContents(scene);
                 Undo.CollapseUndoOperations(undoGroup);
             }
             catch
@@ -501,6 +647,11 @@ namespace SignVR.Editor.Interaction
         public static void ValidateLoadedScene(Scene scene)
         {
             RequireInteractionScene(scene);
+            ValidateSceneContents(scene);
+        }
+
+        private static void ValidateSceneContents(Scene scene)
+        {
             var failures = new List<string>();
             GameObject[] objects = Enumerate(scene).ToArray();
 
@@ -1687,6 +1838,142 @@ namespace SignVR.Editor.Interaction
             }
         }
 
+        private static bool IsW7OwnedComponent(Component component)
+        {
+            string componentNamespace = component.GetType().Namespace ??
+                string.Empty;
+            return componentNamespace.Equals(
+                    "SignVR.Interaction.PhaseAdapters",
+                    StringComparison.Ordinal
+                ) || componentNamespace.StartsWith(
+                    "SignVR.Interaction.PhaseAdapters.",
+                    StringComparison.Ordinal
+                );
+        }
+
+        private static bool IsW7OwnedObjectName(string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName))
+            {
+                return false;
+            }
+
+            if (string.Equals(
+                    objectName,
+                    RuntimeRootName,
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    ProxyRootName,
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7SafePasswordHint",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7ChestOrderHint",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7SafeBackspace",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7SafeSubmit",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7InteractionFeedbackBeacon",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7ChestLidHinge",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7FinalLeftDoorHinge",
+                    StringComparison.Ordinal
+                ))
+            {
+                return true;
+            }
+
+            for (int digit = 0; digit <= 9; digit++)
+            {
+                if (string.Equals(
+                        objectName,
+                        "W7SafeDigit_" + digit,
+                        StringComparison.Ordinal
+                    ))
+                {
+                    return true;
+                }
+            }
+
+            for (int index = 0; index < TargetSpecs.Length; index++)
+            {
+                if (string.Equals(
+                        objectName,
+                        "W7Target_" + TargetSpecs[index].TargetId,
+                        StringComparison.Ordinal
+                    ))
+                {
+                    return true;
+                }
+            }
+
+            for (int index = 0; index < ChestButtonIds.Length; index++)
+            {
+                if (string.Equals(
+                        objectName,
+                        "W7ChestButton_" + ChestButtonIds[index],
+                        StringComparison.Ordinal
+                    ))
+                {
+                    return true;
+                }
+            }
+
+            return string.Equals(
+                    objectName,
+                    "W7Placement_plate_dragon",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7Placement_plate_a",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7Placement_plate_b",
+                    StringComparison.Ordinal
+                );
+        }
+
+        private static bool HasW7OwnedAncestor(Transform parent)
+        {
+            Transform current = parent;
+            while (current != null)
+            {
+                if (IsW7OwnedObjectName(current.name))
+                {
+                    return true;
+                }
+                current = current.parent;
+            }
+            return false;
+        }
+
         private static string GetHierarchyPath(Transform transform)
         {
             var names = new Stack<string>();
@@ -1749,6 +2036,59 @@ namespace SignVR.Editor.Interaction
             {
                 throw new InvalidOperationException(
                     $"W7 setup requires {InteractionLabContract.ScenePath}."
+                );
+            }
+        }
+
+        private static void RequireTestScenePath(Scene scene)
+        {
+            if (!scene.IsValid() || !scene.isLoaded)
+            {
+                throw new InvalidOperationException(
+                    "A loaded test-owned W7 scene is required."
+                );
+            }
+
+            string path = scene.path ?? string.Empty;
+            if (!path.StartsWith(
+                    TestScenePathPrefix,
+                    StringComparison.Ordinal) ||
+                !path.EndsWith(
+                    TestScenePathSuffix,
+                    StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "W7 test helpers accept only strict temporary " +
+                    "InteractionLab asset copies."
+                );
+            }
+
+            int ownerIdLength = path.Length -
+                TestScenePathPrefix.Length - TestScenePathSuffix.Length;
+            string ownerId = ownerIdLength > 0
+                ? path.Substring(TestScenePathPrefix.Length, ownerIdLength)
+                : string.Empty;
+            if (ownerId.Length != 32 || !ownerId.All(Uri.IsHexDigit))
+            {
+                throw new InvalidOperationException(
+                    "The W7 test scene path lacks its exact ownership token."
+                );
+            }
+        }
+
+        private static void RequireTestOwnedScene(Scene scene)
+        {
+            RequireTestScenePath(scene);
+            int markerCount = scene.GetRootGameObjects().Count(item =>
+                string.Equals(
+                    item.name,
+                    TestSceneMarkerName,
+                    StringComparison.Ordinal
+                ));
+            if (markerCount != 1)
+            {
+                throw new InvalidOperationException(
+                    "W7 test helpers require exactly one test-owned marker."
                 );
             }
         }

@@ -68,10 +68,18 @@ namespace SignVR.Interaction.PhaseAdapters
                 );
             }
 
-            Unsubscribe();
+            bool manageRuntimeSubscription =
+                Application.isPlaying && isActiveAndEnabled;
+            if (manageRuntimeSubscription)
+            {
+                Unsubscribe();
+            }
             coordinator = targetCoordinator;
             plan = runPlan;
-            Subscribe();
+            if (manageRuntimeSubscription)
+            {
+                Subscribe();
+            }
             Reset();
         }
 
@@ -156,13 +164,14 @@ namespace SignVR.Interaction.PhaseAdapters
             if (coordinator != null && resultSubscribed)
             {
                 coordinator.ResultProduced -= HandleResult;
-                resultSubscribed = false;
             }
+            resultSubscribed = false;
         }
 
         private void Subscribe()
         {
-            if (coordinator == null || resultSubscribed ||
+            if (!Application.isPlaying || coordinator == null ||
+                resultSubscribed ||
                 !isActiveAndEnabled)
             {
                 return;

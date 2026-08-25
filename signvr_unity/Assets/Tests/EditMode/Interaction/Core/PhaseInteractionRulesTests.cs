@@ -690,6 +690,114 @@ namespace SignVR.Interaction.Core.Tests
         [Test]
         public void PresentationSnapshotRetainsAuthoritativeVisualState()
         {
+            var hintHarness = new SessionHarness(CreatePlan(
+                "001", "004", "013", "016", "025", "026"
+            ));
+            Assert.That(
+                hintHarness.Session.PresentationSnapshot.SafePasswordVisible,
+                Is.False
+            );
+
+            var safeGiveUpHarness = new SessionHarness(CreatePlan(
+                "001", "004", "013", "016", "025", "026"
+            ));
+            safeGiveUpHarness.Session.AcceptInput(
+                1,
+                PhaseInput.Target("box_stool")
+            );
+            PhaseExecutionSnapshot phaseOneGiveUp =
+                safeGiveUpHarness.MakeGiveUpAvailable();
+            safeGiveUpHarness.Session.GiveUpCurrentPhase(phaseOneGiveUp);
+            Assert.That(
+                safeGiveUpHarness.Session.PresentationSnapshot
+                    .SafePasswordVisible,
+                Is.False
+            );
+
+            var newRunHarness = new SessionHarness(CreatePlan(
+                "001", "004", "013", "016", "025", "026"
+            ));
+            newRunHarness.Session.AcceptInput(
+                1,
+                PhaseInput.Target("box_stool")
+            );
+            newRunHarness.Session.Configure(CreatePlan(
+                "003", "012", "015", "018", "019", "031"
+            ));
+            Assert.That(
+                newRunHarness.Session.PresentationSnapshot.SafePasswordVisible,
+                Is.False
+            );
+            hintHarness.Session.AcceptInput(
+                1,
+                PhaseInput.Target("box_stool")
+            );
+            Assert.That(
+                hintHarness.Session.PresentationSnapshot.SafePasswordVisible,
+                Is.True
+            );
+            hintHarness.Session.AcceptInput(
+                1,
+                PhaseInput.Target("unexpected_after_reveal")
+            );
+            Assert.That(
+                hintHarness.Session.PresentationSnapshot.SafePasswordVisible,
+                Is.False
+            );
+            FinishPhaseOneTask(hintHarness.Session);
+            Assert.That(
+                hintHarness.Session.PresentationSnapshot.SafePasswordVisible,
+                Is.False
+            );
+
+            var chestHintHarness = new SessionHarness(CreatePlan(
+                "001", "004", "013", "016", "025", "026"
+            ));
+            AdvanceToPhase(chestHintHarness, 3);
+            Assert.That(
+                chestHintHarness.Session.PresentationSnapshot.ChestOrderVisible,
+                Is.False
+            );
+            FinishPhaseThreeTask(chestHintHarness.Session);
+            Assert.That(
+                chestHintHarness.Session.PresentationSnapshot.ChestOrderVisible,
+                Is.True
+            );
+            chestHintHarness.AdvanceCompletedPhase();
+            FinishPhaseFourTask(chestHintHarness.Session);
+            Assert.That(
+                chestHintHarness.Session.PresentationSnapshot.ChestOrderVisible,
+                Is.False
+            );
+
+            var givenUpHintHarness = new SessionHarness(CreatePlan(
+                "001", "004", "013", "016", "025", "026"
+            ));
+            AdvanceToPhase(givenUpHintHarness, 3);
+            PhaseExecutionSnapshot phaseThreeGiveUp =
+                givenUpHintHarness.MakeGiveUpAvailable();
+            givenUpHintHarness.Session.GiveUpCurrentPhase(phaseThreeGiveUp);
+            Assert.That(
+                givenUpHintHarness.Session.PresentationSnapshot
+                    .ChestOrderVisible,
+                Is.True
+            );
+            givenUpHintHarness.AdvanceGivenUpPhase();
+            PhaseExecutionSnapshot phaseFourGiveUp =
+                givenUpHintHarness.MakeGiveUpAvailable();
+            givenUpHintHarness.Session.GiveUpCurrentPhase(phaseFourGiveUp);
+            Assert.That(
+                givenUpHintHarness.Session.PresentationSnapshot
+                    .ChestOrderVisible,
+                Is.False
+            );
+            givenUpHintHarness.Session.Abort();
+            Assert.That(
+                givenUpHintHarness.Session.PresentationSnapshot
+                    .ChestOrderVisible,
+                Is.False
+            );
+
             var harness = new SessionHarness(CreatePlan(
                 "001", "004", "013", "016", "025", "026"
             ));

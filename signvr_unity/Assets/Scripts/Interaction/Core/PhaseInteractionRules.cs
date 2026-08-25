@@ -239,6 +239,8 @@ namespace SignVR.Interaction.Core
         private readonly ReadOnlyCollection<string> breakerTargetIds;
 
         internal InteractionTaskPresentationSnapshot(
+            bool safePasswordVisible,
+            bool chestOrderVisible,
             bool safeDoorOpened,
             bool chestOpened,
             bool cabinetUnlocked,
@@ -248,6 +250,8 @@ namespace SignVR.Interaction.Core
             IEnumerable<string> cabinetButtons,
             IEnumerable<string> breakers)
         {
+            SafePasswordVisible = safePasswordVisible;
+            ChestOrderVisible = chestOrderVisible;
             SafeDoorOpened = safeDoorOpened;
             ChestOpened = chestOpened;
             CabinetUnlocked = cabinetUnlocked;
@@ -257,6 +261,10 @@ namespace SignVR.Interaction.Core
             cabinetButtonTargetIds = Copy(cabinetButtons);
             breakerTargetIds = Copy(breakers);
         }
+
+        public bool SafePasswordVisible { get; }
+
+        public bool ChestOrderVisible { get; }
 
         public bool SafeDoorOpened { get; }
 
@@ -330,6 +338,8 @@ namespace SignVR.Interaction.Core
             new HashSet<string>(StringComparer.Ordinal);
         private ValidationResult lastResult;
         private int phaseSixProgress;
+        private bool safePasswordVisible;
+        private bool chestOrderVisible;
         private bool safeDoorOpened;
         private bool chestOpened;
         private bool cabinetUnlocked;
@@ -366,6 +376,8 @@ namespace SignVR.Interaction.Core
 
         public InteractionTaskPresentationSnapshot PresentationSnapshot =>
             new InteractionTaskPresentationSnapshot(
+                safePasswordVisible,
+                chestOrderVisible,
                 safeDoorOpened,
                 chestOpened,
                 cabinetUnlocked,
@@ -515,6 +527,10 @@ namespace SignVR.Interaction.Core
 
             ResetTaskProgress();
             ResetPresentationProgress(phaseId);
+            if (phaseId == 3)
+            {
+                chestOrderVisible = true;
+            }
             phaseTaskLocked = true;
             string releasedKey = phaseId == 4
                 ? plan.Phases[3].TaskVariant.TargetIds[0]
@@ -672,6 +688,7 @@ namespace SignVR.Interaction.Core
             }
 
             phaseTaskLocked = true;
+            chestOrderVisible = true;
             return new ValidationResult(
                 3,
                 true,
@@ -737,6 +754,7 @@ namespace SignVR.Interaction.Core
             string releasedKey =
                 plan.Phases[3].TaskVariant.TargetIds[0];
             chestOpened = true;
+            chestOrderVisible = false;
             releasedKeyTargetId = releasedKey;
             phaseTaskLocked = true;
             phaseFourProgress = 0;
@@ -963,6 +981,7 @@ namespace SignVR.Interaction.Core
                 }
 
                 phaseOneBoxAccepted = true;
+                safePasswordVisible = true;
                 return new ValidationResult(
                     1,
                     true,
@@ -1032,6 +1051,7 @@ namespace SignVR.Interaction.Core
             }
 
             phaseTaskLocked = true;
+            safePasswordVisible = false;
             safeDoorOpened = true;
             return new ValidationResult(
                 1,
@@ -1054,6 +1074,7 @@ namespace SignVR.Interaction.Core
                 PhaseValidationError.UnexpectedTarget)
         {
             ResetTaskProgress();
+            safePasswordVisible = false;
             return new ValidationResult(
                 1,
                 false,
@@ -1228,8 +1249,13 @@ namespace SignVR.Interaction.Core
 
         private void ResetPresentationProgress(int phaseId)
         {
-            if (phaseId == 4)
+            if (phaseId == 1)
             {
+                safePasswordVisible = false;
+            }
+            else if (phaseId == 4)
+            {
+                chestOrderVisible = false;
                 presentationChestButtons.Clear();
             }
             else if (phaseId == 5)
@@ -1245,6 +1271,8 @@ namespace SignVR.Interaction.Core
         private void ResetAllTaskState()
         {
             ResetTaskProgress();
+            safePasswordVisible = false;
+            chestOrderVisible = false;
             safeDoorOpened = false;
             chestOpened = false;
             cabinetUnlocked = false;

@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using System.Security.Cryptography;
 using NUnit.Framework;
 
 namespace SignVR.Interaction.Editor.Tests
@@ -13,6 +16,10 @@ namespace SignVR.Interaction.Editor.Tests
         private const string ValidatorTypeName =
             "SignVR.Editor.Interaction.W7InteractionPhaseAdaptersSetup, " +
             "Assembly-CSharp-Editor";
+        private const string InteractionSceneAssetPath =
+            "Assets/Scenes/InteractionLab.unity";
+        private const string TestSceneMarkerName =
+            "__W7_TEST_OWNED_INTERACTION_SCENE__";
 
         [Test]
         public void AllSixAdaptersExposeAuditableLifecycleAndInputApi()
@@ -58,31 +65,520 @@ namespace SignVR.Interaction.Editor.Tests
                 backspace.GetInterface("IInteractionTriggerInput"),
                 Is.Not.Null
             );
+
+            Type targetBinding = RuntimeType("InteractionTargetBinding");
+            Assert.That(
+                targetBinding.GetMethod(
+                    "RestoreAuthoredStateForTeardown",
+                    BindingFlags.Public | BindingFlags.Instance
+                ),
+                Is.Null,
+                "Runtime code must not expose a teardown half-state seam."
+            );
+            Assert.That(
+                targetBinding.GetMethod(
+                    "OnDestroy",
+                    BindingFlags.NonPublic | BindingFlags.Instance
+                ),
+                Is.Not.Null,
+                "Authored-state restoration must remain private and atomic " +
+                "with component destruction."
+            );
         }
 
         [Test]
-        public void InteractionLabPassesW7AdapterAndBindingValidator()
+        public void FixtureCleanupRunsEveryRecoveryAndPreservesPrimaryFailure()
         {
-            Type validator = Type.GetType(
-                ValidatorTypeName,
-                throwOnError: true
+            bool activeSceneRestored = false;
+            bool diskHashVerified = false;
+            ExceptionDispatchInfo primary = ExceptionDispatchInfo.Capture(
+                new InvalidOperationException("primary test failure")
             );
-            MethodInfo method = validator.GetMethod(
-                "SetupAndValidateForAutomationWithoutSaving",
-                BindingFlags.Public | BindingFlags.Static
-            );
-            Assert.That(method, Is.Not.Null);
 
+            AggregateException failure = Assert.Throws<AggregateException>(() =>
+                RunFixtureCleanup(
+                    primary,
+                    () => throw new IOException("temporary close failed"),
+                    () => activeSceneRestored = true,
+                    () => diskHashVerified = true
+                )
+            );
+
+            Assert.That(activeSceneRestored, Is.True);
+            Assert.That(diskHashVerified, Is.True);
+            Assert.That(
+                failure.InnerExceptions,
+                Has.Some.TypeOf<InvalidOperationException>()
+            );
+            Assert.That(
+                failure.InnerExceptions,
+                Has.Some.TypeOf<IOException>()
+            );
+        }
+
+        [Test]
+        public void CleanInteractionLabSetupIsCompleteAndAssetIsUnchanged()
+        {
+            WithCleanInteractionScene(scene =>
+            {
+                TargetInvocationException missingSetup = Assert.Throws<
+                    TargetInvocationException>(() =>
+                        InvokeValidateLoadedScene(scene)
+                    );
+                Assert.That(
+                    missingSetup.InnerException.Message,
+                    Does.Contain("Expected one W7 coordinator")
+                );
+
+                InvokeTestOwnedSetupAndValidate(scene);
+                InvokeValidateLoadedScene(scene);
+
+                object submit = FindGameObjectInScene(
+                    scene,
+                    "W7SafeSubmit"
+                );
+                DestroyImmediate(submit);
+                TargetInvocationException missingCritical = Assert.Throws<
+                    TargetInvocationException>(() =>
+                        InvokeValidateLoadedScene(scene)
+                    );
+                Assert.That(
+                    missingCritical.InnerException.Message,
+                    Does.Contain("submit collider/relay proxy")
+                );
+            });
+        }
+
+        [Test]
+        public void TestOwnedSceneGuardRejectsMissingDuplicateAndMalformedOwners()
+        {
+            string validToken = Guid.NewGuid().ToString("N");
+            AssertGuardSceneRejected(
+                "__W7InteractionPhaseAdaptersTests_" + validToken,
+                "InteractionLab_W7Test.unity",
+                markerCount: 0,
+                expectedMessage: "exactly one test-owned marker"
+            );
+            AssertGuardSceneRejected(
+                "__W7InteractionPhaseAdaptersTests_" +
+                    Guid.NewGuid().ToString("N"),
+                "InteractionLab_W7Test.unity",
+                markerCount: 2,
+                expectedMessage: "exactly one test-owned marker"
+            );
+            AssertGuardSceneRejected(
+                "__W7InteractionPhaseAdaptersTests_" + new string('z', 32),
+                "InteractionLab_W7Test.unity",
+                markerCount: 1,
+                expectedMessage: "exact ownership token"
+            );
+            AssertGuardSceneRejected(
+                "__W7InteractionPhaseAdaptersGuard_" +
+                    Guid.NewGuid().ToString("N"),
+                "InteractionLab_W7Test.unity",
+                markerCount: 1,
+                expectedMessage: "strict temporary InteractionLab"
+            );
+            AssertGuardSceneRejected(
+                "__W7InteractionPhaseAdaptersTests_" +
+                    Guid.NewGuid().ToString("N"),
+                "MalformedInteractionLab.unity",
+                markerCount: 1,
+                expectedMessage: "strict temporary InteractionLab"
+            );
+        }
+
+        [Test]
+        public void IsolatedSetupPreservesDirtyUnsavedUserScene()
+        {
+            Type editorSceneManager = EditorType(
+                "UnityEditor.SceneManagement.EditorSceneManager"
+            );
+            object previousActiveScene = GetActiveScene();
+            object userScene = null;
+            object sentinel = null;
+            object sentinelTransform = null;
+            ExceptionDispatchInfo primaryFailure = null;
             try
             {
-                method.Invoke(null, null);
+                userScene = CreateAdditiveEmptyScene(editorSceneManager);
+                sentinel = CreateGameObject("W7DirtyUserSentinel");
+                MoveGameObjectToScene(sentinel, userScene);
+                sentinelTransform = GetTransform(sentinel);
+                object authoredPosition = CreateVector3(3f, 5f, 7f);
+                sentinelTransform.GetType().GetProperty("localPosition")
+                    .SetValue(sentinelTransform, authoredPosition);
+                editorSceneManager.GetMethod(
+                    "MarkSceneDirty",
+                    new[] { userScene.GetType() }
+                ).Invoke(null, new[] { userScene });
+
+                Assert.That(GetSceneBoolean(userScene, "isLoaded"), Is.True);
+                Assert.That(GetSceneBoolean(userScene, "isDirty"), Is.True);
+
+                WithCleanInteractionScene(scene =>
+                {
+                    InvokeTestOwnedSetupAndValidate(scene);
+                    InvokeValidateLoadedScene(scene);
+                });
+
+                Assert.That(
+                    GetSceneBoolean(userScene, "isLoaded"),
+                    Is.True,
+                    "The fixture closed an unrelated unsaved user scene."
+                );
+                Assert.That(
+                    GetSceneBoolean(userScene, "isDirty"),
+                    Is.True,
+                    "The fixture cleared unrelated dirty scene state."
+                );
+                Assert.That(
+                    sentinel.GetType().GetProperty("name").GetValue(sentinel),
+                    Is.EqualTo("W7DirtyUserSentinel")
+                );
+                AssertVector3(
+                    sentinelTransform.GetType().GetProperty("localPosition")
+                        .GetValue(sentinelTransform),
+                    3f,
+                    5f,
+                    7f,
+                    "Unsaved user scene values changed."
+                );
             }
-            catch (TargetInvocationException exception)
-                when (exception.InnerException != null)
+            catch (Exception exception)
             {
-                ExceptionDispatchInfo.Capture(exception.InnerException).Throw();
-                throw;
+                primaryFailure = ExceptionDispatchInfo.Capture(exception);
             }
+            finally
+            {
+                RunFixtureCleanup(
+                    primaryFailure,
+                    () =>
+                    {
+                        if (userScene != null && IsSceneValid(userScene) &&
+                            GetSceneBoolean(userScene, "isLoaded"))
+                        {
+                            CloseScene(editorSceneManager, userScene);
+                        }
+                    },
+                    () => RestoreActiveScene(previousActiveScene)
+                );
+            }
+        }
+
+        [Test]
+        public void LoadedInteractionLabMemoryStateSurvivesIsolatedSetup()
+        {
+            Type editorSceneManager = EditorType(
+                "UnityEditor.SceneManagement.EditorSceneManager"
+            );
+            Type openModeType = EditorType(
+                "UnityEditor.SceneManagement.OpenSceneMode"
+            );
+            object previousActiveScene = GetActiveScene();
+            object interactionScene = GetSceneByPath(InteractionSceneAssetPath);
+            bool openedByTest = !IsSceneValid(interactionScene) ||
+                !GetSceneBoolean(interactionScene, "isLoaded");
+            object sentinel = null;
+            ExceptionDispatchInfo primaryFailure = null;
+            try
+            {
+                if (openedByTest)
+                {
+                    interactionScene = editorSceneManager.GetMethod(
+                        "OpenScene",
+                        new[] { typeof(string), openModeType }
+                    ).Invoke(
+                        null,
+                        new[]
+                        {
+                            (object)InteractionSceneAssetPath,
+                            Enum.Parse(openModeType, "Additive")
+                        }
+                    );
+                    sentinel = CreateGameObject(
+                        "W7LoadedInteractionLabDirtySentinel"
+                    );
+                    MoveGameObjectToScene(sentinel, interactionScene);
+                    GetTransform(sentinel).GetType()
+                        .GetProperty("localPosition")
+                        .SetValue(
+                            GetTransform(sentinel),
+                            CreateVector3(11f, 13f, 17f)
+                        );
+                    MarkSceneDirty(editorSceneManager, interactionScene);
+                }
+                else
+                {
+                    Array roots = GetSceneRoots(interactionScene);
+                    Assert.That(
+                        roots.Length,
+                        Is.GreaterThan(0),
+                        "Loaded InteractionLab has no sentinel root."
+                    );
+                    sentinel = roots.GetValue(0);
+                }
+
+                bool dirtyBefore = GetSceneBoolean(
+                    interactionScene,
+                    "isDirty"
+                );
+                int rootCountBefore = GetSceneRoots(interactionScene).Length;
+                string sentinelName = (string)sentinel.GetType()
+                    .GetProperty("name").GetValue(sentinel);
+                object sentinelPosition = GetTransform(sentinel).GetType()
+                    .GetProperty("localPosition").GetValue(
+                        GetTransform(sentinel)
+                    );
+                float sentinelX = ReadVector3Component(sentinelPosition, "x");
+                float sentinelY = ReadVector3Component(sentinelPosition, "y");
+                float sentinelZ = ReadVector3Component(sentinelPosition, "z");
+
+                TargetInvocationException ownershipFailure = Assert.Throws<
+                    TargetInvocationException>(() =>
+                        InvokeValidateLoadedScene(interactionScene)
+                    );
+                Assert.That(
+                    ownershipFailure.InnerException.Message,
+                    Does.Contain("strict temporary InteractionLab")
+                );
+
+                WithCleanInteractionScene(scene =>
+                {
+                    InvokeTestOwnedSetupAndValidate(scene);
+                    InvokeValidateLoadedScene(scene);
+                });
+
+                object reloadedReference = GetSceneByPath(
+                    InteractionSceneAssetPath
+                );
+                Assert.That(IsSceneValid(reloadedReference), Is.True);
+                Assert.That(
+                    GetSceneBoolean(reloadedReference, "isLoaded"),
+                    Is.True,
+                    "The loaded InteractionLab was closed or replaced."
+                );
+                Assert.That(
+                    GetSceneBoolean(reloadedReference, "isDirty"),
+                    Is.EqualTo(dirtyBefore),
+                    "The loaded InteractionLab dirty state changed."
+                );
+                Assert.That(
+                    GetSceneRoots(reloadedReference).Length,
+                    Is.EqualTo(rootCountBefore),
+                    "The loaded InteractionLab hierarchy changed."
+                );
+                Assert.That(
+                    sentinel.GetType().GetProperty("name").GetValue(sentinel),
+                    Is.EqualTo(sentinelName)
+                );
+                AssertVector3(
+                    GetTransform(sentinel).GetType()
+                        .GetProperty("localPosition")
+                        .GetValue(GetTransform(sentinel)),
+                    sentinelX,
+                    sentinelY,
+                    sentinelZ,
+                    "Loaded InteractionLab sentinel value changed."
+                );
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                RunFixtureCleanup(
+                    primaryFailure,
+                    () =>
+                    {
+                        if (openedByTest && IsSceneValid(interactionScene) &&
+                            GetSceneBoolean(interactionScene, "isLoaded"))
+                        {
+                            CloseScene(editorSceneManager, interactionScene);
+                        }
+                    },
+                    () => RestoreActiveScene(previousActiveScene)
+                );
+            }
+        }
+
+        [Test]
+        public void StripUsesExactOwnershipAndRestoresAuthoredRuntimeState()
+        {
+            WithCleanInteractionScene(scene =>
+            {
+                InvokeTestOwnedSetupAndValidate(scene);
+                int setupOwnedCount = CountW7OwnedWiring(scene);
+                Assert.That(setupOwnedCount, Is.GreaterThan(0));
+
+                object notes = CreateGameObject("W7Notes");
+                object userContent = CreateGameObject("W7UserContent");
+                MoveGameObjectToScene(notes, scene);
+                MoveGameObjectToScene(userContent, scene);
+                Assert.That(
+                    CountW7OwnedWiring(scene),
+                    Is.EqualTo(setupOwnedCount),
+                    "Arbitrary W7-prefixed user names must not confer ownership."
+                );
+
+                object transform = GetTransform(userContent);
+                transform.GetType().GetProperty("localPosition").SetValue(
+                    transform,
+                    CreateVector3(1f, 2f, 3f)
+                );
+                transform.GetType().GetProperty("localScale").SetValue(
+                    transform,
+                    CreateVector3(2f, 3f, 4f)
+                );
+                object interactionBehaviour = AddComponent(
+                    userContent,
+                    UnityAudioType("AudioSource")
+                );
+                object collider = AddComponent(
+                    userContent,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object body = AddComponent(
+                    userContent,
+                    UnityPhysicsType("Rigidbody")
+                );
+                interactionBehaviour.GetType().GetProperty("enabled")
+                    .SetValue(interactionBehaviour, true);
+                collider.GetType().GetProperty("enabled")
+                    .SetValue(collider, true);
+                body.GetType().GetProperty("isKinematic")
+                    .SetValue(body, false);
+                body.GetType().GetProperty("useGravity")
+                    .SetValue(body, true);
+
+                object runtimeRoot = FindGameObjectInScene(
+                    scene,
+                    "W7PhaseInteractionAdapters"
+                );
+                object phaseOneObject = GetGameObject(
+                    FindChild(GetTransform(runtimeRoot), "Phase1Adapter")
+                );
+                object phaseOne = GetComponent(
+                    phaseOneObject,
+                    RuntimeType("PhaseOneInteractionAdapter")
+                );
+                object binding = AddComponent(
+                    userContent,
+                    RuntimeType("InteractionTargetBinding")
+                );
+                binding.GetType().GetMethod("Configure").Invoke(
+                    binding,
+                    new object[]
+                    {
+                        "box_stool",
+                        phaseOne,
+                        TypedArray(
+                            UnityType("Behaviour"),
+                            interactionBehaviour
+                        ),
+                        TypedArray(UnityPhysicsType("Collider"), collider)
+                    }
+                );
+                Assert.That(
+                    interactionBehaviour.GetType().GetProperty("enabled")
+                        .GetValue(interactionBehaviour),
+                    Is.False
+                );
+                Assert.That(
+                    collider.GetType().GetProperty("enabled")
+                        .GetValue(collider),
+                    Is.False
+                );
+
+                transform.GetType().GetProperty("localPosition").SetValue(
+                    transform,
+                    CreateVector3(9f, 9f, 9f)
+                );
+                transform.GetType().GetProperty("localScale").SetValue(
+                    transform,
+                    CreateVector3(0.5f, 0.5f, 0.5f)
+                );
+                body.GetType().GetProperty("isKinematic")
+                    .SetValue(body, true);
+                body.GetType().GetProperty("useGravity")
+                    .SetValue(body, false);
+
+                StripW7OwnedWiring(scene);
+
+                Assert.That(
+                    FindGameObjectInScene(scene, "W7Notes"),
+                    Is.SameAs(notes)
+                );
+                Assert.That(
+                    FindGameObjectInScene(scene, "W7UserContent"),
+                    Is.SameAs(userContent)
+                );
+                Assert.That(
+                    GetComponent(
+                        userContent,
+                        RuntimeType("InteractionTargetBinding")
+                    ),
+                    Is.Null
+                );
+                Assert.That(
+                    interactionBehaviour.GetType().GetProperty("enabled")
+                        .GetValue(interactionBehaviour),
+                    Is.True
+                );
+                Assert.That(
+                    collider.GetType().GetProperty("enabled")
+                        .GetValue(collider),
+                    Is.True
+                );
+                Assert.That(
+                    body.GetType().GetProperty("isKinematic").GetValue(body),
+                    Is.False
+                );
+                Assert.That(
+                    body.GetType().GetProperty("useGravity").GetValue(body),
+                    Is.True
+                );
+                AssertVector3(
+                    transform.GetType().GetProperty("localPosition")
+                        .GetValue(transform),
+                    1f,
+                    2f,
+                    3f,
+                    "Teardown did not restore authored position."
+                );
+                AssertVector3(
+                    transform.GetType().GetProperty("localScale")
+                        .GetValue(transform),
+                    2f,
+                    3f,
+                    4f,
+                    "Teardown did not restore authored scale."
+                );
+                Assert.That(CountW7OwnedWiring(scene), Is.Zero);
+
+                object orphanGeneratedId = CreateGameObject("W7SafeSubmit");
+                MoveGameObjectToScene(orphanGeneratedId, scene);
+                Assert.That(
+                    CountW7OwnedWiring(scene),
+                    Is.EqualTo(1),
+                    "Count=0 must reject component-free generated state."
+                );
+                StripW7OwnedWiring(scene);
+                Assert.That(CountW7OwnedWiring(scene), Is.Zero);
+                Assert.That(
+                    FindGameObjectsInScene(scene, "W7SafeSubmit"),
+                    Is.Empty
+                );
+                Assert.That(
+                    FindGameObjectsInScene(scene, "W7Notes"),
+                    Has.Count.EqualTo(1)
+                );
+                Assert.That(
+                    FindGameObjectsInScene(scene, "W7UserContent"),
+                    Has.Count.EqualTo(1)
+                );
+            });
         }
 
         [Test]
@@ -219,120 +715,249 @@ namespace SignVR.Interaction.Editor.Tests
         [Test]
         public void SceneValidatorRejectsWrongMovingPartHierarchy()
         {
-            InvokeEditorSetup("SetupAndValidateForAutomationWithoutSaving");
-            object runtimeRoot = FindGameObject(
-                "W7PhaseInteractionAdapters"
-            );
-            object presentation = GetComponent(
-                runtimeRoot,
-                RuntimeType("InteractionDeterministicPresentation")
-            );
-            object scene = runtimeRoot.GetType().GetProperty("scene")
-                .GetValue(runtimeRoot);
-            object chest = FindGameObject("chest");
-            object decoy = CreateGameObject("lid");
-            SetParent(GetTransform(decoy), GetTransform(chest));
-            try
+            WithCleanInteractionScene(scene =>
             {
-                object binding = presentation.GetType()
-                    .GetProperty("ChestLid").GetValue(presentation);
-                binding.GetType().GetMethod("Configure").Invoke(
-                    binding,
-                    new object[]
-                    {
-                        GetTransform(decoy),
-                        GetTransform(chest),
-                        CreateVector3(1f, 0f, 0f),
-                        -90f
-                    }
+                    InvokeTestOwnedSetupAndValidate(scene);
+                object runtimeRoot = FindGameObjectInScene(
+                    scene,
+                    "W7PhaseInteractionAdapters"
                 );
-
-                TargetInvocationException failure = Assert.Throws<
-                    TargetInvocationException>(() =>
-                        Type.GetType(
-                            ValidatorTypeName,
-                            throwOnError: true
-                        ).GetMethod(
-                            "ValidateLoadedScene",
-                            BindingFlags.Public | BindingFlags.Static
-                        ).Invoke(null, new[] { scene })
+                object presentation = GetComponent(
+                    runtimeRoot,
+                    RuntimeType("InteractionDeterministicPresentation")
+                );
+                object chest = FindGameObjectInScene(scene, "chest");
+                object decoy = CreateGameObject("lid");
+                SetParent(GetTransform(decoy), GetTransform(chest));
+                try
+                {
+                    object binding = presentation.GetType()
+                        .GetProperty("ChestLid").GetValue(presentation);
+                    binding.GetType().GetMethod("Configure").Invoke(
+                        binding,
+                        new object[]
+                        {
+                            GetTransform(decoy),
+                            GetTransform(chest),
+                            CreateVector3(1f, 0f, 0f),
+                            -90f
+                        }
                     );
 
-                Assert.That(
-                    failure.InnerException.Message,
-                    Does.Contain("Chest lid MovingPart")
-                );
-            }
-            finally
-            {
-                DestroyImmediate(decoy);
-                Type.GetType(
-                    ValidatorTypeName,
-                    throwOnError: true
-                ).GetMethod(
-                    "SetupLoadedScene",
-                    BindingFlags.Public | BindingFlags.Static
-                ).Invoke(null, new[] { scene });
-            }
+                    TargetInvocationException failure = Assert.Throws<
+                        TargetInvocationException>(() =>
+                            InvokeValidateLoadedScene(scene)
+                        );
+
+                    Assert.That(
+                        failure.InnerException.Message,
+                        Does.Contain("Chest lid MovingPart")
+                    );
+                }
+                finally
+                {
+                    DestroyImmediate(decoy);
+                }
+            });
         }
 
         [Test]
         public void FailedSetupRollsBackChangesToExistingObjects()
         {
-            InvokeEditorSetup("SetupAndValidateForAutomationWithoutSaving");
-            object backspace = FindGameObject("W7SafeBackspace");
-            object labelTransform = FindChild(
-                GetTransform(backspace),
-                "Label"
-            );
-            object label = GetComponent(
-                GetGameObject(labelTransform),
-                Type.GetType(
-                    "UnityEngine.TextMesh, UnityEngine.TextRenderingModule",
-                    throwOnError: true
-                )
-            );
-            object poison = CreateGameObject("W7RollbackPoison");
-            try
+            WithCleanInteractionScene(scene =>
             {
-                label.GetType().GetProperty("text")
-                    .SetValue(label, "WRONG");
-                AddComponent(
-                    poison,
-                    RuntimeType("InteractionTriggerRelay")
+                InvokeTestOwnedSetupAndValidate(scene);
+                object backspace = FindGameObjectInScene(
+                    scene,
+                    "W7SafeBackspace"
                 );
-                object scene = poison.GetType().GetProperty("scene")
-                    .GetValue(poison);
-
-                TargetInvocationException failure = Assert.Throws<
-                    TargetInvocationException>(() =>
-                        Type.GetType(
-                            ValidatorTypeName,
-                            throwOnError: true
-                        ).GetMethod(
-                            "SetupLoadedScene",
-                            BindingFlags.Public | BindingFlags.Static
-                        ).Invoke(null, new[] { scene })
+                object labelTransform = FindChild(
+                    GetTransform(backspace),
+                    "Label"
+                );
+                object label = GetComponent(
+                    GetGameObject(labelTransform),
+                    Type.GetType(
+                        "UnityEngine.TextMesh, UnityEngine.TextRenderingModule",
+                        throwOnError: true
+                    )
+                );
+                object poison = CreateGameObject("W7RollbackPoison");
+                SetParent(
+                    GetTransform(poison),
+                    GetTransform(FindGameObjectInScene(
+                        scene,
+                        "W7PhaseInteractionAdapters"
+                    ))
+                );
+                try
+                {
+                    label.GetType().GetProperty("text")
+                        .SetValue(label, "WRONG");
+                    AddComponent(
+                        poison,
+                        RuntimeType("InteractionTriggerRelay")
                     );
 
-                Assert.That(
-                    failure.InnerException,
-                    Is.TypeOf<InvalidOperationException>()
-                );
-                Assert.That(
-                    label.GetType().GetProperty("text").GetValue(label),
-                    Is.EqualTo("WRONG"),
-                    "A failed setup must Undo changes to existing objects."
-                );
-            }
-            finally
+                    TargetInvocationException failure = Assert.Throws<
+                        TargetInvocationException>(() =>
+                            InvokeSetupLoadedScene(scene)
+                        );
+
+                    Assert.That(
+                        failure.InnerException,
+                        Is.TypeOf<InvalidOperationException>()
+                    );
+                    Assert.That(
+                        label.GetType().GetProperty("text").GetValue(label),
+                        Is.EqualTo("WRONG"),
+                        "A failed setup must Undo existing-object changes."
+                    );
+                }
+                finally
+                {
+                    DestroyImmediate(poison);
+                }
+            });
+        }
+
+        [Test]
+        public void FailedSetupRestoresReferencesWithoutEditorSubscriptions()
+        {
+            WithCleanInteractionScene(scene =>
             {
-                DestroyImmediate(poison);
-                label.GetType().GetProperty("text").SetValue(label, "*");
-                InvokeEditorSetup(
-                    "SetupAndValidateForAutomationWithoutSaving"
+                InvokeTestOwnedSetupAndValidate(scene);
+                object runtimeRoot = FindGameObjectInScene(
+                    scene,
+                    "W7PhaseInteractionAdapters"
                 );
-            }
+                object box = FindGameObjectInScene(scene, "box");
+                object binding = GetComponent(
+                    box,
+                    RuntimeType("InteractionTargetBinding")
+                );
+                object setupAdapter = binding.GetType()
+                    .GetProperty("Adapter").GetValue(binding);
+
+                object previousAdapterObject = CreateGameObject(
+                    "W7PreviousPhase1Adapter"
+                );
+                SetParent(
+                    GetTransform(previousAdapterObject),
+                    GetTransform(runtimeRoot)
+                );
+                object previousAdapter = AddComponent(
+                    previousAdapterObject,
+                    RuntimeType("PhaseOneInteractionAdapter")
+                );
+                object colliderObject = CreateGameObject(
+                    "W7EditorSubscriptionProbe"
+                );
+                SetParent(
+                    GetTransform(colliderObject),
+                    GetTransform(runtimeRoot)
+                );
+                object probeCollider = AddComponent(
+                    colliderObject,
+                    UnityPhysicsType("BoxCollider")
+                );
+                binding.GetType().GetMethod("Configure").Invoke(
+                    binding,
+                    new object[]
+                    {
+                        "box_stool",
+                        previousAdapter,
+                        null,
+                        TypedArray(
+                            UnityPhysicsType("Collider"),
+                            probeCollider
+                        )
+                    }
+                );
+
+                Assert.That(
+                    binding.GetType().GetProperty("Adapter")
+                        .GetValue(binding),
+                    Is.SameAs(previousAdapter)
+                );
+                AssertEditorPublisherDoesNotReachBinding(
+                    binding,
+                    previousAdapter,
+                    probeCollider
+                );
+                AssertEditorPublisherDoesNotReachBinding(
+                    binding,
+                    setupAdapter,
+                    probeCollider
+                );
+
+                object poison = CreateGameObject("W7SubscriptionPoison");
+                SetParent(GetTransform(poison), GetTransform(runtimeRoot));
+                AddComponent(poison, RuntimeType("InteractionTriggerRelay"));
+                try
+                {
+                    Assert.Throws<TargetInvocationException>(() =>
+                        InvokeSetupLoadedScene(scene)
+                    );
+
+                    Assert.That(
+                        binding.GetType().GetProperty("Adapter")
+                            .GetValue(binding),
+                        Is.SameAs(previousAdapter),
+                        "Undo must restore the pre-setup serialized reference."
+                    );
+                    AssertEditorPublisherDoesNotReachBinding(
+                        binding,
+                        previousAdapter,
+                        probeCollider
+                    );
+                    AssertEditorPublisherDoesNotReachBinding(
+                        binding,
+                        setupAdapter,
+                        probeCollider
+                    );
+                    binding.GetType().GetMethod("Configure").Invoke(
+                        binding,
+                        new object[]
+                        {
+                            "box_stool",
+                            setupAdapter,
+                            null,
+                            TypedArray(
+                                UnityPhysicsType("Collider"),
+                                probeCollider
+                            )
+                        }
+                    );
+                    binding.GetType().GetMethod("Configure").Invoke(
+                        binding,
+                        new object[]
+                        {
+                            "box_stool",
+                            setupAdapter,
+                            null,
+                            TypedArray(
+                                UnityPhysicsType("Collider"),
+                                probeCollider
+                            )
+                        }
+                    );
+                    AssertEditorPublisherDoesNotReachBinding(
+                        binding,
+                        previousAdapter,
+                        probeCollider
+                    );
+                    AssertEditorPublisherDoesNotReachBinding(
+                        binding,
+                        setupAdapter,
+                        probeCollider
+                    );
+                }
+                finally
+                {
+                    DestroyImmediate(poison);
+                }
+            });
         }
 
         [Test]
@@ -868,17 +1493,26 @@ namespace SignVR.Interaction.Editor.Tests
                 coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
                 SynchronizePhase(coordinator, 1);
 
-                AcceptTarget(coordinator, 1, "box_stool");
+                DispatchHintResult(
+                    hints,
+                    AcceptTarget(coordinator, 1, "box_stool")
+                );
                 Assert.That(IsComponentGameObjectActive(safeText), Is.True);
-                AcceptInput(
-                    coordinator,
-                    1,
-                    CoreType("PhaseInput").GetMethod("Submit")
-                        .Invoke(null, null)
+                DispatchHintResult(
+                    hints,
+                    AcceptInput(
+                        coordinator,
+                        1,
+                        CoreType("PhaseInput").GetMethod("Submit")
+                            .Invoke(null, null)
+                    )
                 );
                 Assert.That(IsComponentGameObjectActive(safeText), Is.False);
 
-                AcceptTarget(coordinator, 1, "box_stool");
+                DispatchHintResult(
+                    hints,
+                    AcceptTarget(coordinator, 1, "box_stool")
+                );
                 for (int digit = 1; digit <= 4; digit++)
                 {
                     AcceptInput(
@@ -890,11 +1524,14 @@ namespace SignVR.Interaction.Editor.Tests
                         )
                     );
                 }
-                AcceptInput(
-                    coordinator,
-                    1,
-                    CoreType("PhaseInput").GetMethod("Submit")
-                        .Invoke(null, null)
+                DispatchHintResult(
+                    hints,
+                    AcceptInput(
+                        coordinator,
+                        1,
+                        CoreType("PhaseInput").GetMethod("Submit")
+                            .Invoke(null, null)
+                    )
                 );
                 Assert.That(IsComponentGameObjectActive(safeText), Is.False);
 
@@ -904,9 +1541,12 @@ namespace SignVR.Interaction.Editor.Tests
                 );
                 coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
                 SynchronizePhase(coordinator, 1);
-                AcceptTarget(coordinator, 1, "box_stool");
+                DispatchHintResult(
+                    hints,
+                    AcceptTarget(coordinator, 1, "box_stool")
+                );
                 SynchronizePhase(coordinator, 1, giveUpAvailable: true);
-                GiveUp(coordinator, 1);
+                DispatchHintResult(hints, GiveUp(coordinator, 1));
                 Assert.That(IsComponentGameObjectActive(safeText), Is.False);
 
                 coordinatorType.GetMethod("Configure").Invoke(
@@ -915,14 +1555,17 @@ namespace SignVR.Interaction.Editor.Tests
                 );
                 coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
                 SynchronizePhase(coordinator, 3, giveUpAvailable: true);
-                GiveUp(coordinator, 3);
+                DispatchHintResult(hints, GiveUp(coordinator, 3));
                 Assert.That(IsComponentGameObjectActive(chestText), Is.True);
 
                 SynchronizePhase(coordinator, 4);
                 foreach (string targetId in
                          new[] { "blue", "red", "yellow", "green" })
                 {
-                    AcceptTarget(coordinator, 4, targetId);
+                    DispatchHintResult(
+                        hints,
+                        AcceptTarget(coordinator, 4, targetId)
+                    );
                 }
                 Assert.That(IsComponentGameObjectActive(chestText), Is.False);
 
@@ -932,10 +1575,10 @@ namespace SignVR.Interaction.Editor.Tests
                 );
                 coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
                 SynchronizePhase(coordinator, 3, giveUpAvailable: true);
-                GiveUp(coordinator, 3);
+                DispatchHintResult(hints, GiveUp(coordinator, 3));
                 Assert.That(IsComponentGameObjectActive(chestText), Is.True);
                 SynchronizePhase(coordinator, 4, giveUpAvailable: true);
-                GiveUp(coordinator, 4);
+                DispatchHintResult(hints, GiveUp(coordinator, 4));
                 Assert.That(IsComponentGameObjectActive(chestText), Is.False);
             }
             finally
@@ -1047,6 +1690,8 @@ namespace SignVR.Interaction.Editor.Tests
                 coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
                 SynchronizePhase(coordinator, 4, giveUpAvailable: true);
                 object result = GiveUp(coordinator, 4);
+                presentationType.GetMethod("RebuildFromAuthority")
+                    .Invoke(presentation, null);
 
                 Assert.That(
                     result.GetType().GetProperty("PhaseGivenUp")
@@ -1098,7 +1743,7 @@ namespace SignVR.Interaction.Editor.Tests
                     new[] { buttonA, buttonB, buttonC },
                     new[] { "button_a", "button_b", "button_c" }
                 );
-                ConfigurePresentation(
+                object presentation = ConfigurePresentation(
                     root,
                     coordinator,
                     cabinetBindings
@@ -1115,6 +1760,8 @@ namespace SignVR.Interaction.Editor.Tests
                 AcceptTarget(coordinator, 5, "key_a");
                 AcceptTarget(coordinator, 5, "button_a");
                 AcceptTarget(coordinator, 5, "button_b");
+                presentation.GetType().GetMethod("RebuildFromAuthority")
+                    .Invoke(presentation, null);
                 Assert.That(
                     RotationAngleFromIdentity(buttonA),
                     Is.GreaterThan(0.1f)
@@ -1129,6 +1776,8 @@ namespace SignVR.Interaction.Editor.Tests
                     5,
                     "button_b"
                 );
+                presentation.GetType().GetMethod("RebuildFromAuthority")
+                    .Invoke(presentation, null);
 
                 Assert.That(
                     (bool)resetResult.GetType()
@@ -1381,26 +2030,584 @@ namespace SignVR.Interaction.Editor.Tests
             }
         }
 
-        private static void InvokeEditorSetup(string methodName)
+        private static void AssertGuardSceneRejected(
+            string temporaryFolderName,
+            string temporarySceneFileName,
+            int markerCount,
+            string expectedMessage)
         {
-            MethodInfo method = Type.GetType(
+            string fullScenePath = Path.GetFullPath(
+                InteractionSceneAssetPath
+            );
+            byte[] bytesBefore = File.ReadAllBytes(fullScenePath);
+            string hashBefore = ComputeSha256(bytesBefore);
+            Type sceneManager = EditorType(
+                "UnityEditor.SceneManagement.EditorSceneManager"
+            );
+            Type assetDatabase = EditorType("UnityEditor.AssetDatabase");
+            Type openModeType = EditorType(
+                "UnityEditor.SceneManagement.OpenSceneMode"
+            );
+            object additive = Enum.Parse(openModeType, "Additive");
+            object previousActiveScene = GetActiveScene();
+            string temporaryFolderPath = "Assets/" + temporaryFolderName;
+            string temporaryScenePath = temporaryFolderPath + "/" +
+                temporarySceneFileName;
+            object scene = null;
+            bool temporaryFolderCreated = false;
+            ExceptionDispatchInfo primaryFailure = null;
+            try
+            {
+                string folderGuid = (string)assetDatabase.GetMethod(
+                    "CreateFolder",
+                    new[] { typeof(string), typeof(string) }
+                ).Invoke(
+                    null,
+                    new object[] { "Assets", temporaryFolderName }
+                );
+                if (string.IsNullOrWhiteSpace(folderGuid))
+                {
+                    throw new InvalidOperationException(
+                        "Unity could not create a guard-test asset folder."
+                    );
+                }
+                temporaryFolderCreated = true;
+                bool copied = (bool)assetDatabase.GetMethod(
+                    "CopyAsset",
+                    new[] { typeof(string), typeof(string) }
+                ).Invoke(
+                    null,
+                    new object[]
+                    {
+                        InteractionSceneAssetPath,
+                        temporaryScenePath
+                    }
+                );
+                if (!copied)
+                {
+                    throw new InvalidOperationException(
+                        "Unity could not create the guard-test scene copy."
+                    );
+                }
+                scene = sceneManager.GetMethod(
+                    "OpenScene",
+                    new[] { typeof(string), openModeType }
+                ).Invoke(
+                    null,
+                    new[] { (object)temporaryScenePath, additive }
+                );
+                for (int index = 0; index < markerCount; index++)
+                {
+                    object marker = CreateGameObject(TestSceneMarkerName);
+                    MoveGameObjectToScene(marker, scene);
+                }
+
+                TargetInvocationException rejected = Assert.Throws<
+                    TargetInvocationException>(() =>
+                        InvokeValidateLoadedScene(scene)
+                    );
+                Assert.That(
+                    rejected.InnerException.Message,
+                    Does.Contain(expectedMessage)
+                );
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                RunFixtureCleanup(
+                    primaryFailure,
+                    () =>
+                    {
+                        if (scene != null && IsSceneValid(scene) &&
+                            GetSceneBoolean(scene, "isLoaded"))
+                        {
+                            CloseScene(sceneManager, scene);
+                        }
+                    },
+                    () => RestoreActiveScene(previousActiveScene),
+                    () =>
+                    {
+                        if (!temporaryFolderCreated)
+                        {
+                            return;
+                        }
+                        bool deleted = (bool)assetDatabase.GetMethod(
+                            "DeleteAsset",
+                            new[] { typeof(string) }
+                        ).Invoke(null, new object[] { temporaryFolderPath });
+                        if (!deleted)
+                        {
+                            throw new InvalidOperationException(
+                                "Unity could not delete the guard-test folder."
+                            );
+                        }
+                    },
+                    () => AssertSceneAssetUnchanged(
+                        fullScenePath,
+                        bytesBefore,
+                        hashBefore
+                    )
+                );
+            }
+        }
+
+        private static void WithCleanInteractionScene(Action<object> test)
+        {
+            if (test == null)
+            {
+                throw new ArgumentNullException(nameof(test));
+            }
+
+            string fullScenePath = Path.GetFullPath(
+                InteractionSceneAssetPath
+            );
+            byte[] bytesBefore = File.ReadAllBytes(fullScenePath);
+            string hashBefore = ComputeSha256(bytesBefore);
+            Type sceneManager = EditorType(
+                "UnityEditor.SceneManagement.EditorSceneManager"
+            );
+            object previousActiveScene = GetActiveScene();
+            Type assetDatabase = EditorType("UnityEditor.AssetDatabase");
+            Type openModeType = EditorType(
+                "UnityEditor.SceneManagement.OpenSceneMode"
+            );
+            object additive = Enum.Parse(openModeType, "Additive");
+            string ownerId = Guid.NewGuid().ToString("N");
+            string temporaryFolderName =
+                "__W7InteractionPhaseAdaptersTests_" + ownerId;
+            string temporaryFolderPath = "Assets/" + temporaryFolderName;
+            string temporaryScenePath = temporaryFolderPath +
+                "/InteractionLab_W7Test.unity";
+            object scene = null;
+            bool temporaryFolderCreated = false;
+            ExceptionDispatchInfo primaryFailure = null;
+            try
+            {
+                string folderGuid = (string)assetDatabase.GetMethod(
+                    "CreateFolder",
+                    new[] { typeof(string), typeof(string) }
+                ).Invoke(
+                    null,
+                    new object[] { "Assets", temporaryFolderName }
+                );
+                if (string.IsNullOrWhiteSpace(folderGuid))
+                {
+                    throw new InvalidOperationException(
+                        "Unity could not create the W7 temporary asset folder."
+                    );
+                }
+                temporaryFolderCreated = true;
+                bool copied = (bool)assetDatabase.GetMethod(
+                    "CopyAsset",
+                    new[] { typeof(string), typeof(string) }
+                ).Invoke(
+                    null,
+                    new object[]
+                    {
+                        InteractionSceneAssetPath,
+                        temporaryScenePath
+                    }
+                );
+                if (!copied)
+                {
+                    throw new InvalidOperationException(
+                        "Unity could not create the isolated InteractionLab " +
+                        "asset copy."
+                    );
+                }
+
+                scene = sceneManager.GetMethod(
+                    "OpenScene",
+                    new[] { typeof(string), openModeType }
+                ).Invoke(
+                    null,
+                    new[] { (object)temporaryScenePath, additive }
+                );
+                Type setup = Type.GetType(
+                    ValidatorTypeName,
+                    throwOnError: true
+                );
+                setup.GetMethod(
+                    "MarkTestOwnedSceneForAutomation",
+                    BindingFlags.Public | BindingFlags.Static
+                ).Invoke(null, new[] { scene });
+                setup.GetMethod(
+                    "StripW7OwnedWiringForTests",
+                    BindingFlags.Public | BindingFlags.Static
+                ).Invoke(null, new[] { scene });
+                int remaining = (int)setup.GetMethod(
+                    "CountW7OwnedWiringForTests",
+                    BindingFlags.Public | BindingFlags.Static
+                ).Invoke(null, new[] { scene });
+                Assert.That(
+                    remaining,
+                    Is.Zero,
+                    "The fixture must start with no W7-owned wiring."
+                );
+
+                test(scene);
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                RunFixtureCleanup(
+                    primaryFailure,
+                    () =>
+                    {
+                        if (scene != null && IsSceneValid(scene) &&
+                            GetSceneBoolean(scene, "isLoaded"))
+                        {
+                            CloseScene(sceneManager, scene);
+                        }
+                    },
+                    () => RestoreActiveScene(previousActiveScene),
+                    () =>
+                    {
+                        if (!temporaryFolderCreated)
+                        {
+                            return;
+                        }
+                        bool deleted = (bool)assetDatabase.GetMethod(
+                            "DeleteAsset",
+                            new[] { typeof(string) }
+                        ).Invoke(null, new object[] { temporaryFolderPath });
+                        if (!deleted)
+                        {
+                            throw new InvalidOperationException(
+                                "Unity could not delete the W7 temporary " +
+                                "asset folder."
+                            );
+                        }
+                    },
+                    () => AssertSceneAssetUnchanged(
+                        fullScenePath,
+                        bytesBefore,
+                        hashBefore
+                    )
+                );
+            }
+        }
+
+        private static void RunFixtureCleanup(
+            ExceptionDispatchInfo primaryFailure,
+            params Action[] recoveryActions)
+        {
+            var recoveryFailures = new List<Exception>();
+            if (recoveryActions != null)
+            {
+                for (int index = 0; index < recoveryActions.Length; index++)
+                {
+                    try
+                    {
+                        recoveryActions[index]?.Invoke();
+                    }
+                    catch (Exception exception)
+                    {
+                        recoveryFailures.Add(exception);
+                    }
+                }
+            }
+
+            if (primaryFailure != null)
+            {
+                if (recoveryFailures.Count == 0)
+                {
+                    primaryFailure.Throw();
+                    return;
+                }
+
+                recoveryFailures.Insert(0, primaryFailure.SourceException);
+                throw new AggregateException(
+                    "The W7 fixture failed and one or more independent " +
+                    "recovery actions also failed.",
+                    recoveryFailures
+                );
+            }
+
+            if (recoveryFailures.Count == 1)
+            {
+                ExceptionDispatchInfo.Capture(recoveryFailures[0]).Throw();
+                return;
+            }
+            if (recoveryFailures.Count > 1)
+            {
+                throw new AggregateException(
+                    "Multiple W7 fixture recovery actions failed.",
+                    recoveryFailures
+                );
+            }
+        }
+
+        private static void AssertSceneAssetUnchanged(
+            string fullScenePath,
+            byte[] bytesBefore,
+            string hashBefore)
+        {
+            byte[] bytesAfter = File.ReadAllBytes(fullScenePath);
+            string hashAfter = ComputeSha256(bytesAfter);
+            CollectionAssert.AreEqual(
+                bytesBefore,
+                bytesAfter,
+                "InteractionLab scene bytes changed during an isolated test."
+            );
+            Assert.That(
+                hashAfter,
+                Is.EqualTo(hashBefore),
+                "InteractionLab SHA-256 changed during an isolated test."
+            );
+        }
+
+        private static object CreateAdditiveEmptyScene(
+            Type editorSceneManager)
+        {
+            Type setupType = EditorType(
+                "UnityEditor.SceneManagement.NewSceneSetup"
+            );
+            Type modeType = EditorType(
+                "UnityEditor.SceneManagement.NewSceneMode"
+            );
+            return editorSceneManager.GetMethod(
+                "NewScene",
+                new[] { setupType, modeType }
+            ).Invoke(
+                null,
+                new[]
+                {
+                    Enum.Parse(setupType, "EmptyScene"),
+                    Enum.Parse(modeType, "Additive")
+                }
+            );
+        }
+
+        private static void CloseScene(Type editorSceneManager, object scene)
+        {
+            bool closed = (bool)editorSceneManager.GetMethod(
+                "CloseScene",
+                new[] { scene.GetType(), typeof(bool) }
+            ).Invoke(null, new[] { scene, (object)true });
+            Assert.That(closed, Is.True, "Failed to close isolated scene.");
+        }
+
+        private static object GetActiveScene()
+        {
+            return SceneManagerType().GetMethod(
+                "GetActiveScene",
+                BindingFlags.Public | BindingFlags.Static
+            ).Invoke(null, null);
+        }
+
+        private static object GetSceneByPath(string path)
+        {
+            return SceneManagerType().GetMethod(
+                "GetSceneByPath",
+                new[] { typeof(string) }
+            ).Invoke(null, new object[] { path });
+        }
+
+        private static Array GetSceneRoots(object scene)
+        {
+            return (Array)scene.GetType().GetMethod(
+                "GetRootGameObjects",
+                Type.EmptyTypes
+            ).Invoke(scene, null);
+        }
+
+        private static void MarkSceneDirty(
+            Type editorSceneManager,
+            object scene)
+        {
+            editorSceneManager.GetMethod(
+                "MarkSceneDirty",
+                new[] { scene.GetType() }
+            ).Invoke(null, new[] { scene });
+        }
+
+        private static bool IsSceneValid(object scene)
+        {
+            return scene != null && (bool)scene.GetType().GetMethod(
+                "IsValid",
+                Type.EmptyTypes
+            ).Invoke(scene, null);
+        }
+
+        private static bool GetSceneBoolean(object scene, string propertyName)
+        {
+            return (bool)scene.GetType().GetProperty(propertyName)
+                .GetValue(scene);
+        }
+
+        private static void RestoreActiveScene(object scene)
+        {
+            if (!IsSceneValid(scene) ||
+                !GetSceneBoolean(scene, "isLoaded"))
+            {
+                return;
+            }
+            bool restored = (bool)SceneManagerType().GetMethod(
+                "SetActiveScene",
+                new[] { scene.GetType() }
+            ).Invoke(null, new[] { scene });
+            Assert.That(restored, Is.True, "Failed to restore active scene.");
+        }
+
+        private static void MoveGameObjectToScene(
+            object gameObject,
+            object scene)
+        {
+            SceneManagerType().GetMethod(
+                "MoveGameObjectToScene",
+                new[] { UnityType("GameObject"), scene.GetType() }
+            ).Invoke(null, new[] { gameObject, scene });
+        }
+
+        private static Type SceneManagerType()
+        {
+            return Type.GetType(
+                "UnityEngine.SceneManagement.SceneManager, " +
+                "UnityEngine.CoreModule",
+                throwOnError: true
+            );
+        }
+
+        private static void InvokeValidateLoadedScene(object scene)
+        {
+            Type.GetType(
                 ValidatorTypeName,
                 throwOnError: true
             ).GetMethod(
-                methodName,
+                "ValidateTestOwnedSceneForAutomation",
                 BindingFlags.Public | BindingFlags.Static
+            ).Invoke(null, new[] { scene });
+        }
+
+        private static void InvokeTestOwnedSetupAndValidate(object scene)
+        {
+            Type.GetType(
+                ValidatorTypeName,
+                throwOnError: true
+            ).GetMethod(
+                "SetupAndValidateTestOwnedSceneWithoutSaving",
+                BindingFlags.Public | BindingFlags.Static
+            ).Invoke(null, new[] { scene });
+        }
+
+        private static void InvokeSetupLoadedScene(object scene)
+        {
+            Type.GetType(
+                ValidatorTypeName,
+                throwOnError: true
+            ).GetMethod(
+                "SetupTestOwnedSceneForAutomation",
+                BindingFlags.Public | BindingFlags.Static
+            ).Invoke(null, new[] { scene });
+        }
+
+        private static object FindGameObjectInScene(
+            object scene,
+            string name)
+        {
+            return Type.GetType(
+                ValidatorTypeName,
+                throwOnError: true
+            ).GetMethod(
+                "FindGameObjectInSceneForTests",
+                BindingFlags.Public | BindingFlags.Static
+            ).Invoke(null, new[] { scene, name });
+        }
+
+        private static Array FindGameObjectsInScene(
+            object scene,
+            string name)
+        {
+            return (Array)Type.GetType(
+                ValidatorTypeName,
+                throwOnError: true
+            ).GetMethod(
+                "FindGameObjectsInSceneForTests",
+                BindingFlags.Public | BindingFlags.Static
+            ).Invoke(null, new[] { scene, name });
+        }
+
+        private static void StripW7OwnedWiring(object scene)
+        {
+            Type.GetType(
+                ValidatorTypeName,
+                throwOnError: true
+            ).GetMethod(
+                "StripW7OwnedWiringForTests",
+                BindingFlags.Public | BindingFlags.Static
+            ).Invoke(null, new[] { scene });
+        }
+
+        private static int CountW7OwnedWiring(object scene)
+        {
+            return (int)Type.GetType(
+                ValidatorTypeName,
+                throwOnError: true
+            ).GetMethod(
+                "CountW7OwnedWiringForTests",
+                BindingFlags.Public | BindingFlags.Static
+            ).Invoke(null, new[] { scene });
+        }
+
+        private static void AssertEditorPublisherDoesNotReachBinding(
+            object binding,
+            object adapter,
+            object collider)
+        {
+            int invocationCount = GetSubscriptionInvocationCount(binding);
+            object colliderState = collider.GetType().GetProperty("enabled")
+                .GetValue(collider);
+            adapter.GetType().GetMethod("Enable").Invoke(adapter, null);
+            adapter.GetType().GetMethod("Disable").Invoke(adapter, null);
+            Assert.That(
+                GetSubscriptionInvocationCount(binding),
+                Is.EqualTo(invocationCount),
+                "EditMode Configure must not attach runtime event handlers."
             );
-            Assert.That(method, Is.Not.Null);
-            try
+            Assert.That(
+                collider.GetType().GetProperty("enabled").GetValue(collider),
+                Is.EqualTo(colliderState),
+                "An EditMode publisher event reached the binding collider."
+            );
+        }
+
+        private static int GetSubscriptionInvocationCount(object subscriber)
+        {
+            PropertyInfo property = subscriber.GetType().GetProperty(
+                "SubscriptionDiagnostic",
+                BindingFlags.Instance | BindingFlags.Public
+            );
+            Assert.That(
+                property,
+                Is.Not.Null,
+                "UNITY_INCLUDE_TESTS diagnostic is unavailable."
+            );
+            object diagnostic = property.GetValue(subscriber);
+            return (int)diagnostic.GetType().GetProperty("InvocationCount")
+                .GetValue(diagnostic);
+        }
+
+        private static string ComputeSha256(byte[] bytes)
+        {
+            using (SHA256 algorithm = SHA256.Create())
             {
-                method.Invoke(null, null);
+                return BitConverter.ToString(algorithm.ComputeHash(bytes))
+                    .Replace("-", string.Empty);
             }
-            catch (TargetInvocationException exception)
-                when (exception.InnerException != null)
-            {
-                ExceptionDispatchInfo.Capture(exception.InnerException).Throw();
-                throw;
-            }
+        }
+
+        private static Type EditorType(string fullName)
+        {
+            Type type = Type.GetType(fullName + ", UnityEditor", false) ??
+                Type.GetType(fullName + ", UnityEditor.CoreModule", false);
+            return type ?? throw new TypeLoadException(fullName);
         }
 
         private static void AssertDisabledInputBoundary(
@@ -1692,6 +2899,16 @@ namespace SignVR.Interaction.Editor.Tests
                     throwOnError: true
                 )
             );
+        }
+
+        private static void DispatchHintResult(object presenter, object result)
+        {
+            MethodInfo handler = presenter.GetType().GetMethod(
+                "HandleResult",
+                BindingFlags.Instance | BindingFlags.NonPublic
+            );
+            Assert.That(handler, Is.Not.Null);
+            handler.Invoke(presenter, new[] { result });
         }
 
         private static bool IsComponentGameObjectActive(object component)
@@ -2018,6 +3235,42 @@ namespace SignVR.Interaction.Editor.Tests
             );
         }
 
+        private static float ReadVector3Component(
+            object vector,
+            string component)
+        {
+            return Convert.ToSingle(
+                vector.GetType().GetField(component).GetValue(vector)
+            );
+        }
+
+        private static void AssertVector3(
+            object vector,
+            float x,
+            float y,
+            float z,
+            string message)
+        {
+            Assert.That(
+                Convert.ToSingle(vector.GetType().GetField("x")
+                    .GetValue(vector)),
+                Is.EqualTo(x).Within(0.0001f),
+                message
+            );
+            Assert.That(
+                Convert.ToSingle(vector.GetType().GetField("y")
+                    .GetValue(vector)),
+                Is.EqualTo(y).Within(0.0001f),
+                message
+            );
+            Assert.That(
+                Convert.ToSingle(vector.GetType().GetField("z")
+                    .GetValue(vector)),
+                Is.EqualTo(z).Within(0.0001f),
+                message
+            );
+        }
+
         private static float RotationAngleFromIdentity(object transform)
         {
             Type quaternionType = UnityType("Quaternion");
@@ -2062,6 +3315,14 @@ namespace SignVR.Interaction.Editor.Tests
         {
             return Type.GetType(
                 "UnityEngine." + typeName + ", UnityEngine.PhysicsModule",
+                throwOnError: true
+            );
+        }
+
+        private static Type UnityAudioType(string typeName)
+        {
+            return Type.GetType(
+                "UnityEngine." + typeName + ", UnityEngine.AudioModule",
                 throwOnError: true
             );
         }
