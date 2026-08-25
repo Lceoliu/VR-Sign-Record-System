@@ -1683,6 +1683,50 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         {
             RuntimeFixture fixtureA = CreateRuntimeFixture("KeyOwnershipA");
             RuntimeFixture fixtureB = CreateRuntimeFixture("KeyOwnershipB");
+            GameObject nonConvexKey = new GameObject(
+                "KinematicNonConvexKey"
+            );
+            nonConvexKey.transform.SetParent(
+                fixtureA.Root.transform,
+                false
+            );
+            Rigidbody nonConvexBody =
+                nonConvexKey.AddComponent<Rigidbody>();
+            nonConvexBody.isKinematic = true;
+            nonConvexBody.useGravity = false;
+            Mesh nonConvexMesh = TrackTransientAsset(new Mesh
+            {
+                name = "W7KinematicNonConvexKeyMesh"
+            });
+            nonConvexMesh.vertices = new[]
+            {
+                Vector3.zero,
+                Vector3.right,
+                Vector3.up
+            };
+            nonConvexMesh.triangles = new[] { 0, 1, 2 };
+            nonConvexMesh.RecalculateBounds();
+            MeshCollider nonConvexCollider =
+                nonConvexKey.AddComponent<MeshCollider>();
+            nonConvexCollider.sharedMesh = nonConvexMesh;
+            nonConvexCollider.convex = false;
+            object nonConvexBinding = Activator.CreateInstance(
+                RuntimeType("PlannedKeyReleaseBinding")
+            );
+            InvokePublic(
+                nonConvexBinding,
+                "Configure",
+                "key_nonconvex_kinematic",
+                nonConvexKey,
+                new[] { nonConvexBody },
+                Array.Empty<Behaviour>(),
+                new Collider[] { nonConvexCollider }
+            );
+            InvokePublic(nonConvexBinding, "PrepareForRun", true);
+            Assert.That(nonConvexBody.isKinematic, Is.True);
+            Assert.That(nonConvexCollider.enabled, Is.False);
+            LogAssert.NoUnexpectedReceived();
+
             PresentationKeyProbe keyA = CreatePresentationKey(
                 fixtureA.Root.transform,
                 "KeyOwnershipA"

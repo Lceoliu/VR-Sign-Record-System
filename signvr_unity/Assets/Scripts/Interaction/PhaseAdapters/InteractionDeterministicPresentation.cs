@@ -469,15 +469,20 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private static void StopAndLock(Rigidbody body)
         {
-            body.isKinematic = false;
-            body.linearVelocity = Vector3.zero;
-            body.angularVelocity = Vector3.zero;
-            body.isKinematic = true;
+            if (!body.isKinematic)
+            {
+                body.linearVelocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+                body.isKinematic = true;
+            }
         }
     }
 
     [DisallowMultipleComponent]
     public sealed class InteractionDeterministicPresentation : MonoBehaviour
+#if UNITY_EDITOR
+        , IInteractionOwnedStateTeardown
+#endif
     {
         [SerializeField]
         private InteractionPhaseCoordinator coordinator;
@@ -931,6 +936,22 @@ namespace SignVR.Interaction.PhaseAdapters
             Unbind();
             ResetPresentation();
         }
+
+#if UNITY_EDITOR
+        void IInteractionOwnedStateTeardown
+            .ReleaseOwnedStateForEditorTeardown()
+        {
+            if (Application.isPlaying)
+            {
+                throw new InvalidOperationException(
+                    "Editor teardown is forbidden during Play Mode."
+                );
+            }
+            enabled = false;
+            Unbind();
+            ResetPresentation();
+        }
+#endif
     }
 
 }

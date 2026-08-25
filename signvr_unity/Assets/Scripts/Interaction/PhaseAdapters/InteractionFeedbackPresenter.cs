@@ -7,6 +7,9 @@ namespace SignVR.Interaction.PhaseAdapters
 {
     [DisallowMultipleComponent]
     public sealed class InteractionFeedbackPresenter : MonoBehaviour
+#if UNITY_EDITOR
+        , IInteractionOwnedStateTeardown
+#endif
     {
         private static readonly int BaseColorProperty =
             Shader.PropertyToID("_BaseColor");
@@ -229,5 +232,21 @@ namespace SignVR.Interaction.PhaseAdapters
             Unbind();
             ResetFeedback();
         }
+
+#if UNITY_EDITOR
+        void IInteractionOwnedStateTeardown
+            .ReleaseOwnedStateForEditorTeardown()
+        {
+            if (Application.isPlaying)
+            {
+                throw new InvalidOperationException(
+                    "Editor teardown is forbidden during Play Mode."
+                );
+            }
+            enabled = false;
+            Unbind();
+            ResetFeedback();
+        }
+#endif
     }
 }

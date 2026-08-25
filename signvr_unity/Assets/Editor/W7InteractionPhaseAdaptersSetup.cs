@@ -218,6 +218,11 @@ namespace SignVR.Editor.Interaction
                 {
                     if (component != null && IsW7OwnedComponent(component))
                     {
+                        if (component is IInteractionOwnedStateTeardown
+                            ownedState)
+                        {
+                            ownedState.ReleaseOwnedStateForEditorTeardown();
+                        }
                         Object.DestroyImmediate(component);
                     }
                 }
@@ -1001,7 +1006,6 @@ namespace SignVR.Editor.Interaction
             proxy.transform.localScale = new Vector3(0.08f, 0.08f, 0.025f);
             BoxCollider collider = proxy.GetComponent<BoxCollider>();
             RecordForUndo(collider);
-            collider.isTrigger = true;
             InteractionTriggerRelay relay =
                 GetOrAdd<InteractionTriggerRelay>(proxy);
             RecordForUndo(relay);
@@ -1041,7 +1045,6 @@ namespace SignVR.Editor.Interaction
                     new Vector3(0.065f, 0.055f, 0.025f);
                 BoxCollider collider = button.GetComponent<BoxCollider>();
                 RecordForUndo(collider);
-                collider.isTrigger = true;
                 InteractionDigitBinding digitBinding =
                     GetOrAdd<InteractionDigitBinding>(button);
                 RecordForUndo(digitBinding);
@@ -1073,7 +1076,6 @@ namespace SignVR.Editor.Interaction
             BoxCollider backspaceCollider =
                 backspace.GetComponent<BoxCollider>();
             RecordForUndo(backspaceCollider);
-            backspaceCollider.isTrigger = true;
             InteractionPasswordBackspaceBinding backspaceBinding =
                 GetOrAdd<InteractionPasswordBackspaceBinding>(backspace);
             RecordForUndo(backspaceBinding);
@@ -1103,7 +1105,6 @@ namespace SignVR.Editor.Interaction
                 new Vector3(0.065f, 0.055f, 0.025f);
             BoxCollider submitCollider = submit.GetComponent<BoxCollider>();
             RecordForUndo(submitCollider);
-            submitCollider.isTrigger = true;
             InteractionPasswordSubmitBinding submitBinding =
                 GetOrAdd<InteractionPasswordSubmitBinding>(submit);
             RecordForUndo(submitBinding);
@@ -1146,7 +1147,6 @@ namespace SignVR.Editor.Interaction
                     new Vector3(0.07f, 0.07f, 0.03f);
                 BoxCollider collider = button.GetComponent<BoxCollider>();
                 RecordForUndo(collider);
-                collider.isTrigger = true;
                 InteractionTargetBinding binding =
                     GetOrAdd<InteractionTargetBinding>(button);
                 RecordForUndo(binding);

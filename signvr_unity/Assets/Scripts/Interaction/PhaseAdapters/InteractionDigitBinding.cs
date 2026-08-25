@@ -8,6 +8,9 @@ namespace SignVR.Interaction.PhaseAdapters
     public sealed class InteractionDigitBinding :
         MonoBehaviour,
         IInteractionTriggerInput
+#if UNITY_EDITOR
+        , IInteractionOwnedStateTeardown
+#endif
     {
         [SerializeField, Range(0, 9)]
         private int digit;
@@ -187,5 +190,21 @@ namespace SignVR.Interaction.PhaseAdapters
             UnbindAvailability();
             ReleaseInputOwnership();
         }
+
+#if UNITY_EDITOR
+        void IInteractionOwnedStateTeardown
+            .ReleaseOwnedStateForEditorTeardown()
+        {
+            if (Application.isPlaying)
+            {
+                throw new InvalidOperationException(
+                    "Editor teardown is forbidden during Play Mode."
+                );
+            }
+            enabled = false;
+            UnbindAvailability();
+            ReleaseInputOwnership();
+        }
+#endif
     }
 }

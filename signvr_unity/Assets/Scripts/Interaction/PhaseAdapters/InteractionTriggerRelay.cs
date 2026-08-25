@@ -5,6 +5,18 @@ using UnityEngine;
 
 namespace SignVR.Interaction.PhaseAdapters
 {
+#if UNITY_EDITOR
+    /// <summary>
+    /// Editor-only contract used by the transactional setup/strip tooling to
+    /// release authored scene state immediately before DestroyImmediate.
+    /// Study Player builds do not contain this API.
+    /// </summary>
+    public interface IInteractionOwnedStateTeardown
+    {
+        void ReleaseOwnedStateForEditorTeardown();
+    }
+#endif
+
     public interface IInteractionTriggerInput
     {
         bool IsInputAvailable { get; }
@@ -15,6 +27,9 @@ namespace SignVR.Interaction.PhaseAdapters
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Collider))]
     public sealed class InteractionTriggerRelay : MonoBehaviour
+#if UNITY_EDITOR
+        , IInteractionOwnedStateTeardown
+#endif
     {
         [SerializeField]
         private MonoBehaviour inputReceiver;
@@ -26,6 +41,15 @@ namespace SignVR.Interaction.PhaseAdapters
         private float debounceSeconds = 0.3f;
 
         private float lastTriggerTime = float.NegativeInfinity;
+
+        [SerializeField, HideInInspector]
+        private Collider authoredTriggerCollider;
+
+        [SerializeField, HideInInspector]
+        private bool authoredTriggerIsTrigger;
+
+        [SerializeField, HideInInspector]
+        private bool authoredTriggerStateCaptured;
 
         public MonoBehaviour InputReceiver => inputReceiver;
 
@@ -84,6 +108,7 @@ namespace SignVR.Interaction.PhaseAdapters
             allowedInteractorRoots = copy.ToArray();
             debounceSeconds = Mathf.Max(0.05f, triggerDebounceSeconds);
             Collider trigger = TriggerCollider;
+            CaptureTriggerOwnership(trigger);
             trigger.isTrigger = true;
             lastTriggerTime = float.NegativeInfinity;
         }
@@ -146,6 +171,51 @@ namespace SignVR.Interaction.PhaseAdapters
         private void OnDisable()
         {
             lastTriggerTime = float.NegativeInfinity;
+        }
+
+        private void CaptureTriggerOwnership(Collider trigger)
+        {
+            if (authoredTriggerStateCaptured || trigger == null)
+            {
+                return;
+            }
+            authoredTriggerCollider = trigger;
+            authoredTriggerIsTrigger = trigger.isTrigger;
+            authoredTriggerStateCaptured = true;
+        }
+
+        private void ReleaseTriggerOwnership()
+        {
+            if (authoredTriggerStateCaptured &&
+                authoredTriggerCollider != null)
+            {
+                authoredTriggerCollider.isTrigger =
+                    authoredTriggerIsTrigger;
+            }
+            authoredTriggerCollider = null;
+            authoredTriggerStateCaptured = false;
+        }
+
+#if UNITY_EDITOR
+        void IInteractionOwnedStateTeardown
+            .ReleaseOwnedStateForEditorTeardown()
+        {
+            if (Application.isPlaying)
+            {
+                throw new InvalidOperationException(
+                    "Editor teardown is forbidden during Play Mode."
+                );
+            }
+            enabled = false;
+            inputReceiver = null;
+            allowedInteractorRoots = Array.Empty<Transform>();
+            ReleaseTriggerOwnership();
+        }
+#endif
+
+        private void OnDestroy()
+        {
+            ReleaseTriggerOwnership();
         }
     }
 }

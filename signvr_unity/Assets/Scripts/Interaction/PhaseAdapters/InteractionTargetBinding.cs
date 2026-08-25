@@ -8,6 +8,9 @@ namespace SignVR.Interaction.PhaseAdapters
     public sealed class InteractionTargetBinding :
         MonoBehaviour,
         IInteractionTriggerInput
+#if UNITY_EDITOR
+        , IInteractionOwnedStateTeardown
+#endif
     {
         [SerializeField]
         private string targetId = string.Empty;
@@ -321,9 +324,21 @@ namespace SignVR.Interaction.PhaseAdapters
                 {
                     continue;
                 }
-                body.linearVelocity = Vector3.zero;
-                body.angularVelocity = Vector3.zero;
-                body.isKinematic = authoredBodyKinematic[index];
+                if (authoredBodyKinematic[index])
+                {
+                    if (!body.isKinematic)
+                    {
+                        body.linearVelocity = Vector3.zero;
+                        body.angularVelocity = Vector3.zero;
+                        body.isKinematic = true;
+                    }
+                }
+                else
+                {
+                    body.isKinematic = false;
+                    body.linearVelocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                }
                 body.useGravity = authoredBodyGravity[index];
             }
         }
@@ -367,7 +382,24 @@ namespace SignVR.Interaction.PhaseAdapters
             UnbindAdapterEvents();
             RestoreAuthoredPoseAndPhysics();
             RestoreAuthoredInputState();
+            authoredPoseAndPhysicsCaptured = false;
+            authoredInputStateCaptured = false;
         }
+
+#if UNITY_EDITOR
+        void IInteractionOwnedStateTeardown
+            .ReleaseOwnedStateForEditorTeardown()
+        {
+            if (Application.isPlaying)
+            {
+                throw new InvalidOperationException(
+                    "Editor teardown is forbidden during Play Mode."
+                );
+            }
+            enabled = false;
+            RestoreAuthoredStateForTeardown();
+        }
+#endif
 
         private static bool HaveSameReferences<T>(T[] left, T[] right)
             where T : UnityEngine.Object

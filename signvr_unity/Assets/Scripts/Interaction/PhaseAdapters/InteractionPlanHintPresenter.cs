@@ -6,6 +6,9 @@ namespace SignVR.Interaction.PhaseAdapters
 {
     [DisallowMultipleComponent]
     public sealed class InteractionPlanHintPresenter : MonoBehaviour
+#if UNITY_EDITOR
+        , IInteractionOwnedStateTeardown
+#endif
     {
         [SerializeField]
         private InteractionPhaseCoordinator coordinator;
@@ -196,5 +199,21 @@ namespace SignVR.Interaction.PhaseAdapters
             Unbind();
             HideHints();
         }
+
+#if UNITY_EDITOR
+        void IInteractionOwnedStateTeardown
+            .ReleaseOwnedStateForEditorTeardown()
+        {
+            if (Application.isPlaying)
+            {
+                throw new InvalidOperationException(
+                    "Editor teardown is forbidden during Play Mode."
+                );
+            }
+            enabled = false;
+            Unbind();
+            HideHints();
+        }
+#endif
     }
 }

@@ -650,6 +650,62 @@ namespace SignVR.Interaction.Editor.Tests
                     "Arbitrary W7-prefixed user names must not confer ownership."
                 );
 
+                object relayProbe = FindGameObjectInScene(
+                    scene,
+                    "W7Target_box_stool"
+                );
+                object relayProbeCollider = GetComponent(
+                    relayProbe,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object initialRelay = GetComponent(
+                    relayProbe,
+                    RuntimeType("InteractionTriggerRelay")
+                );
+                Assert.That(initialRelay, Is.Not.Null);
+                DestroyImmediate(initialRelay);
+                relayProbeCollider.GetType().GetProperty("isTrigger")
+                    .SetValue(relayProbeCollider, false);
+
+                InvokeTestOwnedSetupAndValidate(scene);
+                object relay = GetComponent(
+                    relayProbe,
+                    RuntimeType("InteractionTriggerRelay")
+                );
+                Assert.That(relay, Is.Not.Null);
+                Assert.That(
+                    relayProbeCollider.GetType().GetProperty("isTrigger")
+                        .GetValue(relayProbeCollider),
+                    Is.True,
+                    "Relay Configure must enable its generated trigger proxy."
+                );
+                object receiver = relay.GetType().GetProperty("InputReceiver")
+                    .GetValue(relay);
+                object allowedRoots = relay.GetType()
+                    .GetProperty("AllowedInteractorRoots")
+                    .GetValue(relay);
+                for (int attempt = 0; attempt < 2; attempt++)
+                {
+                    relay.GetType().GetMethod("Configure").Invoke(
+                        relay,
+                        new[] { receiver, allowedRoots, (object)0.3f }
+                    );
+                }
+                Assert.That(
+                    relayProbeCollider.GetType().GetProperty("isTrigger")
+                        .GetValue(relayProbeCollider),
+                    Is.True,
+                    "Repeated Configure must keep the proxy operational."
+                );
+                SetParent(
+                    GetTransform(relayProbe),
+                    GetTransform(userContent)
+                );
+                relayProbe.GetType().GetProperty("name").SetValue(
+                    relayProbe,
+                    "RelayAuthoredStateProbe"
+                );
+
                 object transform = GetTransform(userContent);
                 transform.GetType().GetProperty("localPosition").SetValue(
                     transform,
@@ -782,6 +838,28 @@ namespace SignVR.Interaction.Editor.Tests
                     3f,
                     4f,
                     "Teardown did not restore authored scale."
+                );
+                Assert.That(
+                    GetComponent(
+                        relayProbe,
+                        RuntimeType("InteractionTriggerRelay")
+                    ),
+                    Is.Null
+                );
+                Assert.That(
+                    relayProbeCollider.GetType().GetProperty("isTrigger")
+                        .GetValue(relayProbeCollider),
+                    Is.False,
+                    "Relay teardown did not restore authored isTrigger=false."
+                );
+                Assert.That(CountW7OwnedWiring(scene), Is.Zero);
+
+                StripW7OwnedWiring(scene);
+                Assert.That(
+                    relayProbeCollider.GetType().GetProperty("isTrigger")
+                        .GetValue(relayProbeCollider),
+                    Is.False,
+                    "Repeated teardown must preserve the authored trigger state."
                 );
                 Assert.That(CountW7OwnedWiring(scene), Is.Zero);
 
@@ -1024,8 +1102,13 @@ namespace SignVR.Interaction.Editor.Tests
                         .SetValue(label, "WRONG");
                     AddComponent(
                         poison,
+                        UnityPhysicsType("BoxCollider")
+                    );
+                    object poisonRelay = AddComponent(
+                        poison,
                         RuntimeType("InteractionTriggerRelay")
                     );
+                    Assert.That(poisonRelay, Is.Not.Null);
 
                     TargetInvocationException failure = Assert.Throws<
                         TargetInvocationException>(() =>
@@ -1121,7 +1204,12 @@ namespace SignVR.Interaction.Editor.Tests
 
                 object poison = CreateGameObject("W7SubscriptionPoison");
                 SetParent(GetTransform(poison), GetTransform(runtimeRoot));
-                AddComponent(poison, RuntimeType("InteractionTriggerRelay"));
+                AddComponent(poison, UnityPhysicsType("BoxCollider"));
+                object poisonRelay = AddComponent(
+                    poison,
+                    RuntimeType("InteractionTriggerRelay")
+                );
+                Assert.That(poisonRelay, Is.Not.Null);
                 try
                 {
                     Assert.Throws<TargetInvocationException>(() =>
@@ -2536,6 +2624,20 @@ namespace SignVR.Interaction.Editor.Tests
                 );
                 coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
                 SynchronizePhase(coordinator, 4);
+                presentationType.GetMethod("RebuildFromAuthority")
+                    .Invoke(presentation, null);
+                Assert.That(
+                    keyBody.GetType().GetProperty("isKinematic")
+                        .GetValue(keyBody),
+                    Is.True,
+                    "The planned key lock baseline was not established."
+                );
+                Assert.That(
+                    keyCollider.GetType().GetProperty("enabled")
+                        .GetValue(keyCollider),
+                    Is.False,
+                    "The planned key collider baseline was not established."
+                );
                 presentationType.GetProperty("enabled")
                     .SetValue(presentation, false);
 
@@ -2951,10 +3053,21 @@ namespace SignVR.Interaction.Editor.Tests
                     nameof(sceneName)
                 );
             }
-            return SceneManagerType().GetMethod(
-                "CreateScene",
-                new[] { typeof(string) }
-            ).Invoke(null, new object[] { sceneName });
+            Type editorSceneManager = EditorType(
+                "UnityEditor.SceneManagement.EditorSceneManager"
+            );
+            Type setupType = EditorType(
+                "UnityEditor.SceneManagement.NewSceneSetup"
+            );
+            Type modeType = EditorType(
+                "UnityEditor.SceneManagement.NewSceneMode"
+            );
+            object emptyScene = Enum.Parse(setupType, "EmptyScene");
+            object additive = Enum.Parse(modeType, "Additive");
+            return editorSceneManager.GetMethod(
+                "NewScene",
+                new[] { setupType, modeType }
+            ).Invoke(null, new[] { emptyScene, additive });
         }
 
         private static void CloseScene(Type editorSceneManager, object scene)

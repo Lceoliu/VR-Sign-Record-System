@@ -8,6 +8,9 @@ namespace SignVR.Interaction.PhaseAdapters
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Collider))]
     public sealed class InteractionPlacementBinding : MonoBehaviour
+#if UNITY_EDITOR
+        , IInteractionOwnedStateTeardown
+#endif
     {
         private static readonly HashSet<string> AllowedCoinIds =
             new HashSet<string>(
@@ -347,5 +350,22 @@ namespace SignVR.Interaction.PhaseAdapters
             ClearOverlaps();
             ReleasePlacementOwnership();
         }
+
+#if UNITY_EDITOR
+        void IInteractionOwnedStateTeardown
+            .ReleaseOwnedStateForEditorTeardown()
+        {
+            if (Application.isPlaying)
+            {
+                throw new InvalidOperationException(
+                    "Editor teardown is forbidden during Play Mode."
+                );
+            }
+            enabled = false;
+            UnbindAvailability();
+            ClearOverlaps();
+            ReleasePlacementOwnership();
+        }
+#endif
     }
 }
