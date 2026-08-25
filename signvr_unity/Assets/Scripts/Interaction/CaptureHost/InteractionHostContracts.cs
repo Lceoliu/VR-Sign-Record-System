@@ -249,6 +249,97 @@ namespace SignVR.Interaction.CaptureHost
         }
     }
 
+    public sealed class InteractionQuestHeartbeatAck
+    {
+        private InteractionQuestHeartbeatAck(
+            string questDeviceId,
+            long heartbeatGeneration,
+            long heartbeatSequence)
+        {
+            QuestDeviceId = questDeviceId;
+            HeartbeatGeneration = heartbeatGeneration;
+            HeartbeatSequence = heartbeatSequence;
+        }
+
+        public bool Accepted => true;
+        public string QuestDeviceId { get; }
+        public long HeartbeatGeneration { get; }
+        public long HeartbeatSequence { get; }
+
+        public static InteractionQuestHeartbeatAck Parse(
+            string json,
+            string expectedQuestDeviceId,
+            long expectedGeneration,
+            long expectedSequence)
+        {
+            IDictionary<string, object> root = InteractionJson.ParseObject(json);
+            if (InteractionJson.RequireInt32(root, "schema_version") != 1)
+            {
+                throw new FormatException(
+                    "Quest heartbeat ACK schema_version must be 1."
+                );
+            }
+            bool? accepted = InteractionJson.OptionalBoolean(root, "accepted");
+            if (!accepted.HasValue || !accepted.Value)
+            {
+                throw new FormatException(
+                    "Quest heartbeat ACK must explicitly accept the heartbeat."
+                );
+            }
+            string rawQuest = InteractionJson.RequireString(
+                root,
+                "quest_device_id"
+            );
+            if (!string.Equals(rawQuest, rawQuest.Trim(), StringComparison.Ordinal))
+            {
+                throw new FormatException(
+                    "Quest heartbeat ACK identity is not canonical."
+                );
+            }
+            string quest;
+            string expected;
+            try
+            {
+                quest = InteractionStoragePaths.ValidateSegment(
+                    rawQuest,
+                    "quest_device_id"
+                );
+                expected = InteractionStoragePaths.ValidateSegment(
+                    expectedQuestDeviceId,
+                    nameof(expectedQuestDeviceId)
+                );
+            }
+            catch (ArgumentException exception)
+            {
+                throw new FormatException(
+                    "Quest heartbeat ACK identity is unsafe.",
+                    exception
+                );
+            }
+            long generation = InteractionJson.RequireInt64(
+                root,
+                "heartbeat_generation"
+            );
+            long sequence = InteractionJson.RequireInt64(
+                root,
+                "heartbeat_sequence"
+            );
+            if (!string.Equals(quest, expected, StringComparison.Ordinal) ||
+                generation != expectedGeneration ||
+                sequence != expectedSequence)
+            {
+                throw new FormatException(
+                    "Quest heartbeat ACK did not exactly echo identity/generation/sequence."
+                );
+            }
+            return new InteractionQuestHeartbeatAck(
+                quest,
+                generation,
+                sequence
+            );
+        }
+    }
+
     public sealed class InteractionHostReadiness
     {
         private InteractionHostReadiness(

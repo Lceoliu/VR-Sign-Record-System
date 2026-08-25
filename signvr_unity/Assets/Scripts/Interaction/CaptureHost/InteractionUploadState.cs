@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 
 namespace SignVR.Interaction.CaptureHost
@@ -41,7 +40,9 @@ namespace SignVR.Interaction.CaptureHost
     {
         internal InteractionFrozenArtifact(
             string artifactType,
-            string path)
+            string path,
+            long byteCount,
+            string sha256)
         {
             ArtifactType = InteractionArtifactTypes.Validate(
                 artifactType,
@@ -58,7 +59,13 @@ namespace SignVR.Interaction.CaptureHost
                     "Frozen Interaction artifact is missing or is a reparse point."
                 );
             }
-            ByteCount = info.Length;
+            ByteCount = byteCount;
+            if (info.Length != ByteCount)
+            {
+                throw new IOException(
+                    "Interaction artifact changed while it was being frozen."
+                );
+            }
             long limit = InteractionArtifactSizeLimits.MaximumBytesFor(
                 ArtifactType
             );
@@ -77,7 +84,14 @@ namespace SignVR.Interaction.CaptureHost
                     ArtifactType + " cannot be empty."
                 );
             }
-            Sha256 = ComputeSha256(Path);
+            if (string.IsNullOrWhiteSpace(sha256) || sha256.Length != 64)
+            {
+                throw new ArgumentException(
+                    "Frozen Interaction artifact SHA-256 is invalid.",
+                    nameof(sha256)
+                );
+            }
+            Sha256 = sha256;
         }
 
         public string ArtifactType { get; }
@@ -85,13 +99,34 @@ namespace SignVR.Interaction.CaptureHost
         public long ByteCount { get; }
         public string Sha256 { get; }
 
-        public void VerifyUnchanged()
+        public InteractionBackgroundOperation<bool> BeginVerifyUnchanged()
         {
+            return InteractionBackgroundOperation<bool>.Start(() =>
+                VerifyUnchangedOnWorker(
+                    InteractionArtifactCancellation.None,
+                    InteractionArtifactReadObserver.None
+                )
+            );
+        }
+
+        internal bool VerifyUnchangedOnWorker(
+            InteractionArtifactCancellation cancellation,
+            IInteractionArtifactReadObserver observer)
+        {
+            cancellation = cancellation ??
+                throw new ArgumentNullException(nameof(cancellation));
+            observer = observer ??
+                throw new ArgumentNullException(nameof(observer));
+            cancellation.ThrowIfCancellationRequested();
             var info = new FileInfo(Path);
             if (!info.Exists || info.Length != ByteCount ||
                 (info.Attributes & FileAttributes.ReparsePoint) != 0 ||
                 !string.Equals(
-                    ComputeSha256(Path),
+                    InteractionArtifactHasher.ComputeSha256(
+                        Path,
+                        cancellation,
+                        observer
+                    ),
                     Sha256,
                     StringComparison.Ordinal))
             {
@@ -100,27 +135,7 @@ namespace SignVR.Interaction.CaptureHost
                     ArtifactType + "."
                 );
             }
-        }
-
-        private static string ComputeSha256(string path)
-        {
-            using (var stream = new FileStream(
-                path,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                65536,
-                FileOptions.SequentialScan))
-            using (SHA256 sha = SHA256.Create())
-            {
-                byte[] digest = sha.ComputeHash(stream);
-                var builder = new StringBuilder(digest.Length * 2);
-                for (int index = 0; index < digest.Length; index++)
-                {
-                    builder.Append(digest[index].ToString("x2"));
-                }
-                return builder.ToString();
-            }
+            return true;
         }
     }
 
@@ -146,7 +161,8 @@ namespace SignVR.Interaction.CaptureHost
             return artifacts[normalized];
         }
 
-        public static InteractionFrozenArtifactSet ReadOnce(string runDirectory)
+        public static InteractionBackgroundOperation<InteractionFrozenArtifactSet>
+            BeginReadOnce(string runDirectory)
         {
             if (string.IsNullOrWhiteSpace(runDirectory))
             {
@@ -155,12 +171,39 @@ namespace SignVR.Interaction.CaptureHost
                     nameof(runDirectory)
                 );
             }
+            string frozenDirectory = Path.GetFullPath(runDirectory);
+            return InteractionBackgroundOperation<InteractionFrozenArtifactSet>
+                .Start(() => ReadOnceOnWorker(
+                    frozenDirectory,
+                    InteractionArtifactCancellation.None,
+                    InteractionArtifactReadObserver.None
+                ));
+        }
+
+        internal static InteractionFrozenArtifactSet ReadOnceOnWorker(
+            string runDirectory,
+            InteractionArtifactCancellation cancellation,
+            IInteractionArtifactReadObserver observer)
+        {
+            if (string.IsNullOrWhiteSpace(runDirectory))
+            {
+                throw new ArgumentException(
+                    "Run directory is required.",
+                    nameof(runDirectory)
+                );
+            }
+            cancellation = cancellation ??
+                throw new ArgumentNullException(nameof(cancellation));
+            observer = observer ??
+                throw new ArgumentNullException(nameof(observer));
+            cancellation.ThrowIfCancellationRequested();
             var result = new Dictionary<string, InteractionFrozenArtifact>(
                 StringComparer.Ordinal
             );
             string canonicalDirectory = Path.GetFullPath(runDirectory);
             foreach (string type in InteractionArtifactTypes.QuestUploadTypes)
             {
+                cancellation.ThrowIfCancellationRequested();
                 string path = System.IO.Path.Combine(
                     runDirectory,
                     InteractionArtifactTypes.FileNameFor(type)
@@ -176,13 +219,33 @@ namespace SignVR.Interaction.CaptureHost
                     canonicalDirectory,
                     path
                 );
-                result.Add(
-                    type,
-                    new InteractionFrozenArtifact(
-                        type,
-                        path
-                    )
+                var info = new FileInfo(path);
+                long byteCount = info.Length;
+                long byteLimit =
+                    InteractionArtifactSizeLimits.MaximumBytesFor(type);
+                if (byteCount > byteLimit)
+                {
+                    throw new IOException(
+                        type + " exceeds the Contract V1 upload byte limit."
+                    );
+                }
+                if (byteCount == 0L &&
+                    (type == InteractionArtifactTypes.Events ||
+                     type == InteractionArtifactTypes.Summary))
+                {
+                    throw new IOException(type + " cannot be empty.");
+                }
+                string sha256 = InteractionArtifactHasher.ComputeSha256(
+                    path,
+                    cancellation,
+                    observer
                 );
+                result.Add(type, new InteractionFrozenArtifact(
+                    type,
+                    path,
+                    byteCount,
+                    sha256
+                ));
             }
             return new InteractionFrozenArtifactSet(result);
         }
@@ -223,6 +286,11 @@ namespace SignVR.Interaction.CaptureHost
             putResponsesAccepted;
         public IReadOnlyCollection<string> HostStored => hostStored;
         public IReadOnlyCollection<string> HostMissing => hostMissing;
+        public InteractionBackgroundOperation<bool> PendingPersistence
+        {
+            get;
+            private set;
+        }
 
         public void Begin(DateTimeOffset utcTime)
         {
@@ -332,7 +400,7 @@ namespace SignVR.Interaction.CaptureHost
 
         private void Persist()
         {
-            InteractionUploadStateStore.Write(
+            PendingPersistence = InteractionUploadStateStore.BeginWrite(
                 runDirectory,
                 runId,
                 Status,
@@ -349,6 +417,47 @@ namespace SignVR.Interaction.CaptureHost
 
     internal static class InteractionUploadStateStore
     {
+        private static readonly InteractionSerialBackgroundScheduler Scheduler =
+            new InteractionSerialBackgroundScheduler(
+                "SignVR Interaction Upload State I/O"
+            );
+
+        public static InteractionBackgroundOperation<bool> BeginWrite(
+            string runDirectory,
+            string runId,
+            InteractionUploadStatus status,
+            DateTimeOffset? uploadStartedUtc,
+            DateTimeOffset? acknowledgedUtc,
+            bool eligibleForCleanup,
+            IEnumerable<string> putResponsesAccepted,
+            IEnumerable<string> hostStored,
+            IEnumerable<string> hostMissing,
+            string lastError)
+        {
+            string[] acceptedSnapshot =
+                (putResponsesAccepted ?? Array.Empty<string>()).ToArray();
+            string[] storedSnapshot =
+                (hostStored ?? Array.Empty<string>()).ToArray();
+            string[] missingSnapshot =
+                (hostMissing ?? Array.Empty<string>()).ToArray();
+            return Scheduler.Enqueue(() =>
+            {
+                Write(
+                    runDirectory,
+                    runId,
+                    status,
+                    uploadStartedUtc,
+                    acknowledgedUtc,
+                    eligibleForCleanup,
+                    acceptedSnapshot,
+                    storedSnapshot,
+                    missingSnapshot,
+                    lastError
+                );
+                return true;
+            });
+        }
+
         public static void Write(
             string runDirectory,
             string runId,

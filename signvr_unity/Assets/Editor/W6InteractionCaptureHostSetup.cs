@@ -21,8 +21,108 @@ namespace SignVR.Editor.Interaction
         [MenuItem("Tools/SignVR/Interaction/W6 Configure Capture and Host (Unsaved)")]
         public static void ConfigureLoadedSceneUnsaved()
         {
-            Scene scene = SceneManager.GetActiveScene();
-            RequireInteractionScene(scene);
+            ConfigureLoadedSceneUnsavedForAutomation(null);
+            Debug.Log(
+                "[W6InteractionCaptureHostSetup] Capture/Host wiring is valid. " +
+                "The scene is intentionally left unsaved for Orchestrator review."
+            );
+        }
+
+        public static void ConfigureLoadedSceneUnsavedForAutomation(
+            Action afterWiring)
+        {
+            ConfigureSceneUnsavedForAutomation(
+                SceneManager.GetActiveScene(),
+                true,
+                afterWiring
+            );
+        }
+
+        public static void ConfigureSceneUnsavedForAutomation(
+            Scene scene,
+            bool requireCanonicalScenePath,
+            Action afterWiring)
+        {
+            PreflightLoadedSceneStructure(scene, requireCanonicalScenePath);
+            ExecuteUndoGroupForAutomation(
+                "W6 Configure Capture and Host",
+                () => ConfigureLoadedSceneStructure(
+                    scene,
+                    requireCanonicalScenePath,
+                    afterWiring
+                )
+            );
+        }
+
+        [MenuItem("Tools/SignVR/Interaction/W6 Validate Capture Structure")]
+        public static void ValidateLoadedSceneFromMenu()
+        {
+            ValidateLoadedSceneStructure();
+            Debug.Log(
+                "[W6InteractionCaptureHostSetup] Structural validation passed."
+            );
+        }
+
+        [MenuItem("Tools/SignVR/Interaction/W6 Validate Study Capture Readiness")]
+        public static void ValidateStudyReadinessFromMenu()
+        {
+            ValidateLoadedSceneStudyReadiness();
+            Debug.Log(
+                "[W6InteractionCaptureHostSetup] Strict Study readiness passed."
+            );
+        }
+
+        public static void ValidateLoadedSceneForAutomation()
+        {
+            ValidateLoadedSceneStructure();
+        }
+
+        public static void ValidateStudyReadinessForAutomation()
+        {
+            ValidateLoadedSceneStudyReadiness();
+        }
+
+        // Compatibility seam now intentionally means structural validation.
+        public static void ValidateLoadedScene()
+        {
+            ValidateLoadedSceneStructure();
+        }
+
+        public static void ExecuteUndoGroupForAutomation(
+            string operationName,
+            Action operation)
+        {
+            if (string.IsNullOrWhiteSpace(operationName))
+            {
+                throw new ArgumentException(
+                    "Undo operation name is required.",
+                    nameof(operationName)
+                );
+            }
+            if (operation == null)
+            {
+                throw new ArgumentNullException(nameof(operation));
+            }
+            Undo.IncrementCurrentGroup();
+            int undoGroup = Undo.GetCurrentGroup();
+            Undo.SetCurrentGroupName(operationName.Trim());
+            try
+            {
+                operation();
+                Undo.CollapseUndoOperations(undoGroup);
+            }
+            catch
+            {
+                Undo.RevertAllDownToGroup(undoGroup);
+                throw;
+            }
+        }
+
+        private static void ConfigureLoadedSceneStructure(
+            Scene scene,
+            bool requireCanonicalScenePath,
+            Action afterWiring)
+        {
             Transform runtimeAnchor = RequireTransform(scene, RuntimeAnchorPath);
             Transform captureAnchor = RequireTransform(scene, CaptureAnchorPath);
 
@@ -34,37 +134,32 @@ namespace SignVR.Editor.Interaction
             InteractionCaptureSampler sampler =
                 GetOrAdd<InteractionCaptureSampler>(captureAnchor.gameObject);
 
-            controller.ConfigureHostClient(client);
-            controller.ConfigureCaptureSampler(sampler);
-            sampler.Configure(controller);
-            EditorUtility.SetDirty(client);
-            EditorUtility.SetDirty(controller);
-            EditorUtility.SetDirty(sampler);
-            ValidateLoadedScene();
-            Debug.Log(
-                "[W6InteractionCaptureHostSetup] Capture/Host wiring is valid. " +
-                "The scene is intentionally left unsaved for Orchestrator review."
+            SetObjectReference(
+                controller,
+                "hostClient",
+                client
             );
-        }
-
-        [MenuItem("Tools/SignVR/Interaction/W6 Validate Capture and Host")]
-        public static void ValidateLoadedSceneFromMenu()
-        {
-            ValidateLoadedScene();
-            Debug.Log(
-                "[W6InteractionCaptureHostSetup] Loaded-scene validation passed."
+            SetObjectReference(
+                controller,
+                "captureSampler",
+                sampler
             );
+            SetObjectReference(sampler, "controller", controller);
+            afterWiring?.Invoke();
+            ValidateSceneStructure(scene, requireCanonicalScenePath);
         }
 
-        public static void ValidateLoadedSceneForAutomation()
-        {
-            ValidateLoadedScene();
-        }
-
-        public static void ValidateLoadedScene()
+        public static void ValidateLoadedSceneStructure()
         {
             Scene scene = SceneManager.GetActiveScene();
-            RequireInteractionScene(scene);
+            ValidateSceneStructure(scene, true);
+        }
+
+        private static void ValidateSceneStructure(
+            Scene scene,
+            bool requireCanonicalScenePath)
+        {
+            PreflightLoadedSceneStructure(scene, requireCanonicalScenePath);
             Transform runtimeAnchor = RequireTransform(scene, RuntimeAnchorPath);
             Transform captureAnchor = RequireTransform(scene, CaptureAnchorPath);
 
@@ -91,23 +186,17 @@ namespace SignVR.Editor.Interaction
                     "W6 component references are not wired to the anchor-local instances."
                 );
             }
-            if (!samplers[0].IsStudyCaptureReady(out string captureReason))
-            {
-                throw new InvalidOperationException(
-                    "W6 Study capture sources are incomplete: " +
-                    captureReason +
-                    " W8 must inject the XR Rig and at least one key-object probe."
-                );
-            }
-            if (controllers[0].RunMode != InteractionRunMode.Study ||
-                controllers[0].DebugOverridesActive ||
-                !controllers[0].RequireHostForStart)
-            {
-                throw new InvalidOperationException(
-                    "Versioned InteractionLab wiring must default to Study, " +
-                    "require Host, and have no debug override active."
-                );
-            }
+            InteractionCaptureSetupPolicy.ValidateStructure(
+                clients.Length,
+                controllers.Length,
+                samplers.Length,
+                controllers[0].HostClient == clients[0] &&
+                    controllers[0].CaptureSampler == samplers[0] &&
+                    samplers[0].Controller == controllers[0],
+                controllers[0].RunMode,
+                controllers[0].DebugOverridesActive,
+                controllers[0].RequireHostForStart
+            );
 
             var clientObject = new SerializedObject(clients[0]);
             SerializedProperty url = clientObject.FindProperty("hostBaseUrl");
@@ -137,6 +226,110 @@ namespace SignVR.Editor.Interaction
             }
         }
 
+        public static void ValidateLoadedSceneStudyReadiness()
+        {
+            ValidateLoadedSceneStructure();
+            Scene scene = SceneManager.GetActiveScene();
+            Transform captureAnchor = RequireTransform(scene, CaptureAnchorPath);
+            InteractionCaptureSampler sampler =
+                captureAnchor.GetComponent<InteractionCaptureSampler>();
+            if (!sampler.IsStudyCaptureReady(out string captureReason))
+            {
+                throw new InvalidOperationException(
+                    "W6 Study capture sources are incomplete: " +
+                    captureReason +
+                    " W8 must inject the XR Rig and at least one key-object probe."
+                );
+            }
+            InteractionCaptureSetupPolicy.ValidateStudyReadiness(
+                sampler.HmdReady,
+                sampler.LeftHandDataSourceReady,
+                sampler.RightHandDataSourceReady,
+                sampler.ConfiguredObjectProbeCount
+            );
+        }
+
+        private static void PreflightLoadedSceneStructure(
+            Scene scene,
+            bool requireCanonicalScenePath)
+        {
+            RequireInteractionScene(scene, requireCanonicalScenePath);
+            Transform runtimeAnchor = RequireTransform(scene, RuntimeAnchorPath);
+            Transform captureAnchor = RequireTransform(scene, CaptureAnchorPath);
+            InteractionHostClient[] clients =
+                EnumerateSceneComponents<InteractionHostClient>(scene).ToArray();
+            InteractionRunController[] controllers =
+                EnumerateSceneComponents<InteractionRunController>(scene).ToArray();
+            InteractionCaptureSampler[] samplers =
+                EnumerateSceneComponents<InteractionCaptureSampler>(scene).ToArray();
+            if (clients.Length > 1 || controllers.Length > 1 ||
+                samplers.Length > 1)
+            {
+                throw new InvalidOperationException(
+                    "W6 setup preflight requires zero or one existing client, " +
+                    "controller, and sampler in the target scene."
+                );
+            }
+            if ((clients.Length == 1 &&
+                 clients[0].transform != runtimeAnchor) ||
+                (controllers.Length == 1 &&
+                 controllers[0].transform != runtimeAnchor) ||
+                (samplers.Length == 1 &&
+                 samplers[0].transform != captureAnchor))
+            {
+                throw new InvalidOperationException(
+                    "Existing W6 components are not on their canonical anchors."
+                );
+            }
+            if (controllers.Length == 1 &&
+                (controllers[0].RunMode != InteractionRunMode.Study ||
+                 controllers[0].DebugOverridesActive ||
+                 !controllers[0].RequireHostForStart))
+            {
+                throw new InvalidOperationException(
+                    "Existing W6 controller is not the default Study configuration."
+                );
+            }
+            if (clients.Length == 1)
+            {
+                var serialized = new SerializedObject(clients[0]);
+                SerializedProperty url = serialized.FindProperty("hostBaseUrl");
+                if (url == null)
+                {
+                    throw new InvalidOperationException(
+                        "InteractionHostClient hostBaseUrl field is missing."
+                    );
+                }
+                InteractionHostClient.NormalizeHttpBaseUrl(url.stringValue);
+            }
+        }
+
+        private static void SetObjectReference(
+            UnityEngine.Object target,
+            string propertyName,
+            UnityEngine.Object value)
+        {
+            if (target == null)
+            {
+                throw new ArgumentNullException(nameof(target));
+            }
+            Undo.RecordObject(target, "W6 Wire Capture and Host");
+            var serialized = new SerializedObject(target);
+            serialized.Update();
+            SerializedProperty property = serialized.FindProperty(propertyName);
+            if (property == null ||
+                property.propertyType != SerializedPropertyType.ObjectReference)
+            {
+                throw new InvalidOperationException(
+                    target.GetType().Name + " is missing object reference " +
+                    propertyName + "."
+                );
+            }
+            property.objectReferenceValue = value;
+            serialized.ApplyModifiedProperties();
+            EditorUtility.SetDirty(target);
+        }
+
         private static T GetOrAdd<T>(GameObject target)
             where T : Component
         {
@@ -148,16 +341,20 @@ namespace SignVR.Editor.Interaction
             return Undo.AddComponent<T>(target);
         }
 
-        private static void RequireInteractionScene(Scene scene)
+        private static void RequireInteractionScene(
+            Scene scene,
+            bool requireCanonicalScenePath)
         {
             if (!scene.IsValid() || !scene.isLoaded ||
-                !string.Equals(
+                (requireCanonicalScenePath && !string.Equals(
                     scene.path,
                     InteractionLabContract.ScenePath,
-                    StringComparison.Ordinal))
+                    StringComparison.Ordinal)))
             {
                 throw new InvalidOperationException(
-                    "Load Assets/Scenes/InteractionLab.unity before using W6 setup."
+                    requireCanonicalScenePath
+                        ? "Load Assets/Scenes/InteractionLab.unity before using W6 setup."
+                        : "W6 automation target scene is invalid or not loaded."
                 );
             }
         }
@@ -165,23 +362,38 @@ namespace SignVR.Editor.Interaction
         private static Transform RequireTransform(Scene scene, string path)
         {
             string[] segments = path.Split('/');
-            GameObject root = scene.GetRootGameObjects().FirstOrDefault(
+            GameObject[] roots = scene.GetRootGameObjects().Where(
                 item => string.Equals(
                     item.name,
                     segments[0],
                     StringComparison.Ordinal
                 )
-            );
-            Transform current = root == null ? null : root.transform;
-            for (int index = 1; current != null && index < segments.Length; index++)
-            {
-                current = current.Find(segments[index]);
-            }
-            if (current == null)
+            ).ToArray();
+            if (roots.Length != 1)
             {
                 throw new InvalidOperationException(
-                    "InteractionLab anchor is missing: " + path + "."
+                    "InteractionLab anchor root is missing or ambiguous: " +
+                    segments[0] + "."
                 );
+            }
+            Transform current = roots[0].transform;
+            for (int index = 1; index < segments.Length; index++)
+            {
+                Transform[] matches = current.Cast<Transform>().Where(
+                    child => string.Equals(
+                        child.name,
+                        segments[index],
+                        StringComparison.Ordinal
+                    )
+                ).ToArray();
+                if (matches.Length != 1)
+                {
+                    throw new InvalidOperationException(
+                        "InteractionLab anchor is missing or ambiguous: " +
+                        path + "."
+                    );
+                }
+                current = matches[0];
             }
             return current;
         }

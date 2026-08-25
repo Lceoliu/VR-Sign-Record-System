@@ -11,9 +11,32 @@ namespace SignVR.Interaction.CaptureHost
 {
     public static class InteractionCaptureWaitLimits
     {
-        public const int CriticalEnqueueMilliseconds = 250;
+        // Critical writes never wait on the caller; this value remains a
+        // diagnostic upper bound for the frozen test contract.
+        public const int CriticalEnqueueMilliseconds = 1;
         public const int DrainMilliseconds = 500;
         public const int CloseMilliseconds = 500;
+    }
+
+    public enum InteractionCaptureTerminalKind
+    {
+        Completed,
+        Aborted
+    }
+
+    public sealed class InteractionCaptureSealResult
+    {
+        internal InteractionCaptureSealResult(
+            InteractionRunSummary summary,
+            InteractionDataCompleteness completeness)
+        {
+            Summary = summary ?? throw new ArgumentNullException(nameof(summary));
+            Completeness = completeness ??
+                throw new ArgumentNullException(nameof(completeness));
+        }
+
+        public InteractionRunSummary Summary { get; }
+        public InteractionDataCompleteness Completeness { get; }
     }
 
     public sealed class InteractionCaptureWriter : IInteractionEventSink, IDisposable
@@ -28,10 +51,14 @@ namespace SignVR.Interaction.CaptureHost
         private readonly IInteractionJsonlChannel poses;
         private readonly IInteractionJsonlChannel objects;
         private readonly double gapThresholdSeconds;
+        private readonly InteractionCaptureBudgetPolicy budgetPolicy;
+        private readonly InteractionDiskBudgetGuard diskBudget;
+        private readonly InteractionSerialBackgroundScheduler ioScheduler;
 
         private bool captureActive;
-        private bool sealedCapture;
+        private volatile bool sealedCapture;
         private bool disposed;
+        private bool terminalRequested;
         private long nextPoseSequence = 1L;
         private long nextObjectSequence = 1L;
         private double lastPoseMonotonic = -1d;
@@ -44,7 +71,9 @@ namespace SignVR.Interaction.CaptureHost
             byte[] manifestBytes,
             int queueCapacity,
             double gapThresholdSeconds,
-            IInteractionJsonlChannelFactory channelFactory)
+            IInteractionJsonlChannelFactory channelFactory,
+            InteractionCaptureBudgetPolicy budgetPolicy,
+            InteractionDiskBudgetGuard diskBudget)
         {
             if (queueCapacity < 1)
             {
@@ -63,6 +92,10 @@ namespace SignVR.Interaction.CaptureHost
             this.runId = runId;
             this.manifestBytes = (byte[])manifestBytes.Clone();
             this.gapThresholdSeconds = gapThresholdSeconds;
+            this.budgetPolicy = budgetPolicy ??
+                throw new ArgumentNullException(nameof(budgetPolicy));
+            this.diskBudget = diskBudget ??
+                throw new ArgumentNullException(nameof(diskBudget));
             eventSequencer = new InteractionEventSequencer(runId);
             channelFactory = channelFactory ??
                 throw new ArgumentNullException(nameof(channelFactory));
@@ -71,7 +104,9 @@ namespace SignVR.Interaction.CaptureHost
                 Path.Combine(runDirectory, "." + InteractionStoragePaths.EventsFileName + ".partial"),
                 Path.Combine(runDirectory, InteractionStoragePaths.EventsFileName),
                 queueCapacity,
-                "SignVR Interaction Events Writer"
+                "SignVR Interaction Events Writer",
+                budgetPolicy.Events,
+                diskBudget
             );
             try
             {
@@ -79,7 +114,9 @@ namespace SignVR.Interaction.CaptureHost
                     Path.Combine(runDirectory, "." + InteractionStoragePaths.PosesFileName + ".partial"),
                     Path.Combine(runDirectory, InteractionStoragePaths.PosesFileName),
                     queueCapacity,
-                    "SignVR Interaction Poses Writer"
+                    "SignVR Interaction Poses Writer",
+                    budgetPolicy.Poses,
+                    diskBudget
                 );
                 try
                 {
@@ -87,7 +124,9 @@ namespace SignVR.Interaction.CaptureHost
                         Path.Combine(runDirectory, "." + InteractionStoragePaths.ObjectsFileName + ".partial"),
                         Path.Combine(runDirectory, InteractionStoragePaths.ObjectsFileName),
                         queueCapacity,
-                        "SignVR Interaction Objects Writer"
+                        "SignVR Interaction Objects Writer",
+                        budgetPolicy.Objects,
+                        diskBudget
                     );
                 }
                 catch
@@ -101,6 +140,9 @@ namespace SignVR.Interaction.CaptureHost
                 events.DisposeLeavingPartial();
                 throw;
             }
+            ioScheduler = new InteractionSerialBackgroundScheduler(
+                "SignVR Interaction Capture I/O"
+            );
         }
 
         public string RunDirectory { get; }
@@ -112,21 +154,28 @@ namespace SignVR.Interaction.CaptureHost
         public long NextObjectSequence => nextObjectSequence;
         public byte[] ManifestBytes => (byte[])manifestBytes.Clone();
 
-        public static InteractionCaptureWriter CreateNew(
+        public static InteractionBackgroundOperation<InteractionCaptureWriter>
+            BeginCreateNew(
             string persistentDataPath,
             RunPlan plan,
             byte[] exactManifestBytes,
             int queueCapacity = DefaultQueueCapacity,
-            double gapThresholdSeconds = DefaultGapThresholdSeconds)
+            double gapThresholdSeconds = DefaultGapThresholdSeconds,
+            InteractionCaptureBudgetPolicy budgetPolicy = null)
         {
-            return CreateNew(
-                persistentDataPath,
-                plan,
-                exactManifestBytes,
-                queueCapacity,
-                gapThresholdSeconds,
-                new InteractionJsonlChannelFactory()
-            );
+            byte[] frozenManifest = exactManifestBytes == null
+                ? null
+                : (byte[])exactManifestBytes.Clone();
+            return InteractionBackgroundOperation<InteractionCaptureWriter>
+                .Start(() => CreateNewOnWorker(
+                    persistentDataPath,
+                    plan,
+                    frozenManifest,
+                    queueCapacity,
+                    gapThresholdSeconds,
+                    new InteractionJsonlChannelFactory(),
+                    budgetPolicy ?? InteractionCaptureBudgetPolicy.CreateDefault()
+                ));
         }
 
         internal static InteractionCaptureWriter CreateNew(
@@ -135,7 +184,28 @@ namespace SignVR.Interaction.CaptureHost
             byte[] exactManifestBytes,
             int queueCapacity,
             double gapThresholdSeconds,
-            IInteractionJsonlChannelFactory channelFactory)
+            IInteractionJsonlChannelFactory channelFactory,
+            InteractionCaptureBudgetPolicy budgetPolicy = null)
+        {
+            return CreateNewOnWorker(
+                persistentDataPath,
+                plan,
+                exactManifestBytes,
+                queueCapacity,
+                gapThresholdSeconds,
+                channelFactory,
+                budgetPolicy ?? InteractionCaptureBudgetPolicy.CreateDefault()
+            );
+        }
+
+        private static InteractionCaptureWriter CreateNewOnWorker(
+            string persistentDataPath,
+            RunPlan plan,
+            byte[] exactManifestBytes,
+            int queueCapacity,
+            double gapThresholdSeconds,
+            IInteractionJsonlChannelFactory channelFactory,
+            InteractionCaptureBudgetPolicy budgetPolicy)
         {
             if (plan == null)
             {
@@ -163,6 +233,13 @@ namespace SignVR.Interaction.CaptureHost
                 plan.ParticipantId,
                 plan.RunId
             );
+            var diskBudget = new InteractionDiskBudgetGuard(
+                runDirectory,
+                budgetPolicy.MinimumFreeBytes,
+                budgetPolicy.FreeSpaceProbe
+            );
+            diskBudget.EnsureMinimumAvailable();
+            diskBudget.Reserve(exactManifestBytes.LongLength);
             if (Directory.Exists(runDirectory))
             {
                 throw new IOException(
@@ -186,7 +263,9 @@ namespace SignVR.Interaction.CaptureHost
                     exactManifestBytes,
                     queueCapacity,
                     gapThresholdSeconds,
-                    channelFactory
+                    channelFactory,
+                    budgetPolicy,
+                    diskBudget
                 );
             }
             catch
@@ -228,8 +307,8 @@ namespace SignVR.Interaction.CaptureHost
                 targetId,
                 payloadJson
             );
-            // Domain events are never silently dropped. A short bounded wait
-            // either queues the event or fails closed, preserving partial data.
+            // Domain events never wait or silently drop on the caller. They
+            // queue immediately or fail closed, preserving partial data.
             events.WriteCritical(InteractionCaptureJson.SerializeEvent(record));
         }
 
@@ -346,13 +425,41 @@ namespace SignVR.Interaction.CaptureHost
 
         public void FlushPhase()
         {
-            EnsureOpen();
-            events.FlushAndSync();
-            poses.FlushAndSync();
-            objects.FlushAndSync();
+            BeginPhaseCheckpoint();
         }
 
-        public InteractionRunSummary Seal(
+        public InteractionBackgroundOperation<bool> BeginPhaseCheckpoint()
+        {
+            EnsureOpen();
+            return ioScheduler.Enqueue(() =>
+            {
+                diskBudget.EnsureMinimumAvailable();
+                events.FlushAndSync();
+                poses.FlushAndSync();
+                objects.FlushAndSync();
+                return true;
+            });
+        }
+
+        public bool CanSealCompleted(out string reason)
+        {
+            if (poses.AcceptedLineCount < 1L)
+            {
+                reason = "Completed Study capture requires at least one pose row.";
+                return false;
+            }
+            if (objects.AcceptedLineCount < 1L)
+            {
+                reason = "Completed Study capture requires at least one object row.";
+                return false;
+            }
+            reason = null;
+            return true;
+        }
+
+        public InteractionBackgroundOperation<InteractionCaptureSealResult>
+            BeginSeal(
+            InteractionCaptureTerminalKind terminalKind,
             Func<InteractionDataCompleteness, InteractionRunSummary> summaryFactory)
         {
             EnsureOpen();
@@ -361,37 +468,17 @@ namespace SignVR.Interaction.CaptureHost
                 throw new ArgumentNullException(nameof(summaryFactory));
             }
 
-            captureActive = false;
-            events.CloseAndPromote();
-            poses.CloseAndPromote();
-            objects.CloseAndPromote();
-
-            var completeness = new InteractionDataCompleteness(
-                IsNonEmpty(InteractionStoragePaths.ManifestFileName),
-                IsNonEmpty(InteractionStoragePaths.EventsFileName),
-                IsNonEmpty(InteractionStoragePaths.PosesFileName),
-                IsNonEmpty(InteractionStoragePaths.ObjectsFileName),
-                true,
-                captureGapCount
-            );
-            InteractionRunSummary summary = summaryFactory(completeness);
-            if (summary == null || !string.Equals(
-                    summary.RunId,
-                    runId,
-                    StringComparison.Ordinal))
+            if (terminalKind != InteractionCaptureTerminalKind.Completed &&
+                terminalKind != InteractionCaptureTerminalKind.Aborted)
             {
-                throw new InvalidOperationException(
-                    "Summary factory returned no summary or the wrong Run ID."
-                );
+                throw new ArgumentOutOfRangeException(nameof(terminalKind));
             }
-            InteractionAtomicFile.WriteNew(
-                Path.Combine(RunDirectory, InteractionStoragePaths.SummaryFileName),
-                new UTF8Encoding(false).GetBytes(
-                    InteractionSummaryJson.Serialize(summary)
-                )
+            captureActive = false;
+            terminalRequested = true;
+            return ioScheduler.Enqueue(
+                () => SealOnWorker(terminalKind, summaryFactory),
+                terminal: true
             );
-            sealedCapture = true;
-            return summary;
         }
 
         public void Dispose()
@@ -402,12 +489,101 @@ namespace SignVR.Interaction.CaptureHost
             }
             disposed = true;
             captureActive = false;
-            if (!sealedCapture)
+            if (!sealedCapture && !terminalRequested)
             {
-                DisposeLeavingPartial(events);
-                DisposeLeavingPartial(poses);
-                DisposeLeavingPartial(objects);
+                terminalRequested = true;
+                try
+                {
+                    ioScheduler.Enqueue(() =>
+                    {
+                        CloseAllLeavingPartialOnWorker();
+                        return true;
+                    }, terminal: true);
+                }
+                catch
+                {
+                    RequestAllCloseWithoutJoin();
+                    ioScheduler.StopAcceptingWithoutJoin();
+                }
             }
+        }
+
+        private InteractionCaptureSealResult SealOnWorker(
+            InteractionCaptureTerminalKind terminalKind,
+            Func<InteractionDataCompleteness, InteractionRunSummary> summaryFactory)
+        {
+            try
+            {
+                diskBudget.EnsureMinimumAvailable();
+                if (terminalKind == InteractionCaptureTerminalKind.Completed &&
+                    !CanSealCompleted(out string completenessReason))
+                {
+                    throw new InteractionCaptureCompletenessException(
+                        completenessReason
+                    );
+                }
+
+                events.CloseAndPromote();
+                poses.CloseAndPromote();
+                objects.CloseAndPromote();
+
+                var completeness = new InteractionDataCompleteness(
+                    IsNonEmpty(InteractionStoragePaths.ManifestFileName),
+                    IsNonEmpty(InteractionStoragePaths.EventsFileName),
+                    IsNonEmpty(InteractionStoragePaths.PosesFileName),
+                    IsNonEmpty(InteractionStoragePaths.ObjectsFileName),
+                    true,
+                    captureGapCount
+                );
+                InteractionRunSummary summary = summaryFactory(completeness);
+                if (summary == null || !string.Equals(
+                        summary.RunId,
+                        runId,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        "Summary factory returned no summary or the wrong Run ID."
+                    );
+                }
+                byte[] summaryBytes = new UTF8Encoding(false).GetBytes(
+                    InteractionSummaryJson.Serialize(summary)
+                );
+                if (summaryBytes.LongLength > budgetPolicy.SummaryMaxBytes)
+                {
+                    throw new InteractionCaptureBudgetException(
+                        "summary.json exceeds the local byte limit."
+                    );
+                }
+                diskBudget.Reserve(summaryBytes.LongLength);
+                InteractionAtomicFile.WriteNew(
+                    Path.Combine(
+                        RunDirectory,
+                        InteractionStoragePaths.SummaryFileName
+                    ),
+                    summaryBytes
+                );
+                sealedCapture = true;
+                return new InteractionCaptureSealResult(summary, completeness);
+            }
+            catch
+            {
+                CloseAllLeavingPartialOnWorker();
+                throw;
+            }
+        }
+
+        private void CloseAllLeavingPartialOnWorker()
+        {
+            DisposeLeavingPartial(events);
+            DisposeLeavingPartial(poses);
+            DisposeLeavingPartial(objects);
+        }
+
+        private void RequestAllCloseWithoutJoin()
+        {
+            events.RequestCloseLeavingPartial();
+            poses.RequestCloseLeavingPartial();
+            objects.RequestCloseLeavingPartial();
         }
 
         private void RecordCaptureGap(
@@ -457,7 +633,7 @@ namespace SignVR.Interaction.CaptureHost
 
         private void EnsureOpen()
         {
-            if (disposed || sealedCapture)
+            if (disposed || sealedCapture || terminalRequested)
             {
                 throw new ObjectDisposedException(nameof(InteractionCaptureWriter));
             }
@@ -500,7 +676,9 @@ namespace SignVR.Interaction.CaptureHost
             string partialPath,
             string finalPath,
             int capacity,
-            string workerName);
+            string workerName,
+            InteractionJsonlBudget budget,
+            InteractionDiskBudgetGuard diskBudget);
     }
 
     internal interface IInteractionJsonlChannel
@@ -511,6 +689,7 @@ namespace SignVR.Interaction.CaptureHost
         void FlushAndSync();
         void CloseAndPromote();
         void DisposeLeavingPartial();
+        void RequestCloseLeavingPartial();
     }
 
     internal sealed class InteractionJsonlChannelFactory :
@@ -520,13 +699,17 @@ namespace SignVR.Interaction.CaptureHost
             string partialPath,
             string finalPath,
             int capacity,
-            string workerName)
+            string workerName,
+            InteractionJsonlBudget budget,
+            InteractionDiskBudgetGuard diskBudget)
         {
             return new InteractionAsyncJsonlChannel(
                 partialPath,
                 finalPath,
                 capacity,
-                workerName
+                workerName,
+                budget,
+                diskBudget
             );
         }
     }
@@ -536,13 +719,15 @@ namespace SignVR.Interaction.CaptureHost
     {
         private readonly object gate = new object();
         private readonly object ioGate = new object();
-        private readonly Queue<string> pending = new Queue<string>();
+        private readonly Queue<QueuedLine> pending = new Queue<QueuedLine>();
         private readonly int capacity;
         private readonly string partialPath;
         private readonly string finalPath;
         private readonly FileStream stream;
         private readonly StreamWriter writer;
         private readonly Thread worker;
+        private readonly InteractionJsonlBudgetTracker byteBudget;
+        private readonly InteractionDiskBudgetGuard diskBudget;
 
         private bool accepting = true;
         private bool closeRequested;
@@ -555,7 +740,9 @@ namespace SignVR.Interaction.CaptureHost
             string partialPath,
             string finalPath,
             int capacity,
-            string workerName)
+            string workerName,
+            InteractionJsonlBudget budget,
+            InteractionDiskBudgetGuard diskBudget)
         {
             if (capacity < 1)
             {
@@ -564,6 +751,11 @@ namespace SignVR.Interaction.CaptureHost
             this.partialPath = partialPath;
             this.finalPath = finalPath;
             this.capacity = capacity;
+            byteBudget = new InteractionJsonlBudgetTracker(
+                budget ?? throw new ArgumentNullException(nameof(budget))
+            );
+            this.diskBudget = diskBudget ??
+                throw new ArgumentNullException(nameof(diskBudget));
             stream = new FileStream(
                 partialPath,
                 FileMode.CreateNew,
@@ -578,6 +770,7 @@ namespace SignVR.Interaction.CaptureHost
                 65536,
                 true
             );
+            writer.NewLine = "\n";
             worker = new Thread(WriteLoop)
             {
                 IsBackground = true,
@@ -607,7 +800,17 @@ namespace SignVR.Interaction.CaptureHost
                 {
                     return false;
                 }
-                pending.Enqueue(line);
+                InteractionJsonlReservation reservation = byteBudget.Reserve(line);
+                try
+                {
+                    diskBudget.Reserve(reservation.ByteCount);
+                }
+                catch
+                {
+                    byteBudget.Rollback(reservation);
+                    throw;
+                }
+                pending.Enqueue(new QueuedLine(line, reservation));
                 acceptedLineCount++;
                 Monitor.PulseAll(gate);
                 return true;
@@ -619,30 +822,32 @@ namespace SignVR.Interaction.CaptureHost
             ValidateLine(line);
             lock (gate)
             {
-                long deadline = DeadlineAfter(
-                    InteractionCaptureWaitLimits.CriticalEnqueueMilliseconds
-                );
-                while (true)
+                ThrowIfFailed();
+                if (!accepting)
                 {
-                    ThrowIfFailed();
-                    if (!accepting)
-                    {
-                        throw new ObjectDisposedException(
-                            nameof(InteractionAsyncJsonlChannel)
-                        );
-                    }
-                    if (pending.Count < capacity)
-                    {
-                        pending.Enqueue(line);
-                        acceptedLineCount++;
-                        Monitor.PulseAll(gate);
-                        return;
-                    }
-                    WaitUntilDeadline(
-                        deadline,
-                        "queueing a critical Interaction event"
+                    throw new ObjectDisposedException(
+                        nameof(InteractionAsyncJsonlChannel)
                     );
                 }
+                if (pending.Count >= capacity)
+                {
+                    throw new InteractionCaptureBudgetException(
+                        "Critical Interaction event queue is full; partial data is retained."
+                    );
+                }
+                InteractionJsonlReservation reservation = byteBudget.Reserve(line);
+                try
+                {
+                    diskBudget.Reserve(reservation.ByteCount);
+                }
+                catch
+                {
+                    byteBudget.Rollback(reservation);
+                    throw;
+                }
+                pending.Enqueue(new QueuedLine(line, reservation));
+                acceptedLineCount++;
+                Monitor.PulseAll(gate);
             }
         }
 
@@ -695,6 +900,16 @@ namespace SignVR.Interaction.CaptureHost
             StopWorker();
         }
 
+        public void RequestCloseLeavingPartial()
+        {
+            lock (gate)
+            {
+                accepting = false;
+                closeRequested = true;
+                Monitor.PulseAll(gate);
+            }
+        }
+
         private void StopWorker()
         {
             lock (gate)
@@ -733,7 +948,7 @@ namespace SignVR.Interaction.CaptureHost
             {
                 while (true)
                 {
-                    string line;
+                    QueuedLine queued;
                     lock (gate)
                     {
                         while (pending.Count == 0 && !closeRequested)
@@ -744,12 +959,13 @@ namespace SignVR.Interaction.CaptureHost
                         {
                             break;
                         }
-                        line = pending.Dequeue();
+                        queued = pending.Dequeue();
                         Monitor.PulseAll(gate);
                     }
                     lock (ioGate)
                     {
-                        writer.WriteLine(line);
+                        writer.WriteLine(queued.Line);
+                        byteBudget.MarkWritten(queued.Reservation);
                     }
                     lock (gate)
                     {
@@ -842,6 +1058,20 @@ namespace SignVR.Interaction.CaptureHost
                     nameof(line)
                 );
             }
+        }
+
+        private sealed class QueuedLine
+        {
+            public QueuedLine(
+                string line,
+                InteractionJsonlReservation reservation)
+            {
+                Line = line;
+                Reservation = reservation;
+            }
+
+            public string Line { get; }
+            public InteractionJsonlReservation Reservation { get; }
         }
     }
 

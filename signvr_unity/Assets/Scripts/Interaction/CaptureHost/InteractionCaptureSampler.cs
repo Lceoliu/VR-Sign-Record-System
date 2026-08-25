@@ -13,6 +13,7 @@ namespace SignVR.Interaction.CaptureHost
     public sealed class InteractionCaptureSampler : MonoBehaviour
     {
         private const double TrackingResolveIntervalSeconds = 1d;
+        public const double CaptureIntervalSeconds = 0.05d;
 
         [SerializeField]
         private InteractionRunController controller;
@@ -45,6 +46,8 @@ namespace SignVR.Interaction.CaptureHost
         private Component resolvedRightHand;
         private Component resolvedRightSkeleton;
         private double nextTrackingResolveMonotonic;
+        private readonly InteractionCaptureCadence captureCadence =
+            new InteractionCaptureCadence(CaptureIntervalSeconds);
 
         public InteractionRunController Controller => controller;
         public Transform Hmd => hmd;
@@ -57,6 +60,10 @@ namespace SignVR.Interaction.CaptureHost
 
         private void Awake()
         {
+            if (!Application.isPlaying)
+            {
+                return;
+            }
             if (controller == null)
             {
                 controller = GetComponent<InteractionRunController>() ??
@@ -116,7 +123,10 @@ namespace SignVR.Interaction.CaptureHost
         private void Update()
         {
             ResolveTrackingSources(force: false);
-            if (controller == null || !controller.IsCaptureActive)
+            bool captureActive = controller != null && controller.IsCaptureActive;
+            if (!captureCadence.ShouldSample(
+                    Time.realtimeSinceStartupAsDouble,
+                    captureActive))
             {
                 return;
             }
@@ -148,6 +158,38 @@ namespace SignVR.Interaction.CaptureHost
                 );
             }
         }
+
+        private void OnDisable()
+        {
+            ResetCadence();
+        }
+
+        private void OnEnable()
+        {
+            ResetCadence();
+        }
+
+        internal void ResetCadence()
+        {
+            captureCadence.Reset();
+        }
+
+#if UNITY_EDITOR
+        internal bool EvaluateCaptureCadenceForTests(
+            double monotonicTimeSeconds,
+            bool captureActive)
+        {
+            return captureCadence.ShouldSample(
+                monotonicTimeSeconds,
+                captureActive
+            );
+        }
+
+        internal void ResetCaptureCadenceForTests()
+        {
+            ResetCadence();
+        }
+#endif
 
         private void ResolveOvrComponentsIfNeeded()
         {
@@ -472,6 +514,10 @@ namespace SignVR.Interaction.CaptureHost
 
         private void Awake()
         {
+            if (!Application.isPlaying)
+            {
+                return;
+            }
             if (capturedTransform == null)
             {
                 capturedTransform = transform;

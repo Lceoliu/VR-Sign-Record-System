@@ -13,6 +13,25 @@ namespace SignVR.Interaction.CaptureHost
     /// </summary>
     public static class InteractionPartialRunRecovery
     {
+        public static InteractionBackgroundOperation<int>
+            BeginTerminalizeAllAborted(
+            string persistentDataPath,
+            string abortReason,
+            DateTimeOffset endedUtc,
+            double monotonicTimeSeconds,
+            int frame)
+        {
+            return InteractionBackgroundOperation<int>.Start(() =>
+                TerminalizeAllAborted(
+                    persistentDataPath,
+                    abortReason,
+                    endedUtc,
+                    monotonicTimeSeconds,
+                    frame
+                )
+            );
+        }
+
         public static int TerminalizeAllAborted(
             string persistentDataPath,
             string reason,

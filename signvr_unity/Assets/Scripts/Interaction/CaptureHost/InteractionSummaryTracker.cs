@@ -141,6 +141,27 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
+        /// <summary>
+        /// Creates a deep, unsealed copy for ownership transfer to background
+        /// terminalization. Mutating or sealing the copy cannot publish partial
+        /// state through the Controller-owned tracker.
+        /// </summary>
+        public InteractionSummaryTracker CreateDetachedCopy()
+        {
+            EnsureNotSealed();
+            var copy = new InteractionSummaryTracker(runId)
+            {
+                runStarted = runStarted,
+                runStartedMonotonic = runStartedMonotonic,
+                runStartedUtc = runStartedUtc
+            };
+            for (int index = 0; index < phases.Length; index++)
+            {
+                copy.phases[index] = new MutablePhase(phases[index]);
+            }
+            return copy;
+        }
+
         public void BeginRun(double monotonicTimeSeconds, DateTimeOffset utcTime)
         {
             EnsureNotSealed();
@@ -390,6 +411,32 @@ namespace SignVR.Interaction.CaptureHost
         public MutablePhase(int phaseId)
         {
             PhaseId = phaseId;
+        }
+
+        public MutablePhase(MutablePhase source)
+        {
+            if (source == null)
+            {
+                throw new ArgumentNullException(nameof(source));
+            }
+            PhaseId = source.PhaseId;
+            Started = source.Started;
+            Finished = source.Finished;
+            StartedMonotonic = source.StartedMonotonic;
+            FirstAttemptCorrect = source.FirstAttemptCorrect;
+            PhaseCompleted = source.PhaseCompleted;
+            PhaseStuck = source.PhaseStuck;
+            ErrorCount = source.ErrorCount;
+            ReplayUsed = source.ReplayUsed;
+            TimeToFirstActionSeconds = source.TimeToFirstActionSeconds;
+            TimeToCompletionSeconds = source.TimeToCompletionSeconds;
+            TextExposureSeconds = source.TextExposureSeconds;
+            PointingExposureSeconds = source.PointingExposureSeconds;
+            TextExposed = source.TextExposed;
+            PointingExposed = source.PointingExposed;
+            TimeoutObserved = source.TimeoutObserved;
+            textExposureStarted = source.textExposureStarted;
+            pointingExposureStarted = source.pointingExposureStarted;
         }
 
         public int PhaseId { get; }

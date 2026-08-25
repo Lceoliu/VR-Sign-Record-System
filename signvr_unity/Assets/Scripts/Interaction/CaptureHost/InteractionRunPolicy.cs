@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using SignVR.Interaction.Core;
 
 namespace SignVR.Interaction.CaptureHost
@@ -77,6 +78,155 @@ namespace SignVR.Interaction.CaptureHost
         }
     }
 
+    public static class InteractionCaptureSetupPolicy
+    {
+        public static void ValidateStructure(
+            int hostClientCount,
+            int controllerCount,
+            int samplerCount,
+            bool referencesWired,
+            InteractionRunMode runMode,
+            bool debugOverridesActive,
+            bool requireHostForStart)
+        {
+            if (hostClientCount != 1 || controllerCount != 1 ||
+                samplerCount != 1)
+            {
+                throw new InvalidOperationException(
+                    "W6 structure requires exactly one Host client, controller, and sampler."
+                );
+            }
+            if (!referencesWired)
+            {
+                throw new InvalidOperationException(
+                    "W6 structure references are not wired."
+                );
+            }
+            if (runMode != InteractionRunMode.Study || debugOverridesActive ||
+                !requireHostForStart)
+            {
+                throw new InvalidOperationException(
+                    "W6 versioned structure must default to Study without overrides and require Host."
+                );
+            }
+        }
+
+        public static void ValidateStudyReadiness(
+            bool hmdReady,
+            bool leftHandReady,
+            bool rightHandReady,
+            int objectProbeCount)
+        {
+            InteractionStudyCapturePrerequisites.Validate(
+                hmdReady,
+                leftHandReady,
+                rightHandReady,
+                objectProbeCount
+            );
+        }
+    }
+
+    public interface IInteractionHeartbeatGenerationStore
+    {
+        bool TryRead(out long generation);
+        void WriteAndFlush(long generation);
+    }
+
+    public static class InteractionHeartbeatGenerationAllocator
+    {
+        public static long AllocateNext(
+            IInteractionHeartbeatGenerationStore store)
+        {
+            if (store == null)
+            {
+                throw new ArgumentNullException(nameof(store));
+            }
+            long previous;
+            long next;
+            if (!store.TryRead(out previous))
+            {
+                next = 0L;
+            }
+            else
+            {
+                if (previous < 0L)
+                {
+                    throw new InvalidOperationException(
+                        "Persisted heartbeat generation is invalid."
+                    );
+                }
+                next = checked(previous + 1L);
+            }
+            store.WriteAndFlush(next);
+            return next;
+        }
+    }
+
+    public sealed class InteractionHeartbeatDeadlineSchedule
+    {
+        private readonly double intervalSeconds;
+        private bool initialized;
+
+        public InteractionHeartbeatDeadlineSchedule(double intervalSeconds)
+        {
+            InteractionEventSequencer.ValidateFiniteNonNegative(
+                intervalSeconds,
+                nameof(intervalSeconds)
+            );
+            if (intervalSeconds <= 0d)
+            {
+                throw new ArgumentOutOfRangeException(nameof(intervalSeconds));
+            }
+            this.intervalSeconds = intervalSeconds;
+        }
+
+        public double NextDeadlineSeconds { get; private set; }
+
+        public void Reset(double monotonicNowSeconds)
+        {
+            InteractionEventSequencer.ValidateFiniteNonNegative(
+                monotonicNowSeconds,
+                nameof(monotonicNowSeconds)
+            );
+            NextDeadlineSeconds = monotonicNowSeconds;
+            initialized = true;
+        }
+
+        public void AdvanceAfterAttempt(double completedAtSeconds)
+        {
+            EnsureInitialized();
+            InteractionEventSequencer.ValidateFiniteNonNegative(
+                completedAtSeconds,
+                nameof(completedAtSeconds)
+            );
+            do
+            {
+                NextDeadlineSeconds += intervalSeconds;
+            }
+            while (NextDeadlineSeconds <= completedAtSeconds);
+        }
+
+        public double DelaySeconds(double monotonicNowSeconds)
+        {
+            EnsureInitialized();
+            InteractionEventSequencer.ValidateFiniteNonNegative(
+                monotonicNowSeconds,
+                nameof(monotonicNowSeconds)
+            );
+            return Math.Max(0d, NextDeadlineSeconds - monotonicNowSeconds);
+        }
+
+        private void EnsureInitialized()
+        {
+            if (!initialized)
+            {
+                throw new InvalidOperationException(
+                    "Heartbeat deadline schedule is not initialized."
+                );
+            }
+        }
+    }
+
     public static class InteractionLifecycleTerminationPolicy
     {
         public static bool RequiresLocalAbort(RunState state)
@@ -85,6 +235,153 @@ namespace SignVR.Interaction.CaptureHost
                 state == RunState.Scheduled ||
                 state == RunState.Running ||
                 state == RunState.Completing;
+        }
+    }
+
+    public static class InteractionHeartbeatLifecyclePolicy
+    {
+        public static bool ShouldRestoreAfterResume(RunState state)
+        {
+            return state == RunState.PreStart;
+        }
+    }
+
+    public enum InteractionTerminalSealArbitrationState
+    {
+        Open,
+        CheckpointPending,
+        AbortReservedAfterCheckpoint,
+        AbortSealReady,
+        CompletedSealQueued,
+        AbortedSealQueued,
+        Terminal
+    }
+
+    public enum InteractionAbortRequestDisposition
+    {
+        QueueImmediately,
+        QueueAfterCheckpoint,
+        Rejected
+    }
+
+    public enum InteractionCheckpointResolution
+    {
+        Continue,
+        QueueAbort
+    }
+
+    /// <summary>
+    /// Arbitrates ownership of the one terminal capture seal. W1 remains the
+    /// Run authority; this seam only decides whether local I/O may be queued.
+    /// </summary>
+    public sealed class InteractionTerminalSealArbiter
+    {
+        public InteractionTerminalSealArbitrationState State { get; private set; }
+
+        public void BeginCheckpoint()
+        {
+            EnsureState(InteractionTerminalSealArbitrationState.Open);
+            State = InteractionTerminalSealArbitrationState.CheckpointPending;
+        }
+
+        public void CancelCheckpoint()
+        {
+            EnsureState(
+                InteractionTerminalSealArbitrationState.CheckpointPending
+            );
+            State = InteractionTerminalSealArbitrationState.Open;
+        }
+
+        public InteractionCheckpointResolution CompleteCheckpoint()
+        {
+            if (State == InteractionTerminalSealArbitrationState.CheckpointPending)
+            {
+                State = InteractionTerminalSealArbitrationState.Open;
+                return InteractionCheckpointResolution.Continue;
+            }
+            if (State == InteractionTerminalSealArbitrationState
+                    .AbortReservedAfterCheckpoint)
+            {
+                State = InteractionTerminalSealArbitrationState.AbortSealReady;
+                return InteractionCheckpointResolution.QueueAbort;
+            }
+            throw new InvalidOperationException(
+                "No terminal checkpoint is awaiting completion in state " +
+                State + "."
+            );
+        }
+
+        public InteractionAbortRequestDisposition TryRequestAbort(
+            out string error)
+        {
+            error = null;
+            if (State == InteractionTerminalSealArbitrationState.Open)
+            {
+                State = InteractionTerminalSealArbitrationState.AbortSealReady;
+                return InteractionAbortRequestDisposition.QueueImmediately;
+            }
+            if (State == InteractionTerminalSealArbitrationState.CheckpointPending)
+            {
+                State = InteractionTerminalSealArbitrationState
+                    .AbortReservedAfterCheckpoint;
+                return InteractionAbortRequestDisposition.QueueAfterCheckpoint;
+            }
+            if (State == InteractionTerminalSealArbitrationState
+                    .CompletedSealQueued)
+            {
+                error =
+                    "Abort rejected because the Completed capture seal is already queued.";
+                return InteractionAbortRequestDisposition.Rejected;
+            }
+            error = "Abort rejected because terminal capture ownership is " +
+                State + ".";
+            return InteractionAbortRequestDisposition.Rejected;
+        }
+
+        public void MarkCompletedSealQueued()
+        {
+            EnsureState(InteractionTerminalSealArbitrationState.Open);
+            State = InteractionTerminalSealArbitrationState.CompletedSealQueued;
+        }
+
+        public void MarkAbortedSealQueued()
+        {
+            EnsureState(InteractionTerminalSealArbitrationState.AbortSealReady);
+            State = InteractionTerminalSealArbitrationState.AbortedSealQueued;
+        }
+
+        public void MarkTerminal()
+        {
+            if (State != InteractionTerminalSealArbitrationState
+                    .CompletedSealQueued &&
+                State != InteractionTerminalSealArbitrationState
+                    .AbortedSealQueued &&
+                State != InteractionTerminalSealArbitrationState
+                    .AbortReservedAfterCheckpoint &&
+                State != InteractionTerminalSealArbitrationState.AbortSealReady)
+            {
+                throw new InvalidOperationException(
+                    "Terminal capture cannot finish from state " + State + "."
+                );
+            }
+            State = InteractionTerminalSealArbitrationState.Terminal;
+        }
+
+        public void Reset()
+        {
+            State = InteractionTerminalSealArbitrationState.Open;
+        }
+
+        private void EnsureState(
+            InteractionTerminalSealArbitrationState expected)
+        {
+            if (State != expected)
+            {
+                throw new InvalidOperationException(
+                    "Terminal capture expected " + expected + " but was " +
+                    State + "."
+                );
+            }
         }
     }
 
@@ -268,6 +565,174 @@ namespace SignVR.Interaction.CaptureHost
                 );
             }
             Accepted = true;
+        }
+    }
+
+    public sealed class InteractionCaptureCadence
+    {
+        private readonly double intervalSeconds;
+        private bool armed;
+        private double nextSampleMonotonic;
+        private double lastObservedMonotonic;
+
+        public InteractionCaptureCadence(double intervalSeconds)
+        {
+            InteractionEventSequencer.ValidateFiniteNonNegative(
+                intervalSeconds,
+                nameof(intervalSeconds)
+            );
+            if (intervalSeconds <= 0d)
+            {
+                throw new ArgumentOutOfRangeException(nameof(intervalSeconds));
+            }
+            this.intervalSeconds = intervalSeconds;
+            Reset();
+        }
+
+        public double IntervalSeconds => intervalSeconds;
+
+        public bool ShouldSample(double monotonicTimeSeconds, bool captureActive)
+        {
+            InteractionEventSequencer.ValidateFiniteNonNegative(
+                monotonicTimeSeconds,
+                nameof(monotonicTimeSeconds)
+            );
+            if (!captureActive)
+            {
+                Reset();
+                return false;
+            }
+            if (!armed || monotonicTimeSeconds < lastObservedMonotonic)
+            {
+                armed = true;
+                lastObservedMonotonic = monotonicTimeSeconds;
+                nextSampleMonotonic = monotonicTimeSeconds + intervalSeconds;
+                return true;
+            }
+            lastObservedMonotonic = monotonicTimeSeconds;
+            if (monotonicTimeSeconds < nextSampleMonotonic)
+            {
+                return false;
+            }
+
+            double overdue = monotonicTimeSeconds - nextSampleMonotonic;
+            double intervalsElapsed = Math.Floor(overdue / intervalSeconds) + 1d;
+            nextSampleMonotonic += intervalsElapsed * intervalSeconds;
+            if (nextSampleMonotonic <= monotonicTimeSeconds)
+            {
+                nextSampleMonotonic += intervalSeconds;
+            }
+            return true;
+        }
+
+        public void Reset()
+        {
+            armed = false;
+            nextSampleMonotonic = 0d;
+            lastObservedMonotonic = 0d;
+        }
+    }
+
+    internal readonly struct InteractionHostRequestLease
+    {
+        public InteractionHostRequestLease(long generation)
+        {
+            Generation = generation;
+        }
+
+        public long Generation { get; }
+    }
+
+    internal sealed class InteractionHostRequestEpoch
+    {
+        private readonly object gate = new object();
+        private long generation = 1L;
+        private bool accepting = true;
+
+        public bool IsAccepting
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return accepting;
+                }
+            }
+        }
+
+        public bool TryAcquire(out InteractionHostRequestLease lease)
+        {
+            lock (gate)
+            {
+                lease = new InteractionHostRequestLease(generation);
+                return accepting;
+            }
+        }
+
+        public bool IsCurrent(InteractionHostRequestLease lease)
+        {
+            lock (gate)
+            {
+                return accepting && lease.Generation == generation;
+            }
+        }
+
+        public bool TryExecute(
+            InteractionHostRequestLease lease,
+            Action action)
+        {
+            if (action == null)
+            {
+                throw new ArgumentNullException(nameof(action));
+            }
+            lock (gate)
+            {
+                if (!accepting || lease.Generation != generation)
+                {
+                    return false;
+                }
+                action();
+                return true;
+            }
+        }
+
+        public void CloseAndAdvance()
+        {
+            lock (gate)
+            {
+                accepting = false;
+                generation = checked(generation + 1L);
+            }
+        }
+
+        public void Open()
+        {
+            lock (gate)
+            {
+                accepting = true;
+            }
+        }
+    }
+
+    internal sealed class InteractionOncePublisher<T>
+    {
+        private readonly Action<T> publish;
+        private int published;
+
+        public InteractionOncePublisher(Action<T> publish)
+        {
+            this.publish = publish ??
+                throw new ArgumentNullException(nameof(publish));
+        }
+
+        public bool TryPublish(T value)
+        {
+            if (Interlocked.Exchange(ref published, 1) != 0)
+            {
+                return false;
+            }
+            publish(value);
+            return true;
         }
     }
 }
