@@ -63,6 +63,7 @@ namespace SignVR.SceneFlow
             }
 
             targetCanvas.renderMode = RenderMode.WorldSpace;
+            EnsureGraphicRaycaster(targetCanvas);
             EnsurePointableCanvasModule();
 
             if (IsConfigured)
@@ -126,6 +127,14 @@ namespace SignVR.SceneFlow
 
             interactionObject.SetActive(true);
             return true;
+        }
+
+        private static void EnsureGraphicRaycaster(Canvas canvas)
+        {
+            if (canvas.GetComponent<GraphicRaycaster>() == null)
+            {
+                canvas.gameObject.AddComponent<GraphicRaycaster>();
+            }
         }
 
         private static void SetInteractiveBounds(

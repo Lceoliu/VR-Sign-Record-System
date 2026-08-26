@@ -3,6 +3,8 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace SignVR.Interaction.Editor.Tests.Presentation
 {
@@ -75,6 +77,73 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
         public void SavedInteractionLabHasCompleteW5AnchorWiring()
         {
             Invoke("ValidateConfiguredSceneForAutomation");
+        }
+
+        [Test]
+        public void WorldSpacePokeCanvasRepairsMissingGraphicRaycaster()
+        {
+            Type pokeCanvasType = Type.GetType(
+                "SignVR.SceneFlow.WorldSpacePokeCanvas, SignVR.SceneFlow",
+                throwOnError: true
+            );
+            Type pointableCanvasModuleType = Type.GetType(
+                "Oculus.Interaction.PointableCanvasModule, Oculus.Interaction",
+                throwOnError: true
+            );
+            GameObject existingEventSystem = EventSystem.current != null
+                ? EventSystem.current.gameObject
+                : null;
+            Component existingCanvasModule =
+                UnityEngine.Object.FindAnyObjectByType(
+                    pointableCanvasModuleType
+                ) as Component;
+            var root = new GameObject(
+                "PokeCanvasWithoutRaycaster",
+                typeof(RectTransform),
+                typeof(Canvas)
+            );
+            root.SetActive(false);
+            try
+            {
+                Component pokeCanvas = root.AddComponent(pokeCanvasType);
+                MethodInfo ensure = pokeCanvasType.GetMethod(
+                    "EnsurePokeInteraction",
+                    BindingFlags.Public | BindingFlags.Instance
+                );
+
+                Assert.That(ensure, Is.Not.Null);
+                Assert.That(root.GetComponent<GraphicRaycaster>(), Is.Null,
+                    "The regression precondition requires an old canvas " +
+                    "without a serialized raycaster.");
+
+                Assert.That((bool)ensure.Invoke(pokeCanvas, null), Is.True);
+                Assert.That(root.GetComponent<GraphicRaycaster>(), Is.Not.Null,
+                    "Runtime self-healing must precede PointableCanvas Start.");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                if (existingEventSystem == null && EventSystem.current != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(
+                        EventSystem.current.gameObject
+                    );
+                }
+                else if (existingCanvasModule == null &&
+                    existingEventSystem != null)
+                {
+                    Component createdCanvasModule =
+                        existingEventSystem.GetComponent(
+                            pointableCanvasModuleType
+                        );
+                    if (createdCanvasModule != null)
+                    {
+                        UnityEngine.Object.DestroyImmediate(
+                            createdCanvasModule
+                        );
+                    }
+                }
+            }
         }
 
         private static void Invoke(string methodName)

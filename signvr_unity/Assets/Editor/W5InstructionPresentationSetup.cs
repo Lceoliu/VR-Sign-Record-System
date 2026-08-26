@@ -10,6 +10,7 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 namespace SignVR.Editor.Interaction
 {
@@ -413,6 +414,17 @@ namespace SignVR.Editor.Interaction
                 failures.Add(
                     "Replay, Give Up Phase, and Abort Run controls are not " +
                     "three distinct controls."
+                );
+            }
+            Canvas controlCanvas = controls?.ReplayButton != null
+                ? controls.ReplayButton.GetComponentInParent<Canvas>()
+                : null;
+            if (controlCanvas == null ||
+                controlCanvas.GetComponent<GraphicRaycaster>() == null)
+            {
+                failures.Add(
+                    "Instruction controls Canvas lacks GraphicRaycaster for " +
+                    "Meta hand poke routing."
                 );
             }
             if (controller != null && (controller.GhostPlayer != player ||

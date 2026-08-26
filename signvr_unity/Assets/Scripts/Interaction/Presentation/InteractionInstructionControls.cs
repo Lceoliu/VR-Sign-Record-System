@@ -227,7 +227,8 @@ namespace SignVR.Interaction.Presentation
                     typeof(RectTransform),
                     typeof(Canvas),
                     typeof(CanvasScaler),
-                    typeof(CanvasGroup)
+                    typeof(CanvasGroup),
+                    typeof(GraphicRaycaster)
                 );
             if (existing == null)
             {
@@ -251,6 +252,10 @@ namespace SignVR.Interaction.Presentation
             group.alpha = 1f;
             group.interactable = true;
             group.blocksRaycasts = true;
+            if (visualRoot.GetComponent<GraphicRaycaster>() == null)
+            {
+                visualRoot.AddComponent<GraphicRaycaster>();
+            }
 
             font ??= Resources.Load<TMP_FontAsset>("Fonts/SignVRChinese SDF");
             replayButton = EnsureButton(
