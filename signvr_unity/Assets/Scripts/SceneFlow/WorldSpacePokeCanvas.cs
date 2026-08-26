@@ -68,13 +68,31 @@ namespace SignVR.SceneFlow
 
             if (IsConfigured)
             {
-                BoundsClipper existingClipper =
-                    transform.Find(InteractionObjectName)
-                        ?.GetComponentInChildren<BoundsClipper>(true);
-                if (existingClipper != null)
+                Transform existingInteraction =
+                    transform.Find(InteractionObjectName);
+                BoundsClipper existingClipper = existingInteraction
+                    ?.GetComponentInChildren<BoundsClipper>(true);
+                ClippedPlaneSurface existingSurface = existingInteraction
+                    ?.GetComponentInChildren<ClippedPlaneSurface>(true);
+                PointableCanvas existingPointable = existingInteraction
+                    ?.GetComponent<PointableCanvas>();
+                if (existingClipper == null || existingSurface == null ||
+                    existingPointable == null)
                 {
-                    SetInteractiveBounds(canvasRect, existingClipper);
+                    Debug.LogError(
+                        "[WorldSpacePokeCanvas] Existing interaction is " +
+                        "missing its pointable canvas or clipped surface.",
+                        this
+                    );
+                    return false;
                 }
+
+                SetInteractiveBounds(canvasRect, existingClipper);
+                EnsureRayInteraction(
+                    existingInteraction.gameObject,
+                    existingSurface,
+                    existingPointable
+                );
                 return true;
             }
 
@@ -125,8 +143,26 @@ namespace SignVR.SceneFlow
             pokeInteractable.InjectAllPokeInteractable(clippedSurface);
             pokeInteractable.InjectOptionalPointableElement(pointableCanvas);
 
+            EnsureRayInteraction(
+                interactionObject,
+                clippedSurface,
+                pointableCanvas
+            );
+
             interactionObject.SetActive(true);
             return true;
+        }
+
+        private static void EnsureRayInteraction(
+            GameObject interactionObject,
+            ClippedPlaneSurface clippedSurface,
+            PointableCanvas pointableCanvas)
+        {
+            RayInteractable rayInteractable =
+                interactionObject.GetComponent<RayInteractable>() ??
+                interactionObject.AddComponent<RayInteractable>();
+            rayInteractable.InjectAllRayInteractable(clippedSurface);
+            rayInteractable.InjectOptionalPointableElement(pointableCanvas);
         }
 
         private static void EnsureGraphicRaycaster(Canvas canvas)

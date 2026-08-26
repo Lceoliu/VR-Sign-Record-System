@@ -80,10 +80,18 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
         }
 
         [Test]
-        public void WorldSpacePokeCanvasRepairsMissingGraphicRaycaster()
+        public void WorldSpaceCanvasRepairsRaycasterAndSupportsPokeAndRay()
         {
             Type pokeCanvasType = Type.GetType(
                 "SignVR.SceneFlow.WorldSpacePokeCanvas, SignVR.SceneFlow",
+                throwOnError: true
+            );
+            Type pokeInteractableType = Type.GetType(
+                "Oculus.Interaction.PokeInteractable, Oculus.Interaction",
+                throwOnError: true
+            );
+            Type rayInteractableType = Type.GetType(
+                "Oculus.Interaction.RayInteractable, Oculus.Interaction",
                 throwOnError: true
             );
             Type pointableCanvasModuleType = Type.GetType(
@@ -119,6 +127,20 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
                 Assert.That((bool)ensure.Invoke(pokeCanvas, null), Is.True);
                 Assert.That(root.GetComponent<GraphicRaycaster>(), Is.Not.Null,
                     "Runtime self-healing must precede PointableCanvas Start.");
+                Transform interaction = root.transform.Find(
+                    "ISDK_PokeCanvasInteraction"
+                );
+                Assert.That(interaction, Is.Not.Null);
+                Assert.That(
+                    interaction.GetComponent(pokeInteractableType),
+                    Is.Not.Null,
+                    "The canvas must remain directly pokeable."
+                );
+                Assert.That(
+                    interaction.GetComponent(rayInteractableType),
+                    Is.Not.Null,
+                    "A panel beyond arm's reach must also accept hand rays."
+                );
             }
             finally
             {
