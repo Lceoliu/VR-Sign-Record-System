@@ -3395,15 +3395,7 @@ namespace SignVR.Interaction.Editor.Tests
                 ).Invoke(root, new object[] { transformType, true });
                 foreach (object transform in transforms)
                 {
-                    string name = (string)transform.GetType()
-                        .GetProperty("name").GetValue(transform);
-                    string normalized = new string(name
-                        .Where(char.IsLetterOrDigit)
-                        .Select(char.ToLowerInvariant)
-                        .ToArray());
-                    if (normalized.Contains("handinteractors") &&
-                        normalized.Contains(side) &&
-                        !normalized.Contains("controller"))
+                    if (IsTestBareHandInteractorRoot(transform, side))
                     {
                         matches.Add(transform);
                     }
@@ -3427,6 +3419,51 @@ namespace SignVR.Interaction.Editor.Tests
                 "Test" + char.ToUpperInvariant(side[0]) +
                 side.Substring(1) + "HandInteractors"
             );
+        }
+
+        private static bool IsTestBareHandInteractorRoot(
+            object transform,
+            string side)
+        {
+            if (transform == null || string.IsNullOrWhiteSpace(side))
+            {
+                return false;
+            }
+
+            Type transformType = transform.GetType();
+            string normalized = NormalizeObjectName(transform);
+            bool legacyNamedRoot =
+                normalized.Contains("handinteractors") &&
+                normalized.Contains(side) &&
+                !normalized.Contains("controller");
+
+            object parent = transformType.GetProperty("parent")
+                .GetValue(transform);
+            object grandparent = parent == null
+                ? null
+                : parent.GetType().GetProperty("parent").GetValue(parent);
+            bool comprehensiveHandOnlyRoot =
+                normalized == "handandnocontroller" &&
+                NormalizeObjectName(parent) == "interactors" &&
+                NormalizeObjectName(grandparent).Contains(
+                    "comprehensiveinteractors" + side
+                );
+            return legacyNamedRoot || comprehensiveHandOnlyRoot;
+        }
+
+        private static string NormalizeObjectName(object value)
+        {
+            if (value == null)
+            {
+                return string.Empty;
+            }
+
+            string name = (string)value.GetType().GetProperty("name")
+                .GetValue(value);
+            return new string((name ?? string.Empty)
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToLowerInvariant)
+                .ToArray());
         }
 
         private static void MoveGameObjectToScene(
