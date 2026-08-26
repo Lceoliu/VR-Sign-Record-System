@@ -1,7 +1,7 @@
 # Interaction Development Progress
 
 Updated: 2026-08-26
-Overall state: W6/W7 review remediation and W8a Host Study readiness bridge active
+Overall state: W6/W7/W8a integrated and locally green; W8 Unity study-flow integration active
 
 | Work ID | Scope | Dependencies | Worker task | State | Integration |
 | --- | --- | --- | --- | --- | --- |
@@ -10,10 +10,10 @@ Overall state: W6/W7 review remediation and W8a Host Study readiness bridge acti
 | W3 | Host Interaction API, repository, webcam Study mode, backend/frontend tests | Contract V1 | `W3 Host Interaction Mode` · `01a03916-2d85-7842-9c70-b1b7abcb1184` · worktree `b57e` | Complete | Reviewed and integrated as `4f9629d`; backend 62/62 and frontend 11/11 passed |
 | W4 | Dual build entry and clean Interaction scene bootstrap | Contract V1 | `W4 Dual Build and Clean Scene` · `01a03917-bd12-7740-81c3-d3d5dd00d49f` · worktree `c99f` | Complete | Reviewed, integrated, scene generated; Unity EditMode 2/2 passed |
 | W5 | Independent ghost player, bubble, Replay, immediate-hit pointing | W1,W2,W4 | `W5 Instruction Presentation` · `01a03949-d3cc-7810-afe1-89cbc2a5eefc` · worktree `7d6d` | Complete | Reviewed and integrated as `38eb411` + `ef1df15`; Unity EditMode 21/21 passed |
-| W6 | Local capture and Quest–Host client | W1,W3,W4 | `W6 Quest Capture and Host Client` · `01a03950-0130-73f2-bc09-62fd206a7348` · worktree `13c9` | In progress | Initial contract tests passed; Orchestrator review returned Host recovery, true playback timing, data-completeness, frozen-artifact, bounded-I/O, and restart-recovery issues for correction |
-| W7 | Six simplified interaction adapters | W1,W4 | `W7 Six Phase Interaction Adapters` · `01a03949-d3c9-77b1-837b-ddbf9d097eba` · worktree `69ef` | In progress | Initial review blocked integration; refactoring to synchronize W1 lifecycle snapshots and correcting physical input, reset, keypad, and scene-validation paths |
-| W8a | Host HTTP Study readiness and participant bridge | W3 | `W8a Host Study Readiness Bridge` · `01a039b8-71c8-7442-aeb5-ebe24005da87` · worktree `eed1` | In progress | Host-only HTTP Quest/camera/participant heartbeat work dispatched; no Recorder or Unity overlap |
-| W8 | Local Unity/Host integration and batched Quest validation package | W2..W8a | Orchestrator | Blocked | Starts after W6/W7/W8a integration |
+| W6 | Local capture and Quest–Host client | W1,W3,W4 | `W6 Quest Capture and Host Client` · `01a03950-0130-73f2-bc09-62fd206a7348` · worktree `13c9` | Complete | Integrated as `d55f467` plus lifecycle/test hardening through `ee49f78`; Unity EditMode 54/54 and PlayMode 8/8 passed |
+| W7 | Six simplified interaction adapters | W1,W4 | `W7 Six Phase Interaction Adapters` · `01a03949-d3c9-77b1-837b-ddbf9d097eba` · worktree `69ef` | Complete | Integrated as `865582d` plus ownership/fixture hardening through `611c207`; Unity EditMode 24/24 and PlayMode 11/11 passed |
+| W8a | Host HTTP Study readiness and participant bridge | W3 | `W8a Host Study Readiness Bridge` · `01a039b8-71c8-7442-aeb5-ebe24005da87` · worktree `eed1` | Complete | Integrated as `559603d` + `7ccdc7b`; Host backend 85/85, frontend 21/21, lint and production build passed |
+| W8 | Local Unity study-flow integration and batched Quest validation package | W2..W8a | `W8 Unity Study Flow Integration` · `01a03b8d-9a2a-7a31-a5f9-d297622f87b3` · worktree `b1cb` | In progress | Thin sequencing layer and local tests active; W1 remains Run/Phase authority, W6 owns capture/Host, W5 owns presentation, and W7 owns task validation |
 
 ## Current gates
 
@@ -25,10 +25,10 @@ Overall state: W6/W7 review remediation and W8a Host Study readiness bridge acti
 - Full EditMode baseline after W1 integration: 641 passed, 8 failed, 5 skipped. All eight failures are in pre-existing/package `UnitySkills.Tests.Core`; no SignVR Interaction test failed.
 - Quest validation: intentionally deferred and batched.
 - Existing user OpenXR settings change: preserved, excluded from orchestration commits.
-- Host gate: W3 is integrated. In the main worktree, all 62 backend tests and 11 frontend tests pass; frontend lint and production build also pass. Webcam upload failures retain one Blob per Run in page memory with guarded retry and local-download recovery until Host confirmation.
-- W6 review gate: the first implementation proved its pure contract and W3 fixture path, but is not integrated until retry-after-lost-registration, actual playback-origin timing, non-empty object capture, immutable uploaded artifacts, bounded writer waits, readiness watermarks, and partial-Run recovery are corrected.
-- W7 review gate: the first implementation is not integrated until W1 remains the sole lifecycle authority, GiveUp is replay-gated through a W1 snapshot, physical triggers reject non-hand colliders, Phase 1 provides working `*`/`#` input, hint/reset semantics are complete, and the saved-scene validator proves the full wiring.
-- Study readiness gate: the clean Interaction package cannot rely on the Recorder UDP DeviceRegistry. W8a is adding a separate HTTP heartbeat path on port 8011 and Host-owned participant matching before W6/W8 can claim the Study Start gate is reachable.
+- Host gate: W3 and W8a are integrated. In the main worktree, all 85 backend tests and 21 frontend tests pass; frontend lint and production build also pass. Webcam upload failures retain one Blob per Run in page memory with guarded retry and local-download recovery until Host confirmation.
+- W6 local gate: authoritative Unity jobs passed EditMode 54/54 (`8d4d5c26`) and PlayMode 8/8 (`e25d243a`). The targeted scene rollback fixture passed 1/1 (`612ee8a0`); the two previously failing lifecycle callbacks each passed 1/1 (`48632227`, `8dd79af0`). InteractionLab stayed clean with 34 roots and SHA-256 `EEA4FAA23734EDF3533C82907B7EA7F65332C34B40DFB316F6924D7FC5691F2F`; no W6 temporary assets remained.
+- W7 local gate: the final W7 EditMode suite passed 24/24 and PlayMode suite passed 11/11. W1 remains the sole phase authority; fixture recovery preserves pre-existing dirty/untitled scenes.
+- Study integration gate: W8 is now joining W5 presentation acknowledgements, W6 capture/Host lifecycle, and W7 task results without duplicating W1 phase/condition/time authority. Android/IL2CPP, live Host/webcam connectivity, and Quest bare-hand interaction remain batched field-validation gates.
 
 ## Integration log
 
@@ -47,3 +47,7 @@ Overall state: W6/W7 review remediation and W8a Host Study readiness bridge acti
 - 2026-08-26: Two-axis Orchestrator review blocked the initial W7 handoff. The task was returned to its original worktree to remove the duplicate phase authority, enforce W1 snapshot synchronization and replay-gated GiveUp, filter physical trigger sources, add the approved keypad backspace/submit path, complete reset/fallback semantics, and strengthen scene validation.
 - 2026-08-26: Two-axis Orchestrator review also blocked the initial W6 handoff despite its green static and Host fixture tests. The task was returned for lost-response registration recovery, actual playback handshakes, non-empty tracking/object gates, immutable and streaming uploads, bounded I/O waits, readiness ordering, and recoverable partial Runs.
 - 2026-08-26: W8a was dispatched in an independent worktree to replace the unreachable old-UDP Study gate with port-8011 HTTP Quest and camera/participant heartbeats while preserving the Recorder workflow.
+- 2026-08-26: W8a was reviewed and integrated as `559603d` + `7ccdc7b`. Main-worktree Host regression passed backend 85/85, frontend 21/21, lint, and production build.
+- 2026-08-26: W7 remediation was reviewed and integrated through `611c207`. Unity passed the final W7 EditMode 24/24 and PlayMode 11/11 suites, including saved-copy scene fixtures that preserve dirty and untitled user scenes.
+- 2026-08-26: W6 remediation was reviewed and integrated through `ee49f78`. Unity passed targeted scene rollback 1/1, both delayed lifecycle callbacks 1/1, full EditMode 54/54, and full PlayMode 8/8. InteractionLab and the pre-existing user settings remained unchanged.
+- 2026-08-26: `W8 Unity Study Flow Integration` was dispatched in worktree `b1cb` with Git, Unity startup, Quest build, Host modification, and scene-YAML modification forbidden. The task owns only the thin orchestration seam, setup tooling, tests, and its report.
