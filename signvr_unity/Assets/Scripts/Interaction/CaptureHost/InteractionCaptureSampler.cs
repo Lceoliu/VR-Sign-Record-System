@@ -319,9 +319,9 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return false;
             }
-            return !device.TryGetFeatureValue(
+            return device.TryGetFeatureValue(
                     CommonUsages.isTracked,
-                    out bool tracked) || tracked;
+                    out bool tracked) && tracked;
         }
 
         private static InteractionQuaternionSample ToSample(Quaternion value)

@@ -156,6 +156,9 @@ namespace SignVR.Interaction.CaptureHost
         public string LastError => lastError;
         public string AppSessionId => appSessionId;
         public string QuestDeviceId => questDeviceId;
+        public string BatchId => batchId;
+        public string ParticipantId => participantId;
+        public string GitCommit => gitCommit;
         public InteractionRunMode RunMode => runMode;
         public bool DebugOverridesActive => debugOverridesActive;
         public bool RequireHostForStart => requireHostForStart;
@@ -256,6 +259,7 @@ namespace SignVR.Interaction.CaptureHost
                 );
             }
             gitCommit = configuredGitCommit.Trim();
+            InvalidateHostReadiness();
             RefreshHeartbeatConfiguration();
         }
 
@@ -280,27 +284,60 @@ namespace SignVR.Interaction.CaptureHost
 
         public void RefreshHostReadiness()
         {
+            RefreshHostReadiness(null);
+        }
+
+        /// <summary>
+        /// W8 completion seam for one-at-a-time readiness polling. The callback
+        /// is lifecycle-only; W6 remains the sole owner of readiness parsing,
+        /// freshness, participant matching, and CanStart policy.
+        /// </summary>
+        public void RefreshHostReadiness(Action completed)
+        {
             if (hostClient == null)
             {
                 lastError = "Interaction Host client is not configured.";
+                completed?.Invoke();
                 return;
             }
             long generation = readinessResponseGate.Issue();
-            StartCoroutine(hostClient.GetReadiness(result =>
+            try
             {
-                if (!readinessResponseGate.TryAccept(generation))
+                StartCoroutine(hostClient.GetReadiness(result =>
                 {
-                    return;
-                }
-                if (!result.Success)
-                {
-                    lastError = "Host readiness failed: " + result.Error;
-                    return;
-                }
-                lastReadiness = result.Value;
-                lastReadinessMonotonic = NowMonotonic();
-                lastError = string.Empty;
-            }));
+                    try
+                    {
+                        if (!readinessResponseGate.TryAccept(generation))
+                        {
+                            return;
+                        }
+                        if (!result.Success)
+                        {
+                            lastError = "Host readiness failed: " + result.Error;
+                            return;
+                        }
+                        lastReadiness = result.Value;
+                        lastReadinessMonotonic = NowMonotonic();
+                        lastError = string.Empty;
+                    }
+                    finally
+                    {
+                        completed?.Invoke();
+                    }
+                }));
+            }
+            catch
+            {
+                completed?.Invoke();
+                throw;
+            }
+        }
+
+        public void InvalidateHostReadiness()
+        {
+            readinessResponseGate.Issue();
+            lastReadiness = null;
+            lastReadinessMonotonic = double.NegativeInfinity;
         }
 
         public bool CanStart(out string reason)
@@ -740,6 +777,26 @@ namespace SignVR.Interaction.CaptureHost
             string targetId = null,
             string payloadJson = null)
         {
+            RecordInteractionValidationError(
+                progressReset: true,
+                actorId,
+                targetId,
+                payloadJson
+            );
+        }
+
+        /// <summary>
+        /// Records W7's authoritative validation outcome without inferring a
+        /// progress reset from the mere presence of an interaction error.
+        /// The legacy RecordInteractionError entry point retains its original
+        /// reset behavior.
+        /// </summary>
+        public void RecordInteractionValidationError(
+            bool progressReset,
+            string actorId = null,
+            string targetId = null,
+            string payloadJson = null)
+        {
             int phaseId = RequireCurrentPhaseId();
             double now = NowMonotonic();
             stateMachine.RecordInteractionError();
@@ -752,14 +809,17 @@ namespace SignVR.Interaction.CaptureHost
                 targetId,
                 payloadJson
             );
-            RecordAt(
-                InteractionEventNames.TaskProgressReset,
-                phaseId,
-                now,
-                actorId,
-                targetId,
-                "{\"reason\":\"interaction_error\"}"
-            );
+            if (progressReset)
+            {
+                RecordAt(
+                    InteractionEventNames.TaskProgressReset,
+                    phaseId,
+                    now,
+                    actorId,
+                    targetId,
+                    "{\"reason\":\"interaction_error\"}"
+                );
+            }
         }
 
         public void NotifyBubbleShown()

@@ -1,3 +1,4 @@
+using System;
 using SignVR.SceneFlow;
 using TMPro;
 using UnityEngine;
@@ -5,6 +6,21 @@ using UnityEngine.UI;
 
 namespace SignVR.Interaction.Presentation
 {
+    /// <summary>
+    /// Optional integration seam. W5 remains standalone when no sink is
+    /// configured; W8 supplies the sink so UI commands pass through W6/W1.
+    /// </summary>
+    public interface IInteractionInstructionCommandSink
+    {
+        event Action StateChanged;
+        bool CanReplay { get; }
+        bool CanGiveUp { get; }
+        bool CanAbort { get; }
+        void RequestReplay();
+        void RequestGiveUp();
+        void RequestAbort();
+    }
+
     /// <summary>
     /// Minimal independent controls for Replay, Give Up Phase, and Abort Run.
     /// It contains no Recorder countdown, Take progress, or recording action.
@@ -30,6 +46,13 @@ namespace SignVR.Interaction.Presentation
         [SerializeField]
         private TMP_FontAsset font;
 
+        [SerializeField]
+        [Tooltip(
+            "When enabled by W8 scene setup, commands fail closed until the " +
+            "authoritative Study Flow sink is installed."
+        )]
+        private bool requireCommandSink;
+
         private GameObject visualRoot;
         private Canvas canvas;
         private Button replayButton;
@@ -37,6 +60,7 @@ namespace SignVR.Interaction.Presentation
         private Button abortButton;
         private InteractionHoldToConfirm abortHold;
         private bool bound;
+        private IInteractionInstructionCommandSink commandSink;
 
         public Button ReplayButton
         {
@@ -78,6 +102,78 @@ namespace SignVR.Interaction.Presentation
         {
             participantHmd = hmd;
             ResolveCamera();
+        }
+
+        public bool RequireCommandSink => requireCommandSink;
+
+        public bool HasLiveCommandSink => ResolveLiveCommandSink() != null;
+
+        public bool OwnsCommandSink(
+            IInteractionInstructionCommandSink owner)
+        {
+            return owner != null &&
+                ReferenceEquals(ResolveLiveCommandSink(), owner);
+        }
+
+        public bool CanInstallCommandSink(
+            IInteractionInstructionCommandSink sink)
+        {
+            if (!IsLiveCommandSink(sink))
+            {
+                return false;
+            }
+            IInteractionInstructionCommandSink current =
+                ResolveLiveCommandSink();
+            return current == null || ReferenceEquals(current, sink);
+        }
+
+        public bool TryInstallCommandSink(
+            IInteractionInstructionCommandSink sink)
+        {
+            if (!IsLiveCommandSink(sink))
+            {
+                throw new ArgumentNullException(nameof(sink));
+            }
+            if (!CanInstallCommandSink(sink))
+            {
+                return false;
+            }
+            if (ReferenceEquals(ResolveLiveCommandSink(), sink))
+            {
+                Refresh();
+                return true;
+            }
+            ConfigureCommandSink(sink);
+            return true;
+        }
+
+        public bool TryClearCommandSink(
+            IInteractionInstructionCommandSink owner)
+        {
+            if (owner == null || !ReferenceEquals(commandSink, owner))
+            {
+                return false;
+            }
+            Unbind();
+            commandSink = null;
+            Bind();
+            Refresh();
+            return true;
+        }
+
+        public void ConfigureCommandSink(
+            IInteractionInstructionCommandSink sink)
+        {
+            Unbind();
+            commandSink = IsLiveCommandSink(sink) ? sink : null;
+            Bind();
+            Refresh();
+        }
+
+        public void ConfigureCommandRouting(bool requireSink)
+        {
+            requireCommandSink = requireSink;
+            Refresh();
         }
 
         private void Awake()
@@ -290,12 +386,19 @@ namespace SignVR.Interaction.Presentation
 
         private void Bind()
         {
-            if (bound || controller == null || replayButton == null)
+            if (bound || !isActiveAndEnabled || controller == null ||
+                replayButton == null)
             {
                 return;
             }
 
             controller.StateChanged += Refresh;
+            IInteractionInstructionCommandSink liveSink =
+                ResolveLiveCommandSink();
+            if (liveSink != null)
+            {
+                liveSink.StateChanged += Refresh;
+            }
             replayButton.onClick.AddListener(HandleReplay);
             giveUpButton.onClick.AddListener(HandleGiveUp);
             abortHold.Confirmed += HandleAbort;
@@ -313,6 +416,12 @@ namespace SignVR.Interaction.Presentation
             {
                 controller.StateChanged -= Refresh;
             }
+            IInteractionInstructionCommandSink liveSink =
+                ResolveLiveCommandSink();
+            if (liveSink != null)
+            {
+                liveSink.StateChanged -= Refresh;
+            }
             replayButton?.onClick.RemoveListener(HandleReplay);
             giveUpButton?.onClick.RemoveListener(HandleGiveUp);
             if (abortHold != null)
@@ -325,27 +434,91 @@ namespace SignVR.Interaction.Presentation
         private void Refresh()
         {
             EnsureVisuals();
+            IInteractionInstructionCommandSink liveSink =
+                ResolveLiveCommandSink();
             replayButton.interactable =
-                controller != null && controller.ReplayIsAvailable;
+                liveSink != null
+                    ? liveSink.CanReplay
+                    : !requireCommandSink && controller != null &&
+                        controller.ReplayIsAvailable;
             giveUpButton.interactable =
-                controller != null && controller.GiveUpIsAvailable;
+                liveSink != null
+                    ? liveSink.CanGiveUp
+                    : !requireCommandSink && controller != null &&
+                        controller.GiveUpIsAvailable;
             // Abort Run is a separate safety semantic and has no replay gate.
-            abortButton.interactable = true;
+            abortButton.interactable = liveSink != null
+                ? liveSink.CanAbort
+                : !requireCommandSink;
         }
 
         private void HandleReplay()
         {
+            IInteractionInstructionCommandSink liveSink =
+                ResolveLiveCommandSink();
+            if (liveSink != null)
+            {
+                liveSink.RequestReplay();
+                return;
+            }
+            if (requireCommandSink)
+            {
+                return;
+            }
             controller?.Replay();
         }
 
         private void HandleGiveUp()
         {
+            IInteractionInstructionCommandSink liveSink =
+                ResolveLiveCommandSink();
+            if (liveSink != null)
+            {
+                liveSink.RequestGiveUp();
+                return;
+            }
+            if (requireCommandSink)
+            {
+                return;
+            }
             controller?.GiveUpPhase();
         }
 
         private void HandleAbort()
         {
+            IInteractionInstructionCommandSink liveSink =
+                ResolveLiveCommandSink();
+            if (liveSink != null)
+            {
+                liveSink.RequestAbort();
+                return;
+            }
+            if (requireCommandSink)
+            {
+                return;
+            }
             controller?.AbortRun();
+        }
+
+        private IInteractionInstructionCommandSink ResolveLiveCommandSink()
+        {
+            if (IsLiveCommandSink(commandSink))
+            {
+                return commandSink;
+            }
+            commandSink = null;
+            return null;
+        }
+
+        private static bool IsLiveCommandSink(
+            IInteractionInstructionCommandSink sink)
+        {
+            if (sink == null)
+            {
+                return false;
+            }
+            return !(sink is UnityEngine.Object unityObject) ||
+                unityObject != null;
         }
 
         private void ResolveCamera()

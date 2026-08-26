@@ -103,7 +103,9 @@ namespace SignVR.Interaction.CaptureHost
             double phaseCompletedAtSeconds)
         {
             ValidateTime(phaseCompletedAtSeconds);
-            PhaseExecutionSnapshot current = RequireActivePhase();
+            PhaseExecutionSnapshot current = stuck
+                ? RequireActivePhase()
+                : RequireInteractivePhase();
             if (current.PhaseId >= PhaseSentenceRanges.PhaseCount)
             {
                 throw new InvalidOperationException(
@@ -243,7 +245,9 @@ namespace SignVR.Interaction.CaptureHost
         {
             ValidateTime(phaseCompletedAtSeconds);
             EnsureNoPending();
-            PhaseExecutionSnapshot current = RequireActivePhase();
+            PhaseExecutionSnapshot current = stuck
+                ? RequireActivePhase()
+                : RequireInteractivePhase();
             if (current.PhaseId != PhaseSentenceRanges.PhaseCount)
             {
                 throw new InvalidOperationException(
@@ -291,6 +295,20 @@ namespace SignVR.Interaction.CaptureHost
             {
                 throw new InvalidOperationException(
                     "Presentation transition requires an active W1 phase."
+                );
+            }
+            return stateMachine.CurrentPhase;
+        }
+
+        private PhaseExecutionSnapshot RequireInteractivePhase()
+        {
+            if (stateMachine.State != RunState.Running ||
+                stateMachine.CurrentPhase == null ||
+                !stateMachine.CurrentPhase.InteractionsEnabled)
+            {
+                throw new InvalidOperationException(
+                    "Successful presentation transition requires an " +
+                    "interaction-enabled W1 phase."
                 );
             }
             return stateMachine.CurrentPhase;
