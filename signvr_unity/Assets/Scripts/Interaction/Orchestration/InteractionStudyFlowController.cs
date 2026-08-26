@@ -67,9 +67,7 @@ namespace SignVR.Interaction.Orchestration
             contentManifestRelativePath;
         public bool ManifestReady => manifestReady;
         public bool ManifestLoadInFlight => manifestLoadGate.InFlight;
-        public bool ReadinessRefreshInFlight => false;
         public bool IdentityArmed => automaticIdentityConfigured;
-        public bool CanConfigureIdentity => false;
         public bool RecoveryInFlight => !recoveryComplete &&
             string.IsNullOrEmpty(recoveryFailure);
         public bool RecoveryComplete => recoveryComplete;
@@ -195,28 +193,6 @@ namespace SignVR.Interaction.Orchestration
                 PublishStateIfChanged(force: true);
             }
             return result;
-        }
-
-        public InteractionStudyFlowCommandResult TryConfigureIdentity(
-            string participantId,
-            string integratedBuildIdentity)
-        {
-            return InteractionStudyFlowCommandResult.Failure(
-                "Participant identity is created automatically for this " +
-                "application launch."
-            );
-        }
-
-        public bool DisarmIdentityIfDraftChanged(
-            string participantId,
-            string integratedBuildIdentity)
-        {
-            return false;
-        }
-
-        public bool TryUnlockIdentityForEditing()
-        {
-            return false;
         }
 
         public InteractionStudyFlowCommandResult TryReplay()

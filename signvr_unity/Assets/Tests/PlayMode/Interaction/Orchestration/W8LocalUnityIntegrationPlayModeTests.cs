@@ -197,10 +197,8 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
         }
 
         [UnityTest]
-        public IEnumerator RealControlsIdentityAndCaptureFailClosed()
+        public IEnumerator StandaloneControlsAndCaptureFailClosed()
         {
-            InvokeDriver("IdentityIsPreStartArmedAndLocksAfterConsumption");
-            InvokeDriver("ArmedIdentityInputsCannotDivergeFromW6Identity");
             InvokeDriver("RealInstructionControlsRouteReplayThroughW8Sink");
             InvokeDriver(
                 "CaptureBindingRequiresRealMatchedMetaSourcesAndProbes"
@@ -209,9 +207,8 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
         }
 
         [UnityTest]
-        public IEnumerator SlowHostAndLifecycleReplacementRemainTransactional()
+        public IEnumerator ManifestAndLifecycleReplacementRemainTransactional()
         {
-            InvokeDriver("SlowReadinessResponseCannotBeStaledByPolling");
             InvokeDriver(
                 "ControllerReconfigureFailurePreservesDependenciesAndSubscriptions"
             );
