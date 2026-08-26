@@ -287,6 +287,9 @@ export default function InteractionStudyApp() {
 
   const openCamera = useCallback(async (deviceId?: string) => {
     const requestId = ++cameraRequestRef.current
+    const preferredDeviceId = deviceId
+      || window.localStorage.getItem('signvr-interaction-camera')
+      || undefined
     const previousStream = mediaStreamRef.current
     mediaStreamRef.current = null
     if (videoRef.current?.srcObject === previousStream) videoRef.current.srcObject = null
@@ -298,7 +301,7 @@ export default function InteractionStudyApp() {
       stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
+          deviceId: preferredDeviceId ? { exact: preferredDeviceId } : undefined,
           width: { ideal: 1280 },
           height: { ideal: 720 },
         },
@@ -306,6 +309,14 @@ export default function InteractionStudyApp() {
     } catch (reason) {
       if (requestId !== cameraRequestRef.current) return
       reportCameraReadiness(null)
+      setCameraId('')
+      try {
+        const available = await navigator.mediaDevices.enumerateDevices()
+        if (requestId !== cameraRequestRef.current) return
+        setCameras(available.filter((device) => device.kind === 'videoinput'))
+      } catch {
+        setCameras([])
+      }
       setError(`外置摄像头：${reason instanceof Error ? reason.message : '无法打开'}`)
       return
     }
@@ -323,7 +334,10 @@ export default function InteractionStudyApp() {
       track.addEventListener('ended', reportThisStream)
     })
     const resolvedId = stream.getVideoTracks()[0]?.getSettings().deviceId
-    if (resolvedId) setCameraId(resolvedId)
+    if (resolvedId) {
+      setCameraId(resolvedId)
+      window.localStorage.setItem('signvr-interaction-camera', resolvedId)
+    }
     reportThisStream()
     setError(null)
 
@@ -694,6 +708,11 @@ export default function InteractionStudyApp() {
               disabled={captureBusy}
               onChange={(event) => void openCamera(event.target.value)}
             >
+              {!cameraId && (
+                <option value="" disabled>
+                  {cameras.length > 0 ? '请选择摄像头' : '未检测到摄像头'}
+                </option>
+              )}
               {cameras.map((camera, index) => (
                 <option value={camera.deviceId} key={camera.deviceId}>
                   {camera.label || `Camera ${index + 1}`}
