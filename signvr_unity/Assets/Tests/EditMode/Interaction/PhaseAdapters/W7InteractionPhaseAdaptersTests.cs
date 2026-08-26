@@ -155,6 +155,10 @@ namespace SignVR.Interaction.Editor.Tests
         public void TestOwnedSceneGuardRejectsMissingDuplicateAndMalformedOwners()
         {
             string validToken = Guid.NewGuid().ToString("N");
+            string uniqueMalformedToken =
+                Guid.NewGuid().ToString("N").Substring(0, 31) + "z";
+            Assert.That(uniqueMalformedToken, Has.Length.EqualTo(32));
+            Assert.That(uniqueMalformedToken, Does.EndWith("z"));
             AssertGuardSceneRejected(
                 "__W7InteractionPhaseAdaptersTests_" + validToken,
                 "InteractionLab_W7Test.unity",
@@ -169,7 +173,8 @@ namespace SignVR.Interaction.Editor.Tests
                 expectedMessage: "exactly one test-owned marker"
             );
             AssertGuardSceneRejected(
-                "__W7InteractionPhaseAdaptersTests_" + new string('z', 32),
+                "__W7InteractionPhaseAdaptersTests_" +
+                    uniqueMalformedToken,
                 "InteractionLab_W7Test.unity",
                 markerCount: 1,
                 expectedMessage: "exact ownership token"
@@ -353,6 +358,12 @@ namespace SignVR.Interaction.Editor.Tests
                     expectedFailure.Message,
                     Is.EqualTo("expected isolated fixture failure")
                 );
+                Assert.That(
+                    expectedFailure.Data.Contains(CleanupFailuresDataKey),
+                    Is.False,
+                    "Successful fixture cleanup must not annotate the " +
+                        "expected primary failure."
+                );
                 AssertCleanActiveSceneUnchanged(
                     sourceScene,
                     sentinel,
@@ -507,6 +518,7 @@ namespace SignVR.Interaction.Editor.Tests
 
                 Assert.That(GetSceneBoolean(userScene, "isLoaded"), Is.True);
                 Assert.That(GetSceneBoolean(userScene, "isDirty"), Is.True);
+                int rootCountBefore = GetSceneRoots(userScene).Length;
 
                 WithCleanInteractionScene(scene =>
                 {
@@ -514,6 +526,16 @@ namespace SignVR.Interaction.Editor.Tests
                     InvokeValidateLoadedScene(scene);
                 });
 
+                Assert.That(
+                    userScene.Equals(GetActiveScene()),
+                    Is.True,
+                    "The fixture did not restore the dirty user scene as active."
+                );
+                Assert.That(
+                    GetSceneRoots(userScene).Length,
+                    Is.EqualTo(rootCountBefore),
+                    "The fixture leaked roots into the dirty user scene."
+                );
                 Assert.That(
                     GetSceneBoolean(userScene, "isLoaded"),
                     Is.True,
