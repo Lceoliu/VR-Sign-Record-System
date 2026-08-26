@@ -24,6 +24,8 @@ the corresponding Host/device artifact was inspected.
 - Open `http://127.0.0.1:8011/?mode=interaction` in Chrome, allow camera
   access, select the intended camera, and keep the page open.
 - Connect the Quest by USB, wear it once, and accept the USB debugging prompt.
+- Keep the Quest connected to this signed-in Host PC so the station always-on
+  watcher can reapply the proximity override after a headset reboot.
 - Keep the Quest and Host PC on the same LAN as `192.168.1.114`.
 - Before collecting evidence, verify that the Quest wall clock agrees with the
   Host PC. Do not accept a Run whose device timestamps are materially wrong.
@@ -53,6 +55,28 @@ starting the participant:
 ```powershell
 & $adb shell dumpsys package com.signvr.interaction | Select-String 'versionCode|versionName'
 ```
+
+The lab station has a persistent always-on watcher for Quest 3
+`2G0YC5ZF84043B`. It sets Android's plugged-in stay-awake value to `7`, applies
+Meta's virtual proximity `CLOSE` override, and wakes the headset whenever it
+reconnects over ADB. Inspect it without changing state:
+
+```powershell
+& .\vr-sign-host\scripts\configure-quest-always-on.ps1 -Mode Status
+```
+
+The expected result is `Task=Running`, `proximity=CLOSE`, and
+`plugged-in=7`. The watcher runs every 30 seconds and was verified by rebooting
+the Quest: the firmware first restored normal proximity behavior, then the
+watcher reapplied `CLOSE` after ADB returned. To deliberately restore normal
+wear/sleep behavior and remove the scheduled task, connect the Quest and run:
+
+```powershell
+& .\vr-sign-host\scripts\configure-quest-always-on.ps1 -Mode Uninstall
+```
+
+Do not leave the always-on headset enclosed, covered, or charging unattended;
+the override increases battery use and heat.
 
 ## Batch A: readiness and PreStart
 
@@ -151,7 +175,10 @@ preview has been observed.
 An accepted participant Run is still open. The Quest clock was corrected to
 `2026-08-26`, automatic time remains enabled, `PILOT01` is the selected
 anonymous participant ID, and Quest 3 `2G0YC5ZF84043B` is again authorized over
-ADB. The headset still sleeps when it is not worn.
+ADB. The `SignVR Quest Always On` scheduled task is running: virtual proximity
+is `CLOSE`, plugged-in stay-awake is `7`, and a real reboot test confirmed that
+the watcher reapplies the override after ADB reconnects. It depends on this Host
+PC remaining signed in and the Quest being connected over USB.
 
 The Host runtime has been restarted and its Interaction storage is writable.
 `e265c23` repaired the Study page so a failed default camera still exposes the
