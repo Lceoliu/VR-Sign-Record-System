@@ -8,8 +8,8 @@ namespace SignVR.Interaction.CaptureHost
 {
     /// <summary>
     /// Small dependency-free JSON reader/writer used by the frozen Interaction
-    /// contract. It rejects duplicate object keys and trailing input so Host
-    /// responses cannot be interpreted ambiguously.
+    /// contract. It rejects duplicate object keys and trailing input so local
+    /// artifact data cannot be interpreted ambiguously.
     /// </summary>
     public static class InteractionJson
     {

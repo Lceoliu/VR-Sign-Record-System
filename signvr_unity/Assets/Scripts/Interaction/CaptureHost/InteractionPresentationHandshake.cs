@@ -165,7 +165,7 @@ namespace SignVR.Interaction.CaptureHost
                 request.PlaybackKind != playbackKind)
             {
                 throw new InvalidOperationException(
-                    "Presentation start ACK does not match the pending request."
+                    "Presentation start confirmation does not match the pending request."
                 );
             }
 
@@ -179,7 +179,7 @@ namespace SignVR.Interaction.CaptureHost
                     phaseId != 1 || previousPhaseId.HasValue)
                 {
                     throw new InvalidOperationException(
-                        "Initial playback ACK is inconsistent."
+                    "Initial playback confirmation is inconsistent."
                     );
                 }
                 stateMachine.RunStarted(
@@ -192,7 +192,7 @@ namespace SignVR.Interaction.CaptureHost
                     stateMachine.CurrentPhaseId != previousPhaseId)
                 {
                     throw new InvalidOperationException(
-                        "Next-phase playback ACK is inconsistent."
+                    "Next-phase playback confirmation is inconsistent."
                     );
                 }
                 if (previousStuck)
@@ -222,7 +222,7 @@ namespace SignVR.Interaction.CaptureHost
                     stateMachine.CurrentPhase.State != PhaseState.Active)
                 {
                     throw new InvalidOperationException(
-                        "Replay playback ACK is inconsistent."
+                    "Replay playback confirmation is inconsistent."
                     );
                 }
                 stateMachine.ReplayInstruction();

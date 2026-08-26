@@ -4,8 +4,7 @@ namespace SignVR.Interaction.CaptureHost
 {
     /// <summary>
     /// Maximum sealed-file sizes enforced by Quest-local Experiment Capture.
-    /// The manifest has no streaming budget; transport and webcam artifacts
-    /// are outside this model.
+    /// The manifest is small immutable metadata and has no streaming budget.
     /// </summary>
     public static class InteractionLocalArtifactSizeLimits
     {

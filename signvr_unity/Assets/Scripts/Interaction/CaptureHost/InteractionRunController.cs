@@ -63,7 +63,7 @@ namespace SignVR.Interaction.CaptureHost
         private InteractionRunStateMachine stateMachine;
         private InstructionContentCatalog contentCatalog;
         private string appSessionId;
-        private InteractionScheduledStartGate scheduledStartGate;
+        private InteractionLocalScheduledStartGate scheduledStartGate;
         private InteractionCaptureWriter captureWriter;
         private InteractionSummaryTracker summaryTracker;
         private InteractionPresentationHandshake presentationHandshake;
@@ -1256,7 +1256,7 @@ namespace SignVR.Interaction.CaptureHost
             double monotonicNow)
         {
             InteractionLocalScheduleTransition.Schedule(stateMachine, utcNow);
-            scheduledStartGate = new InteractionScheduledStartGate(
+            scheduledStartGate = new InteractionLocalScheduledStartGate(
                 utcNow,
                 utcNow,
                 monotonicNow
@@ -1281,7 +1281,7 @@ namespace SignVR.Interaction.CaptureHost
             else
             {
                 // Validate the W1 phase and create a pending request without
-                // advancing W1. The actual next clip start ACK supplies the
+                // advancing W1. The actual next clip start confirmation supplies the
                 // timeout origin to CompletePhase/GiveUpPhase.
                 nextRequest = presentationHandshake.RequestNextPhasePlayback(
                     stuck,
@@ -1578,7 +1578,7 @@ namespace SignVR.Interaction.CaptureHost
             {
                 lastError =
                     "Presentation is pending; W5/W8 must start the requested " +
-                    "clip and ACK its actual first frame.";
+                    "clip and confirm its actual first frame.";
                 return;
             }
             for (int index = 0; index < listeners.Length; index++)

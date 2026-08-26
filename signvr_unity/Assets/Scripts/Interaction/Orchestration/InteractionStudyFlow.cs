@@ -9,7 +9,7 @@ namespace SignVR.Interaction.Orchestration
     /// <summary>
     /// Thin, pure-C# sequencing layer. It owns callback lifetimes and
     /// exactly-once presentation tokens, while W1, W5, W6, and W7 retain all
-    /// Run, presentation, capture/Host, and task-rule authority respectively.
+    /// Run, presentation, local capture, and task-rule authority respectively.
     /// </summary>
     public sealed class InteractionStudyFlow : IDisposable
     {
@@ -156,7 +156,7 @@ namespace SignVR.Interaction.Orchestration
                 );
             }
 
-            status = "Run consumed; waiting for Host and presentation.";
+            status = "Run consumed; waiting for local capture and presentation.";
             NotifyChanged();
             return InteractionStudyFlowCommandResult.Success();
         }
@@ -336,7 +336,7 @@ namespace SignVR.Interaction.Orchestration
             }
             if (!resetAccepted)
             {
-                status = "Terminal Run is waiting for W6 seal/upload cleanup." +
+                status = "Terminal Run is waiting for W6 local seal cleanup." +
                     (terminalWarnings.IsEmpty
                         ? string.Empty
                         : " " + terminalWarnings.Value);
@@ -731,7 +731,7 @@ namespace SignVR.Interaction.Orchestration
             InteractionStudyPresentationRequest request = pendingPresentation;
             if (!run.TryAcknowledgePresentationStarted(request, out string error))
             {
-                status = "W6 rejected first-frame ACK: " + error;
+                status = "W6 rejected first-frame confirmation: " + error;
                 BeginAbort("presentation_ack_failed");
                 return;
             }
@@ -743,7 +743,7 @@ namespace SignVR.Interaction.Orchestration
             {
                 PhaseExecutionSnapshot snapshot = run.CurrentPhase ??
                     throw new InvalidOperationException(
-                        "W1 exposed no phase after first-frame ACK."
+                    "W1 exposed no phase after first-frame confirmation."
                     );
                 tasks.Synchronize(snapshot);
                 tasks.Enable();

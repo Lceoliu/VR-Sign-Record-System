@@ -13,7 +13,6 @@ namespace SignVR.Interaction.CaptureHost
         public const string PosesFileName = "poses.jsonl";
         public const string ObjectsFileName = "objects.jsonl";
         public const string SummaryFileName = "summary.json";
-        public const string UploadStateFileName = ".upload-state.json";
 
         private static readonly HashSet<string> WindowsReservedNames =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)

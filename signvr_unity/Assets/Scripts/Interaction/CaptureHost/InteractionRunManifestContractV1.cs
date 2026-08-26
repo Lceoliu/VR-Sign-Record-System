@@ -122,9 +122,8 @@ namespace SignVR.Interaction.CaptureHost
     }
 
     /// <summary>
-    /// Explicit Contract V1 projection. The same returned UTF-8 bytes are saved
-    /// locally and handed to the Host client; RunPlan is never passed through
-    /// an automatic field serializer.
+    /// Explicit Contract V1 projection. Returned UTF-8 bytes are saved locally;
+    /// RunPlan is never passed through an automatic field serializer.
     /// </summary>
     public static class InteractionRunManifestContractV1
     {

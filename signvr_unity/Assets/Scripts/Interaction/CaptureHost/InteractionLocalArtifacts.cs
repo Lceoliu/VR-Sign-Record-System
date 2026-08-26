@@ -5,8 +5,7 @@ namespace SignVR.Interaction.CaptureHost
 {
     /// <summary>
     /// The Quest-authoritative files that make up a sealed Standalone Study
-    /// Mode Run. Transport state and synchronized webcam media are not local
-    /// capture artifacts.
+    /// Mode Run. No files outside this set contribute to local completeness.
     /// </summary>
     public static class InteractionLocalArtifactTypes
     {

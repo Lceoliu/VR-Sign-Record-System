@@ -9,7 +9,6 @@ namespace SignVR.Interaction.CaptureHost
     public static class InteractionEventNames
     {
         public const string RunCreated = "run_created";
-        public const string HostReady = "host_ready";
         public const string RunStarted = "run_started";
         public const string RunCompleted = "run_completed";
         public const string RunAborted = "run_aborted";
@@ -29,19 +28,16 @@ namespace SignVR.Interaction.CaptureHost
         public const string InteractionError = "interaction_error";
         public const string TaskProgressReset = "task_progress_reset";
         public const string CaptureGap = "capture_gap";
-        public const string UploadStarted = "upload_started";
-        public const string UploadAcknowledged = "upload_acknowledged";
 
         private static readonly ReadOnlyCollection<string> required =
             new List<string>
             {
-                RunCreated, HostReady, RunStarted, RunCompleted, RunAborted,
+                RunCreated, RunStarted, RunCompleted, RunAborted,
                 PhaseEntered, PhaseCompleted, PhaseStuck, PhaseTimeout,
                 InstructionPlayStarted, InstructionPlayCompleted,
                 ReplayAvailable, ReplayUsed, BubbleShown, BubbleHidden,
                 PointingHitStarted, PointingHitEnded, InteractionAttempt,
-                InteractionError, TaskProgressReset, CaptureGap,
-                UploadStarted, UploadAcknowledged
+                InteractionError, TaskProgressReset, CaptureGap
             }.AsReadOnly();
 
         public static IReadOnlyList<string> Required => required;

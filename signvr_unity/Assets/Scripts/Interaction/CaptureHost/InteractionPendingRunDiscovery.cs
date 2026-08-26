@@ -12,17 +12,13 @@ namespace SignVR.Interaction.CaptureHost
             string participantId,
             string runId,
             string directoryPath,
-            bool sealedCapture,
-            bool acknowledged,
-            bool questLocalAuthoritative)
+            bool sealedCapture)
         {
             BatchId = batchId;
             ParticipantId = participantId;
             RunId = runId;
             DirectoryPath = directoryPath;
             IsSealed = sealedCapture;
-            IsAcknowledged = acknowledged;
-            IsQuestLocalAuthoritative = questLocalAuthoritative;
         }
 
         public string BatchId { get; }
@@ -30,14 +26,9 @@ namespace SignVR.Interaction.CaptureHost
         public string RunId { get; }
         public string DirectoryPath { get; }
         public bool IsSealed { get; }
-        public bool IsAcknowledged { get; }
-        public bool IsQuestLocalAuthoritative { get; }
-        public bool IsLocallyComplete =>
-            IsQuestLocalAuthoritative && IsSealed;
-        public bool NeedsUpload =>
-            !IsQuestLocalAuthoritative && IsSealed && !IsAcknowledged;
-        public bool NeedsRecovery => !IsSealed && !IsAcknowledged;
-        public bool NeedsAttention => NeedsRecovery || NeedsUpload;
+        public bool IsLocallyComplete => IsSealed;
+        public bool NeedsRecovery => !IsSealed;
+        public bool NeedsAttention => NeedsRecovery;
 
         public string ManifestPath => ArtifactPath(
             InteractionLocalArtifactTypes.Manifest
@@ -57,33 +48,23 @@ namespace SignVR.Interaction.CaptureHost
         public static IReadOnlyList<InteractionPendingRun> Discover(
             string persistentDataPath)
         {
-            return Discover(
-                persistentDataPath,
-                questLocalAuthoritative: false,
-                failClosedOnInvalidManifest: false
-            );
+            return DiscoverQuestLocal(persistentDataPath);
         }
 
         /// <summary>
         /// Discovers Quest-authoritative Runs for Standalone Study Mode. A
-        /// locally sealed five-file Run is complete without Host ACK. Any Run
+        /// locally sealed five-file Run is complete. Any Run
         /// directory with a missing, damaged, or mismatched manifest fails the
         /// startup scan closed instead of being silently ignored.
         /// </summary>
         public static IReadOnlyList<InteractionPendingRun> DiscoverQuestLocal(
             string persistentDataPath)
         {
-            return Discover(
-                persistentDataPath,
-                questLocalAuthoritative: true,
-                failClosedOnInvalidManifest: true
-            );
+            return DiscoverStrictLocal(persistentDataPath);
         }
 
-        private static IReadOnlyList<InteractionPendingRun> Discover(
-            string persistentDataPath,
-            bool questLocalAuthoritative,
-            bool failClosedOnInvalidManifest)
+        private static IReadOnlyList<InteractionPendingRun> DiscoverStrictLocal(
+            string persistentDataPath)
         {
             string root = InteractionStoragePaths.GetInteractionRoot(
                 persistentDataPath
@@ -148,14 +129,10 @@ namespace SignVR.Interaction.CaptureHost
                         );
                         if (!File.Exists(manifest))
                         {
-                            if (failClosedOnInvalidManifest)
-                            {
-                                throw new IOException(
-                                    "Quest-local Run manifest is missing from " +
-                                    runDirectory + "."
-                                );
-                            }
-                            continue;
+                            throw new IOException(
+                                "Quest-local Run manifest is missing from " +
+                                runDirectory + "."
+                            );
                         }
                         bool manifestMatches;
                         try
@@ -172,32 +149,24 @@ namespace SignVR.Interaction.CaptureHost
                             exception is FormatException ||
                             exception is UnauthorizedAccessException)
                         {
-                            if (failClosedOnInvalidManifest)
-                            {
-                                throw new IOException(
-                                    "Quest-local Run manifest is damaged at " +
-                                    manifest + ".",
-                                    exception
-                                );
-                            }
-                            continue;
+                            throw new IOException(
+                                "Quest-local Run manifest is damaged at " +
+                                manifest + ".",
+                                exception
+                            );
                         }
                         if (!manifestMatches)
                         {
-                            if (failClosedOnInvalidManifest)
-                            {
-                                throw new IOException(
-                                    "Quest-local Run manifest identity does not " +
-                                    "match its directory at " + manifest + "."
-                                );
-                            }
-                            continue;
+                            throw new IOException(
+                                "Quest-local Run manifest identity does not " +
+                                "match its directory at " + manifest + "."
+                            );
                         }
 
                         bool sealedCapture = RequiredLocalArtifactFileNames.All(
                             file => File.Exists(Path.Combine(runDirectory, file))
                         );
-                        if (questLocalAuthoritative && sealedCapture)
+                        if (sealedCapture)
                         {
                             ValidateTerminalSummary(
                                 Path.Combine(
@@ -209,19 +178,12 @@ namespace SignVR.Interaction.CaptureHost
                                 runId
                             );
                         }
-                        bool acknowledged = questLocalAuthoritative
-                            ? false
-                            : InteractionUploadStateStore.ReadAcknowledgedFlag(
-                                runDirectory
-                            );
                         results.Add(new InteractionPendingRun(
                             batchId,
                             participantId,
                             runId,
                             runDirectory,
-                            sealedCapture,
-                            acknowledged,
-                            questLocalAuthoritative
+                            sealedCapture
                         ));
                     }
                 }
