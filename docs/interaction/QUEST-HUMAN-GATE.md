@@ -11,9 +11,9 @@ the corresponding Host/device artifact was inspected.
 | Item | Required value |
 | --- | --- |
 | APK | `signvr_unity/Builds/SignVR_Interaction_Local.apk` |
-| APK SHA-256 | `1021260185B7F66A5F8277A6086954A64CAA0892945712D311C0BB66CF598AAE` |
+| APK SHA-256 | `7EA5B1A4DEB208D98526D9F54FC180EAA2594FEC79DFE2C5BB865BB7CB7518DF` |
 | Package | `com.signvr.interaction` |
-| Quest Build Identity field | `31d6369` |
+| Quest Build Identity field | `1c1344a` |
 | Host URL | `http://192.168.1.114:8011` |
 | Instruction signer | `wang` |
 | Instruction entries | 31, grouped `3/9/3/3/7/6` |
@@ -59,7 +59,7 @@ starting the participant:
 - [ ] The Host Quest card becomes READY and stays fresh.
 - [ ] The Host Camera card becomes READY with a visible 1280×720 preview.
 - [ ] Enter the same participant ID on Host and Quest.
-- [ ] Enter `31d6369` as the Quest Build Identity.
+- [ ] Enter `1c1344a` as the Quest Build Identity.
 - [ ] Start remains blocked on any readiness or identity mismatch.
 - [ ] Pressing Start once creates exactly one Run ID and freezes one Run Plan.
 - [ ] The Run Plan records one of only three conditions: text+ray, text-only,

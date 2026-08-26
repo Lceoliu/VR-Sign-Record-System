@@ -4,6 +4,11 @@ Date: 2026-08-26
 
 Workspace: `C:\Users\woshica\.codex\worktrees\b1cb\VR-Sign-Record-System`
 
+> The APK identity in this historical W8 report has been superseded by the
+> post-hardening artifact in
+> [`W9-local-hardening-build.md`](W9-local-hardening-build.md). Physical testing
+> must use [`../QUEST-HUMAN-GATE.md`](../QUEST-HUMAN-GATE.md).
+
 ## 1. Outcome and authority boundaries
 
 W8 now provides a thin local Unity orchestration layer that connects the
