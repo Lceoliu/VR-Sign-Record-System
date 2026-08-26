@@ -11,9 +11,9 @@ the corresponding Host/device artifact was inspected.
 | Item | Required value |
 | --- | --- |
 | APK | `signvr_unity/Builds/SignVR_Interaction_Local.apk` |
-| APK SHA-256 | `7EA5B1A4DEB208D98526D9F54FC180EAA2594FEC79DFE2C5BB865BB7CB7518DF` |
+| APK SHA-256 | `94B8D66592BCC9DC5BC849CABE9880C8DFCCAD7947D1335BF508F59119AC8619` |
 | Package | `com.signvr.interaction` |
-| Quest Build Identity field | `1c1344a` |
+| Quest Build Identity field | `ed00636` |
 | Host URL | `http://192.168.1.114:8011` |
 | Instruction signer | `wang` |
 | Instruction entries | 31, grouped `3/9/3/3/7/6` |
@@ -25,6 +25,8 @@ the corresponding Host/device artifact was inspected.
   access, select the intended camera, and keep the page open.
 - Connect the Quest by USB, wear it once, and accept the USB debugging prompt.
 - Keep the Quest and Host PC on the same LAN as `192.168.1.114`.
+- Before collecting evidence, verify that the Quest wall clock agrees with the
+  Host PC. Do not accept a Run whose device timestamps are materially wrong.
 - Choose one pseudonymous participant ID such as `P001`. Enter the exact same
   value in the Host page and the Quest Start surface.
 - Do not delete partial local or Host data during the gate.
@@ -59,7 +61,7 @@ starting the participant:
 - [ ] The Host Quest card becomes READY and stays fresh.
 - [ ] The Host Camera card becomes READY with a visible 1280×720 preview.
 - [ ] Enter the same participant ID on Host and Quest.
-- [ ] Enter `1c1344a` as the Quest Build Identity.
+- [ ] Enter `ed00636` as the Quest Build Identity.
 - [ ] Start remains blocked on any readiness or identity mismatch.
 - [ ] Pressing Start once creates exactly one Run ID and freezes one Run Plan.
 - [ ] The Run Plan records one of only three conditions: text+ray, text-only,
@@ -138,9 +140,18 @@ Record the Run ID, participant ID, condition, APK SHA-256, Host directory, file
 sizes, and final ACK in the W8 report. Do not mark the physical gate complete
 from screenshots alone.
 
-## Current blocking hardware state
+## Current physical-gate state
 
-At checklist creation, `adb devices -l` returned no Quest and Windows reported
-no present Camera-class device. The Host process, LAN endpoint, storage, Chrome
-Study page, and exact APK are already prepared; connecting/authorizing the two
-devices is the only entry action that requires the human operator.
+The Quest 3 (`2G0YC5ZF84043B`) is authorized over USB and the frozen APK above
+is installed. A cold start reached `InteractionLab` without the prior
+`PointableCanvas` / missing-`GraphicRaycaster` assertion or an app crash. The
+HIK 1080P Camera is selected in the Chrome Study page and its live 1280x720
+preview has been observed.
+
+An accepted participant Run is still open. The Quest currently reports the
+wrong wall-clock date (`2025-06-23` while the Host is on `2026-08-26`) and falls
+asleep when it is not worn. The operator must explicitly approve clock
+correction, wear the headset, enter the same anonymous participant ID on Host
+and Quest, wait for all four Host cards to show READY, and then execute the
+physical batches above. Cold-start evidence alone does not prove naked-hand
+button activation or artifact completeness.
