@@ -27,10 +27,12 @@ index, random plan, timer, task-progress model, or capture owner:
 - W8 owns only command routing, subscriptions, epochs/tokens, ordering, and
   lifecycle-safe teardown.
 
-No scene YAML, Host source, ProjectSettings, XR/URP configuration, Recorder
-workflow, W6 test fixture/report, W7 source/report, or
-`docs/interaction/PROGRESS.md` was edited. No Git command, Unity process,
-scene save, Android/Quest build, or Host/Quest integration run was performed.
+The W8 worker itself did not edit scene YAML, Host source, ProjectSettings,
+XR/URP configuration, Recorder workflow, W6/W7 reports, or the progress log.
+Subsequent Orchestrator integration saved the fully wired canonical
+`InteractionLab.unity` and committed it as `31d6369`. This report records that
+later main-workspace verification separately; no Quest, participant, webcam,
+or Host/device end-to-end result is claimed.
 
 ## 2. Event ordering
 
@@ -260,10 +262,14 @@ PASS WrongInput
 TOTAL=13 PASSED=13 FAILED=0
 ```
 
-This is not a Unity Test Runner result. The 22 EditMode `[Test]` methods, five
-PlayMode `[UnityTest]` aggregators, real copied-scene setup, real MonoBehaviour
-lifecycle, Meta capture structure, and device readiness have not been executed
-in this worktree.
+This external runner was not a Unity Test Runner result. After integration in
+the main workspace, Unity Test Runner passed W8 EditMode 22/22 and W8 PlayMode
+5/5. Adjacent authority regression also passed W7 EditMode 24/24, W6 PlayMode
+8/8, and W7 PlayMode 11/11. The Console contained zero errors after the runs;
+the scene returned clean with 34 roots and no temporary test scene left loaded.
+These local results do not establish physical Quest tracking, webcam capture,
+or participant end-to-end readiness. Subsequent main-workspace checks did
+establish the local Host runtime and Android artifact gates described below.
 
 ## 6. Exact setup and operator procedure
 
@@ -279,6 +285,12 @@ presentation present:
    participant Start surface. The setup intentionally has not saved anything.
 4. The Orchestrator saves the canonical scene exactly once after review.
 5. Run `Tools/SignVR/Interaction/W8 Validate Saved Integrated Study Flow`.
+
+The Orchestrator completed this production path and committed the resulting
+canonical scene as `31d6369`. The saved validator passed. Repeating the complete
+wiring operation at the fixed point produced consecutive identical scene
+hashes, with SHA-256
+`AEF55496BF8E05B9FF417832FDE553DEB4E815D5659229E4EC2786BD3D5B64DE`.
 
 ### Equivalent explicit staged path
 
@@ -363,9 +375,86 @@ W8_IGNORE_EXPLICIT_MATCHES=0
 W8_PRODUCTION_SAVE_NEW_SCENE_MATCHES=0
 W8_TEST_OWNED_SAVE_SCENE_MATCHES=2
 POINTING_ONLY_MATCHES=0
-INTERACTIONLAB_BYTES=459300
-INTERACTIONLAB_SHA256=7790FCFB72ACFE2BCC4EB9AE6BD98EE03C38560CFEC9B8AEC9482CAA14720684
+INTERACTIONLAB_BYTES=774784
+INTERACTIONLAB_SHA256=AEF55496BF8E05B9FF417832FDE553DEB4E815D5659229E4EC2786BD3D5B64DE
+INTERACTIONLAB_ROOTS=34
+INTERACTION_RUN_CONTROLLERS=1
+INTERACTION_CAPTURE_SAMPLERS=1
+INTERACTION_PHASE_COORDINATORS=1
+INTERACTION_TARGET_BINDINGS=25
+INTERACTION_OBJECT_STATE_PROBES=25
+OVR_SKELETONS=2
+W8_FLOW_CONTROLLERS=1
+W8_CAPTURE_BINDINGS=1
+W8_FLOW_CONTROLS=1
+W8_START_SURFACES=1
+HOST_BASE_URL=http://192.168.1.114:8011
+SAVED_INTEGRATION_VALIDATOR=PASS
+CONSECUTIVE_FIXED_POINT_HASHES=IDENTICAL
+UNITY_CONSOLE_ERRORS=0
+TEMPORARY_TEST_SCENES_LOADED=0
 ```
+
+### Main-workspace Host and Android artifact gate
+
+The Orchestrator subsequently started the production Host on `0.0.0.0:8011`.
+Both `http://127.0.0.1:8011/api/health` and
+`http://192.168.1.114:8011/api/health` returned healthy station state, while
+Interaction readiness reported backend and storage ready. The browser Study
+page connected and sent a fresh camera heartbeat but correctly remained camera
+`NOT READY` without granted webcam access; no Quest or Participant readiness is
+claimed.
+
+The fully wired scene then built through
+`SignVR/Build/Interaction/Android APK`:
+
+```text
+BUILD_RESULT=Succeeded
+BUILD_DURATION=00:18:51.0549154
+APK=Builds/SignVR_Interaction_Local.apk
+APK_BYTES=471228297
+APK_SHA256=1021260185B7F66A5F8277A6086954A64CAA0892945712D311C0BB66CF598AAE
+PACKAGE=com.signvr.interaction
+PRODUCT=SignVR Interaction
+VERSION_NAME=1.0.0
+VERSION_CODE=1
+MIN_SDK=32
+TARGET_SDK=34
+ABI=arm64-v8a
+IL2CPP=True
+DEVELOPMENT_DEBUGGABLE=True
+APK_SIGNATURE_V2=True
+APK_SIGNERS=1
+ZIPALIGN=PASS
+BUILT_SCENES=Assets/Scenes/InteractionLab.unity
+RECORDER_SCENE_PRESENT=False
+INSTRUCTION_CONTENT_FILES=63
+INSTRUCTION_MANIFEST_ENTRIES=31
+INSTRUCTION_SIGNER=wang
+INSTRUCTION_PHASE_COUNTS=3,9,3,3,7,6
+INSTRUCTION_SENTENCE_RANGE=001-031
+INSTRUCTION_POSE_INTEGRITY_ISSUES=0
+SENTENCE_001_SELECTED_TAKE=take_004
+SENTENCE_016_SELECTED_TAKE=take_002
+POST_BUILD_SCENE_SHA256=AEF55496BF8E05B9FF417832FDE553DEB4E815D5659229E4EC2786BD3D5B64DE
+POST_BUILD_SCENE_DIRTY=False
+POST_BUILD_SCENE_ROOTS=34
+POST_BUILD_CONSOLE_ERRORS=0
+```
+
+The build restored Player Settings, Editor Build Settings, InteractionLab,
+mobile URP, and OpenXR files to their exact pre-build hashes. Unity's
+BuildReport counted 247 repeated `UnitySkills CJK` editor UI font-initialization
+messages as errors even though the player and Gradle result succeeded; clearing
+the build output left the Console at zero errors. This is editor tooling noise,
+not a claim that physical device execution has passed.
+
+The packaged content manifest was also read back from the APK rather than
+trusted from the source tree. It contains 31 Wang-signer entries across the
+required phase ranges `001–003`, `004–012`, `013–015`, `016–018`, `019–025`,
+and `026–031`. Every referenced pose and metadata entry exists; all pose byte
+lengths and SHA-256 values match. The selected latest completed re-recordings
+include `sentence_001/take_004` and `sentence_016/take_002`.
 
 Unity's intentionally ignored `Assets/XR/APILayers~` subtree was excluded from
 the meta-presence count; all other Assets, including every W8 file and folder,
@@ -373,23 +462,15 @@ have metas. No duplicate GUID was found anywhere under Assets.
 
 ## 9. Remaining main-task gates and device risks
 
-- Run both W8 Unity Test Runner class filters; the copied-scene Undo/idempotence
-  fixture and real PlayMode lifecycle have only been statically compiled here.
-- Execute one of the exact setup paths above in the authoritative Unity instance,
-  inspect the unsaved scene, validate it, and save once. This worker did not
-  modify `InteractionLab.unity`.
-- The saved integration validator now rejects a dirty canonical scene and
-  reopens the serialized asset as an isolated preview scene before passing.
-- Confirm the W2 31-entry manifest is present in the actual build. It is not
-  staged in this worktree by W8.
-- On Quest, confirm the two real OVRHands provide distinct valid left/right
-  skeleton data and live bones, the XR HMD is tracked, and all W7 probes produce
-  stable object state. Missing `CommonUsages.isTracked` data now fails closed;
-  structural readiness in Editor does not impersonate device tracking.
-- Confirm the Host frontend heartbeat participant exactly equals the identity
-  entered in PreStart; exercise slow/unavailable Host, checkpoint, upload,
-  Completed, Abort, Faulted, and retry behavior.
-- Run a full six-phase Study Run on Quest, including a wrong input, one Replay,
-  Give Up/Stuck, participant Abort, application pause/disable recovery, and
-  verification of capture phase attribution around the next first-frame ACK.
-- No Quest build or Host/device integration result is claimed by this report.
+The local Host runtime and Android artifact gates now pass. The remaining
+batched human gate starts by attaching and authorizing the Quest (none was
+visible to `adb devices -l` during this check), granting webcam access in the
+Chrome Study page, and entering the anonymous Participant ID. One physical
+six-phase Run must then confirm the W2 manifest on device, distinct live
+left/right OVRHand skeleton data, tracked HMD state, stable W7 object probes,
+exact Host/Participant identity matching, webcam capture,
+checkpoint/upload/terminal recovery, and phase attribution around the next
+first-frame ACK. The validation batch must also exercise wrong input, the
+single Replay, Give Up/Stuck, and whole-Run Abort. No Quest, Participant,
+webcam-capture, or complete Host/device end-to-end result is claimed by this
+report.
