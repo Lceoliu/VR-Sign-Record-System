@@ -340,11 +340,10 @@ namespace SignVR.Editor.Interaction
                     "InteractionStudyFlowController.cs",
                 new[]
                 {
-                    "InteractionStudyReadinessPollGate",
-                    "ReadinessRefreshInFlight",
-                    "finally",
+                    "ParticipantSession",
+                    "EnsureParticipantSession",
+                    "ApplyAutomaticIdentityToCurrentRun",
                     "StopManifestLoad",
-                    "DisarmIdentityIfDraftChanged",
                     "SafeSuspendFlow(\"application_pause\")",
                     "SafeSuspendFlow(\"component_disabled\")"
                 },
@@ -358,7 +357,7 @@ namespace SignVR.Editor.Interaction
                     "W6InteractionCaptureHostSetup",
                     "W7InteractionPhaseAdaptersSetup.SetupLoadedScene(scene)",
                     "ExecuteSceneUndoGroupForAutomation",
-                    "W6 Configure Capture and Host (Unsaved)",
+                    "W6 Configure Local Capture (Unsaved)",
                     "W7 Setup Phase Adapters"
                 },
                 failures
@@ -551,19 +550,6 @@ namespace SignVR.Editor.Interaction
 
             GameObject surface = EnsureStartSurface(uiAnchor, hmd);
             Button start = RequireSurfaceComponent<Button>(surface, "Start");
-            TMP_InputField participant =
-                RequireSurfaceComponent<TMP_InputField>(
-                    surface,
-                    "ParticipantId"
-                );
-            TMP_InputField build = RequireSurfaceComponent<TMP_InputField>(
-                surface,
-                "BuildIdentity"
-            );
-            Button apply = RequireSurfaceComponent<Button>(
-                surface,
-                "ApplyIdentity"
-            );
             TMP_Text status = RequireSurfaceComponent<TMP_Text>(
                 surface,
                 "Status"
@@ -581,13 +567,9 @@ namespace SignVR.Editor.Interaction
             );
             SetObjectReference(controls, "preStartRoot", surface);
             SetObjectReference(controls, "startButton", start);
-            SetObjectReference(
-                controls,
-                "participantIdInput",
-                participant
-            );
-            SetObjectReference(controls, "buildIdentityInput", build);
-            SetObjectReference(controls, "applyIdentityButton", apply);
+            SetObjectReference(controls, "participantIdInput", null);
+            SetObjectReference(controls, "buildIdentityInput", null);
+            SetObjectReference(controls, "applyIdentityButton", null);
             SetObjectReference(controls, "statusLabel", status);
             SetObjectReference(controls, "progressLabel", progress);
             SetBoolean(instructionControls, "requireCommandSink", true);
@@ -673,7 +655,7 @@ namespace SignVR.Editor.Interaction
             {
                 failures.Add(
                     "Scene identity must remain UNCONFIGURED/unintegrated; " +
-                    "each operator arms participant/build identity in PreStart."
+                    "the application assigns participant/build identity at runtime."
                 );
             }
 
@@ -779,15 +761,25 @@ namespace SignVR.Editor.Interaction
                 controls.InstructionControls != instructionControls ||
                 controls.PreStartRoot != surface ||
                 controls.StartButton == null ||
-                controls.ParticipantIdInput == null ||
-                controls.BuildIdentityInput == null ||
-                controls.ApplyIdentityButton == null ||
+                controls.ParticipantIdInput != null ||
+                controls.BuildIdentityInput != null ||
+                controls.ApplyIdentityButton != null ||
                 controls.StatusLabel == null ||
                 controls.ProgressLabel == null ||
                 !controls.enabled))
             {
                 failures.Add(
-                    "W8 Start/identity/status controls are incomplete or disabled."
+                    "W8 standalone Start/status controls are incomplete, " +
+                    "disabled, or still reference legacy identity widgets."
+                );
+            }
+            if (surface != null && (
+                    FindDirectChild(surface.transform, "ParticipantId") != null ||
+                    FindDirectChild(surface.transform, "BuildIdentity") != null ||
+                    FindDirectChild(surface.transform, "ApplyIdentity") != null))
+            {
+                failures.Add(
+                    "W8 standalone Start surface still contains legacy identity widgets."
                 );
             }
             if (instructionControls != null &&
@@ -841,8 +833,8 @@ namespace SignVR.Editor.Interaction
                 throw new InvalidOperationException(
                     "W8 prerequisite W6 is missing or ambiguous (RunController=" +
                     runCount + ", CaptureSampler=" + samplerCount + "). " +
-                    "Run 'Tools/SignVR/Interaction/W6 Configure Capture and " +
-                    "Host (Unsaved)' first, then W7, then W8; or use the " +
+                    "Run 'Tools/SignVR/Interaction/W6 Configure Local " +
+                    "Capture (Unsaved)' first, then W7, then W8; or use the " +
                     "single W8 integrated setup menu."
                 );
             }
@@ -1109,7 +1101,7 @@ namespace SignVR.Editor.Interaction
             Undo.RecordObject(rect, "Layout W8 Start surface");
             rect.anchorMin = rect.anchorMax = rect.pivot =
                 new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(780f, 700f);
+            rect.sizeDelta = new Vector2(780f, 500f);
             rect.localPosition = new Vector3(0f, 0.20f, 0f);
             rect.localRotation = Quaternion.identity;
             rect.localScale = Vector3.one * 0.001f;
@@ -1163,38 +1155,12 @@ namespace SignVR.Editor.Interaction
                 font,
                 32f
             );
-            SetRect(title.rectTransform, new Vector2(0f, 285f),
+            SetRect(title.rectTransform, new Vector2(0f, 190f),
                 new Vector2(700f, 60f));
 
-            TMP_InputField participant = EnsureInput(
-                root.transform,
-                "ParticipantId",
-                "参与者 ID（须与 Host 当前 participant 一致）",
-                font,
-                64
-            );
-            SetRect(participant.GetComponent<RectTransform>(),
-                new Vector2(0f, 175f), new Vector2(650f, 74f));
-
-            TMP_InputField build = EnsureInput(
-                root.transform,
-                "BuildIdentity",
-                "集成 Git commit / build identity",
-                font,
-                128
-            );
-            SetRect(build.GetComponent<RectTransform>(),
-                new Vector2(0f, 75f), new Vector2(650f, 74f));
-
-            Button apply = EnsureButton(
-                root.transform,
-                "ApplyIdentity",
-                "确认参与者与构建身份",
-                font,
-                new Color(0.20f, 0.40f, 0.62f, 1f)
-            );
-            SetRect(apply.GetComponent<RectTransform>(),
-                new Vector2(0f, -25f), new Vector2(430f, 74f));
+            RemoveDirectChildIfPresent(root.transform, "ParticipantId");
+            RemoveDirectChildIfPresent(root.transform, "BuildIdentity");
+            RemoveDirectChildIfPresent(root.transform, "ApplyIdentity");
 
             Button start = EnsureButton(
                 root.transform,
@@ -1204,7 +1170,7 @@ namespace SignVR.Editor.Interaction
                 new Color(0.12f, 0.56f, 0.30f, 1f)
             );
             SetRect(start.GetComponent<RectTransform>(),
-                new Vector2(0f, 65f), new Vector2(520f, 110f));
+                new Vector2(0f, 70f), new Vector2(520f, 110f));
 
             TMP_Text status = EnsureText(
                 root.transform,
@@ -1219,12 +1185,8 @@ namespace SignVR.Editor.Interaction
                 status.textWrappingMode = TextWrappingModes.Normal;
                 EditorUtility.SetDirty(status);
             }
-            SetRect(status.rectTransform, new Vector2(0f, -85f),
+            SetRect(status.rectTransform, new Vector2(0f, -55f),
                 new Vector2(700f, 150f));
-
-            participant.gameObject.SetActive(false);
-            build.gameObject.SetActive(false);
-            apply.gameObject.SetActive(false);
 
             TMP_Text progress = EnsureText(
                 root.transform,
@@ -1233,97 +1195,11 @@ namespace SignVR.Editor.Interaction
                 font,
                 24f
             );
-            SetRect(progress.rectTransform, new Vector2(0f, -310f),
+            SetRect(progress.rectTransform, new Vector2(0f, -215f),
                 new Vector2(700f, 48f));
 
             SetLayerRecursively(root.transform, uiAnchor.gameObject.layer);
             return root;
-        }
-
-        private static TMP_InputField EnsureInput(
-            Transform parent,
-            string name,
-            string placeholderText,
-            TMP_FontAsset font,
-            int characterLimit)
-        {
-            GameObject root = EnsureNamedUiObject(parent, name);
-            Image background = GetOrAdd<Image>(root);
-            TMP_InputField input = GetOrAdd<TMP_InputField>(root);
-            Undo.RecordObjects(
-                new UnityEngine.Object[] { background, input },
-                "Configure W8 identity input"
-            );
-            Color backgroundColor = new Color(0.92f, 0.94f, 0.97f, 1f);
-            if (background.color != backgroundColor)
-            {
-                background.color = backgroundColor;
-            }
-            if (input.targetGraphic != background)
-            {
-                input.targetGraphic = background;
-            }
-            if (input.lineType != TMP_InputField.LineType.SingleLine)
-            {
-                input.lineType = TMP_InputField.LineType.SingleLine;
-            }
-            if (input.contentType != TMP_InputField.ContentType.Standard)
-            {
-                input.contentType = TMP_InputField.ContentType.Standard;
-            }
-            if (input.characterLimit != characterLimit)
-            {
-                input.characterLimit = characterLimit;
-            }
-
-            GameObject viewportObject = EnsureNamedUiObject(
-                root.transform,
-                "Text Area"
-            );
-            RectTransform viewport = RequireRect(viewportObject);
-            Stretch(viewport, 14f);
-            GetOrAdd<RectMask2D>(viewportObject);
-            TMP_Text placeholder = EnsureText(
-                viewport,
-                "Placeholder",
-                placeholderText,
-                font,
-                22f,
-                new Color(0.25f, 0.28f, 0.32f, 0.72f)
-            );
-            if (placeholder.fontStyle != FontStyles.Italic)
-            {
-                Undo.RecordObject(
-                    placeholder,
-                    "Configure W8 placeholder style"
-                );
-                placeholder.fontStyle = FontStyles.Italic;
-                EditorUtility.SetDirty(placeholder);
-            }
-            Stretch(placeholder.rectTransform, 0f);
-            TMP_Text text = EnsureText(
-                viewport,
-                "Text",
-                string.Empty,
-                font,
-                24f,
-                new Color(0.04f, 0.05f, 0.07f, 1f)
-            );
-            Stretch(text.rectTransform, 0f);
-            if (input.textViewport != viewport)
-            {
-                input.textViewport = viewport;
-            }
-            if (input.textComponent != text)
-            {
-                input.textComponent = (TextMeshProUGUI)text;
-            }
-            if (input.placeholder != placeholder)
-            {
-                input.placeholder = placeholder;
-            }
-            EditorUtility.SetDirty(input);
-            return input;
         }
 
         private static Button EnsureButton(
@@ -1452,6 +1328,17 @@ namespace SignVR.Editor.Interaction
         private static Image EnsurePanel(Transform parent, string name)
         {
             return GetOrAdd<Image>(EnsureNamedUiObject(parent, name));
+        }
+
+        private static void RemoveDirectChildIfPresent(
+            Transform parent,
+            string name)
+        {
+            Transform existing = FindDirectChild(parent, name);
+            if (existing != null)
+            {
+                Undo.DestroyObjectImmediate(existing.gameObject);
+            }
         }
 
         private static GameObject EnsureNamedUiObject(
