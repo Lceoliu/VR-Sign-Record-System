@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using SignVR.Interaction.Core;
 using UnityEngine;
 
@@ -28,6 +29,14 @@ namespace SignVR.Interaction.Presentation
             new();
         private RunPhasePlan currentPhasePlan;
         private bool bound;
+        private bool endingPhase;
+        private bool cleanupHadPhase;
+        private bool presentationStateCleanupComplete = true;
+        private bool promptCleanupComplete = true;
+        private bool pointingCleanupComplete = true;
+        private bool ghostCleanupComplete = true;
+        private bool phasePlanCleanupComplete = true;
+        private bool finalNotificationComplete = true;
 
         public event Action StateChanged;
         public event Action<RunPhasePlan> PhasePresentationBegan;
@@ -66,12 +75,23 @@ namespace SignVR.Interaction.Presentation
 
         public GhostPointingDetector PointingDetector => pointingDetector;
 
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        internal bool LifecycleSubscriptionsBoundForTests => bound;
+#endif
+
         public void Configure(
             InstructionGhostPlayer player,
             InteractionPromptPresenter prompt,
             GhostPointingDetector detector,
             InteractionInstructionControls instructionControls = null)
         {
+            if (HasActiveOrUnsettledCleanupCycle)
+            {
+                throw new InvalidOperationException(
+                    "Instruction presentation dependencies cannot be replaced " +
+                    "until EndPhase completes the current cleanup cycle."
+                );
+            }
             Unbind();
             ghostPlayer = player;
             promptPresenter = prompt;
@@ -92,11 +112,19 @@ namespace SignVR.Interaction.Presentation
             }
             EnsureDependencies();
 
-            if (presentationState.PhaseActive || currentPhasePlan != null)
+            if (HasActiveOrUnsettledCleanupCycle)
             {
                 EndPhase();
+                if (HasActiveOrUnsettledCleanupCycle)
+                {
+                    throw new InvalidOperationException(
+                        "A new phase cannot begin before the previous " +
+                        "presentation cleanup cycle converges."
+                    );
+                }
             }
 
+            BeginCleanupCycle();
             currentPhasePlan = phasePlan;
             presentationState.BeginPhase(assistanceCondition);
             promptPresenter.SetPhase(phasePlan);
@@ -149,15 +177,78 @@ namespace SignVR.Interaction.Presentation
 
         public void EndPhase()
         {
-            bool hadPhase = presentationState.PhaseActive ||
-                currentPhasePlan != null;
-            presentationState.EndPhase();
-            pointingDetector?.StopPointing();
-            ghostPlayer?.Stop();
-            currentPhasePlan = null;
-            if (hadPhase)
+            bool hadPhase = cleanupHadPhase ||
+                presentationState.PhaseActive || currentPhasePlan != null;
+            if (!hadPhase && TerminalCleanupComplete)
             {
-                StateChanged?.Invoke();
+                return;
+            }
+            var failures = new List<Exception>();
+
+            endingPhase = true;
+            try
+            {
+                TryCleanupStage(
+                    presentationState.EndPhase,
+                    () => !presentationState.PhaseActive &&
+                        !presentationState.BubbleVisible,
+                    ref presentationStateCleanupComplete,
+                    failures
+                );
+            }
+            finally
+            {
+                endingPhase = false;
+            }
+            TryCleanupStage(
+                () => promptPresenter?.SetVisible(false),
+                () => promptPresenter == null || !promptPresenter.IsVisible,
+                ref promptCleanupComplete,
+                failures
+            );
+            TryCleanupStage(
+                () => pointingDetector?.StopPointing(),
+                () => pointingDetector == null ||
+                    (!pointingDetector.PhaseConfigured &&
+                     !pointingDetector.IsPointingVisible),
+                ref pointingCleanupComplete,
+                failures
+            );
+            TryCleanupStage(
+                () => ghostPlayer?.Stop(),
+                () => ghostPlayer == null ||
+                    (!ghostPlayer.IsLoading &&
+                     ghostPlayer.LoadedContent == null &&
+                     !ghostPlayer.IsPlaying &&
+                     ghostPlayer.LoadedFrameCount == 0),
+                ref ghostCleanupComplete,
+                failures
+            );
+            if (!phasePlanCleanupComplete)
+            {
+                currentPhasePlan = null;
+                phasePlanCleanupComplete = true;
+            }
+            if (hadPhase && !finalNotificationComplete)
+            {
+                InvokeEveryHandler(StateChanged, failures);
+                // Every subscriber was attempted independently. A subscriber
+                // failure is reported once but must not replay subscribers that
+                // already observed this terminal transition.
+                finalNotificationComplete = true;
+            }
+            if (TerminalCleanupComplete)
+            {
+                cleanupHadPhase = false;
+            }
+
+            if (failures.Count > 0)
+            {
+                throw new AggregateException(
+                    "Instruction presentation cleanup failed after every " +
+                    "resource cleanup step was attempted.",
+                    failures
+                );
             }
         }
 
@@ -304,7 +395,10 @@ namespace SignVR.Interaction.Presentation
 
         private void HandleStateChanged()
         {
-            StateChanged?.Invoke();
+            if (!endingPhase)
+            {
+                StateChanged?.Invoke();
+            }
         }
 
         private void HandlePlayerFailed(string error)
@@ -324,10 +418,100 @@ namespace SignVR.Interaction.Presentation
             }
         }
 
+        private static void TryCleanup(
+            Action cleanup,
+            ICollection<Exception> failures)
+        {
+            try
+            {
+                cleanup();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
+        }
+
+        private static void TryCleanupStage(
+            Action cleanup,
+            Func<bool> isComplete,
+            ref bool complete,
+            ICollection<Exception> failures)
+        {
+            if (complete)
+            {
+                return;
+            }
+
+            try
+            {
+                cleanup();
+                complete = true;
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+                try
+                {
+                    complete = isComplete();
+                }
+                catch (Exception inspectionFailure)
+                {
+                    failures.Add(inspectionFailure);
+                    complete = false;
+                }
+            }
+        }
+
+        private bool ResourceCleanupComplete =>
+            presentationStateCleanupComplete && promptCleanupComplete &&
+            pointingCleanupComplete && ghostCleanupComplete &&
+            phasePlanCleanupComplete;
+
+        private bool TerminalCleanupComplete =>
+            ResourceCleanupComplete && finalNotificationComplete;
+
+        private bool HasActiveOrUnsettledCleanupCycle =>
+            presentationState.PhaseActive || currentPhasePlan != null ||
+            cleanupHadPhase || !TerminalCleanupComplete;
+
+        private void BeginCleanupCycle()
+        {
+            cleanupHadPhase = true;
+            presentationStateCleanupComplete = false;
+            promptCleanupComplete = false;
+            pointingCleanupComplete = false;
+            ghostCleanupComplete = false;
+            phasePlanCleanupComplete = false;
+            finalNotificationComplete = false;
+        }
+
+        private static void InvokeEveryHandler(
+            Action handlers,
+            ICollection<Exception> failures)
+        {
+            if (handlers == null)
+            {
+                return;
+            }
+
+            Delegate[] invocationList = handlers.GetInvocationList();
+            for (int index = 0; index < invocationList.Length; index++)
+            {
+                TryCleanup((Action)invocationList[index], failures);
+            }
+        }
+
         private void OnDisable()
         {
-            EndPhase();
-            Unbind();
+            try
+            {
+                EndPhase();
+            }
+            finally
+            {
+                Unbind();
+            }
         }
     }
 }

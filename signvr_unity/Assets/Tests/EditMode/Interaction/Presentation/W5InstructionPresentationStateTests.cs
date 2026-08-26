@@ -243,6 +243,30 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
         }
 
         [Test]
+        public void PlaybackStopClearsStateWhenHitEndedSubscriberThrows()
+        {
+            object state = CreatePointingState("target_a");
+            AddEventHandler(
+                state,
+                "HitEnded",
+                new Action<string, double>((_, __) =>
+                    throw new InvalidOperationException("injected hit-end failure"))
+            );
+
+            Invoke(state, "BeginPlayback", 1d);
+            Invoke(state, "ObserveHit", "target_a", 1d);
+            Assert.Throws<InvalidOperationException>(() =>
+                Invoke(state, "StopPlayback", 1.05d));
+
+            Assert.That(Get<bool>(state, "PlaybackActive"), Is.False);
+            Assert.That(Get<bool>(state, "VisualVisible"), Is.False);
+            Assert.That(
+                Get<string>(state, "ActiveTargetId"),
+                Is.EqualTo(string.Empty)
+            );
+        }
+
+        [Test]
         public void PhaseResetClearsExposureAndPreviousAllowlist()
         {
             object state = CreatePointingState("old_target");

@@ -2,7 +2,9 @@ using System;
 using System.Collections;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
+using UnityEngine;
 using UnityEngine.TestTools;
 
 namespace SignVR.Interaction.PlayMode.Tests.Orchestration
@@ -32,8 +34,74 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
         public IEnumerator DisableResumeUsesSafeAbortAndSingleResubscription()
         {
             InvokeDriver("SuspendUsesTheSameSafeAbortAndResumeResubscribesOnce");
+            InvokeDriver("SuspendFailureStillDisablesAndResumeRetriesCleanup");
+            InvokeDriver(
+                "LifecycleAbortRetryIsBackedOffAndEventuallyConverges"
+            );
+            InvokeDriver("AcceptedAbortRetriesOnlyFailedTaskDisable");
+            InvokeDriver(
+                "SuspendedAcceptedAbortRetainsFailedDisableRetry"
+            );
+            InvokeDriver(
+                "TerminalCleanupTakesOverPersistentlyFailedDisable"
+            );
             InvokeDriver("ControllerPauseAndDisableUseTheSafeAbortPath");
             InvokeDriver("TerminalAdapterFailuresStillConvergeToPreStart");
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator RealW5EndPhaseConvergesAfterCallbackFailure()
+        {
+            InvokeDriver(
+                "RealW5EndPhaseCleansEveryResourceAfterCallbackFailure"
+            );
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator RealPointingCleanupSurvivesHitEndedFailure()
+        {
+            InvokeDriver("RealGhostPointingCleanupSurvivesHitEndedFailure");
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator ThrowingDisableStillUnbindsLifecycleSubscriptions()
+        {
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "Instruction presentation cleanup failed",
+                    RegexOptions.Singleline
+                )
+            );
+            LogAssert.Expect(
+                LogType.Exception,
+                new Regex(
+                    "Ghost pointing cleanup failed",
+                    RegexOptions.Singleline
+                )
+            );
+            InvokeDriver("ThrowingDisableStillUnbindsControllerAndDetector");
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator RealPortTerminalTickRetriesWithoutSideEffectReplay()
+        {
+            InvokeDriver(
+                "RealPresentationPortTerminalTickRetriesWithoutReplay"
+            );
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator PresentationReplacementRejectsOnlyUnsettledCleanup()
+        {
+            InvokeDriver(
+                "PresentationReplacementRejectsOnlyUnsettledCleanup"
+            );
             yield return null;
         }
 

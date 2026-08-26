@@ -72,10 +72,99 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         }
 
         [Test]
+        public void TerminalAdaptersRunOnceWhileW6ResetWaits()
+        {
+            InvokeDriver(nameof(TerminalAdaptersRunOnceWhileW6ResetWaits));
+        }
+
+        [Test]
+        public void TerminalResetExceptionRetriesWithoutRepeatingAdapters()
+        {
+            InvokeDriver(nameof(
+                TerminalResetExceptionRetriesWithoutRepeatingAdapters));
+        }
+
+        [Test]
         public void SuspendUsesTheSameSafeAbortAndResumeResubscribesOnce()
         {
             InvokeDriver(nameof(
                 SuspendUsesTheSameSafeAbortAndResumeResubscribesOnce));
+        }
+
+        [Test]
+        public void AbortFailureRetriesW5WithoutRepeatingItsCompletedWork()
+        {
+            InvokeDriver(nameof(
+                AbortFailureRetriesW5WithoutRepeatingItsCompletedWork));
+        }
+
+        [Test]
+        public void SuspendFailureStillDisablesAndResumeRetriesCleanup()
+        {
+            InvokeDriver(nameof(
+                SuspendFailureStillDisablesAndResumeRetriesCleanup));
+        }
+
+        [Test]
+        public void LifecycleAbortRetryIsBackedOffAndEventuallyConverges()
+        {
+            InvokeDriver(nameof(
+                LifecycleAbortRetryIsBackedOffAndEventuallyConverges));
+        }
+
+        [Test]
+        public void AcceptedAbortRetriesOnlyFailedTaskDisable()
+        {
+            InvokeDriver(nameof(AcceptedAbortRetriesOnlyFailedTaskDisable));
+        }
+
+        [Test]
+        public void SuspendedAcceptedAbortRetainsFailedDisableRetry()
+        {
+            InvokeDriver(nameof(
+                SuspendedAcceptedAbortRetainsFailedDisableRetry));
+        }
+
+        [Test]
+        public void TerminalCleanupTakesOverPersistentlyFailedDisable()
+        {
+            InvokeDriver(nameof(
+                TerminalCleanupTakesOverPersistentlyFailedDisable));
+        }
+
+        [Test]
+        public void SuspendedPendingAbortDisposeRetriesAndDetaches()
+        {
+            InvokeDriver(nameof(
+                SuspendedPendingAbortDisposeRetriesAndDetaches));
+        }
+
+        [Test]
+        public void CleanupFailureThenReconfigureUsesFreshAttemptState()
+        {
+            InvokeDriver(nameof(
+                CleanupFailureThenReconfigureUsesFreshAttemptState));
+        }
+
+        [Test]
+        public void TerminalWarningBufferIsExactUnicodeSafeAndKeepsNewest()
+        {
+            InvokeDriver(nameof(
+                TerminalWarningBufferIsExactUnicodeSafeAndKeepsNewest));
+        }
+
+        [Test]
+        public void TerminalWarningBufferBoundsHugeCanonicalRetention()
+        {
+            InvokeDriver(nameof(
+                TerminalWarningBufferBoundsHugeCanonicalRetention));
+        }
+
+        [Test]
+        public void PresentationReplacementRejectsOnlyUnsettledCleanup()
+        {
+            InvokeDriver(nameof(
+                PresentationReplacementRejectsOnlyUnsettledCleanup));
         }
 
         [Test]

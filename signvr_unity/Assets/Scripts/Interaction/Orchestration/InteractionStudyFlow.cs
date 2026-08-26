@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text;
 using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
 
@@ -11,6 +13,8 @@ namespace SignVR.Interaction.Orchestration
     /// </summary>
     public sealed class InteractionStudyFlow : IDisposable
     {
+        private const int MaximumLifecycleAbortRetryDelayTicks = 300;
+
         private IInteractionStudyRunPort run;
         private IInteractionStudyPresentationPort presentation;
         private IInteractionStudyTaskPort tasks;
@@ -20,8 +24,13 @@ namespace SignVR.Interaction.Orchestration
         private long bindingEpoch;
         private bool suspended;
         private bool disposed;
+        private bool terminalPresentationCleanupComplete;
         private bool terminalTaskCleaned;
         private bool abortInProgress;
+        private bool abortTaskDisableComplete;
+        private string pendingLifecycleAbortReason = string.Empty;
+        private int lifecycleAbortRetryDelayTicks;
+        private int lifecycleAbortNextDelayTicks = 1;
         private bool playbackCompletionHandled;
         private long lastRequestSequence;
         private string lastRequestRunId = string.Empty;
@@ -32,7 +41,8 @@ namespace SignVR.Interaction.Orchestration
         private int progress;
         private int requiredProgress;
         private string status = "PreStart";
-        private string terminalCleanupWarning = string.Empty;
+        private readonly InteractionTerminalWarningBuffer terminalWarnings =
+            new();
 
         public InteractionStudyFlow(
             IInteractionStudyRunPort run,
@@ -51,9 +61,11 @@ namespace SignVR.Interaction.Orchestration
             {
                 RunState state = run.State;
                 PhaseExecutionSnapshot phase = run.CurrentPhase;
+                bool lifecycleAbortPending =
+                    !string.IsNullOrEmpty(pendingLifecycleAbortReason);
                 bool commandIdle = !suspended && !disposed &&
                     pendingPresentation == null && activePlayback == null &&
-                    !abortInProgress;
+                    !abortInProgress && !lifecycleAbortPending;
                 bool canStart = false;
                 string preStartReadiness = null;
                 if (commandIdle && state == RunState.PreStart)
@@ -96,7 +108,8 @@ namespace SignVR.Interaction.Orchestration
                         phase != null && phase.ReplayAvailable,
                     commandIdle && state == RunState.Running &&
                         phase != null && phase.GiveUpAvailable,
-                    abortInProgress || state == RunState.Aborting,
+                    abortInProgress || lifecycleAbortPending ||
+                        state == RunState.Aborting,
                     resolvedStatus
                 );
             }
@@ -234,12 +247,28 @@ namespace SignVR.Interaction.Orchestration
 
         public void Tick()
         {
-            if (disposed)
+            if (disposed || suspended)
+            {
+                return;
+            }
+
+            bool lifecycleAbortWasPending =
+                !string.IsNullOrEmpty(pendingLifecycleAbortReason);
+            bool retryPublishedChange = false;
+            if (lifecycleAbortWasPending &&
+                !RetryPendingLifecycleAbort(
+                    immediate: false,
+                    out retryPublishedChange))
             {
                 return;
             }
 
             RunState state = run.State;
+            if (lifecycleAbortWasPending && !retryPublishedChange &&
+                (state == RunState.PreStart || state == RunState.Aborting))
+            {
+                NotifyChanged();
+            }
             if (state == RunState.Aborting)
             {
                 abortInProgress = true;
@@ -250,20 +279,13 @@ namespace SignVR.Interaction.Orchestration
                 return;
             }
 
-            try
+            if (!TryCompleteTerminalPresentationCleanup(out _))
             {
-                if (presentation.PhaseActive)
-                {
-                    presentation.EndPhase();
-                }
+                status = "Terminal presentation cleanup will retry. " +
+                    terminalWarnings.Value;
+                NotifyChanged();
+                return;
             }
-            catch (Exception exception)
-            {
-                RecordTerminalCleanupWarning(
-                    "W5 terminal EndPhase failed: " + exception.Message
-                );
-            }
-            ClearPresentationTokens();
 
             if (!terminalTaskCleaned)
             {
@@ -308,28 +330,29 @@ namespace SignVR.Interaction.Orchestration
                     "W6 terminal reset failed: " + exception.Message
                 );
                 status = "Terminal Run cleanup will retry. " +
-                    terminalCleanupWarning;
+                    terminalWarnings.Value;
                 NotifyChanged();
                 return;
             }
             if (!resetAccepted)
             {
                 status = "Terminal Run is waiting for W6 seal/upload cleanup." +
-                    (string.IsNullOrWhiteSpace(terminalCleanupWarning)
+                    (terminalWarnings.IsEmpty
                         ? string.Empty
-                        : " " + terminalCleanupWarning);
+                        : " " + terminalWarnings.Value);
                 return;
             }
 
             abortInProgress = false;
-            terminalTaskCleaned = false;
+            ClearPendingLifecycleAbort();
+            ResetTerminalCleanupAttempts();
             lastRequestSequence = 0L;
             lastRequestRunId = string.Empty;
-            status = string.IsNullOrWhiteSpace(terminalCleanupWarning)
+            status = terminalWarnings.IsEmpty
                 ? "PreStart"
                 : "PreStart after terminal cleanup warning: " +
-                    terminalCleanupWarning;
-            terminalCleanupWarning = string.Empty;
+                    terminalWarnings.Value;
+            terminalWarnings.Clear();
             NotifyChanged();
         }
 
@@ -340,27 +363,58 @@ namespace SignVR.Interaction.Orchestration
                 return;
             }
             Exception failure = null;
+            bool disableTasks = false;
+            string lifecycleReason = NormalizeLifecycleAbortReason(reason);
             try
             {
-                if (IsRunOwned(run.State))
+                RunState state = run.State;
+                if (IsRunOwned(state))
                 {
-                    BeginAbort(
-                        string.IsNullOrWhiteSpace(reason)
-                            ? "study_flow_suspended"
-                            : reason.Trim()
+                    disableTasks = true;
+                    InteractionStudyFlowCommandResult abort = BeginAbort(
+                        lifecycleReason,
+                        disableTasks: false
                     );
+                    if (!abort.Succeeded && IsRunOwned(run.State))
+                    {
+                        ArmPendingLifecycleAbort(lifecycleReason);
+                    }
                 }
-                else if (run.State == RunState.Aborting)
+                else if (state == RunState.Aborting)
                 {
-                    presentation.EndPhase();
-                    ClearPresentationTokens();
-                    tasks.Disable();
+                    disableTasks = true;
+                    ClearPendingLifecycleAbort();
+                    TryCompleteTerminalPresentationCleanup(out _);
                     abortInProgress = true;
+                }
+                else
+                {
+                    ClearPendingLifecycleAbort();
                 }
             }
             catch (Exception exception)
             {
                 failure = exception;
+            }
+            finally
+            {
+                if (disableTasks && !abortTaskDisableComplete)
+                {
+                    try
+                    {
+                        tasks.Disable();
+                        abortTaskDisableComplete = true;
+                    }
+                    catch (Exception exception)
+                    {
+                        if (IsRunOwned(run.State) ||
+                            run.State == RunState.Aborting)
+                        {
+                            ArmPendingLifecycleAbort(lifecycleReason);
+                        }
+                        failure ??= exception;
+                    }
+                }
             }
             suspended = true;
             try
@@ -387,9 +441,22 @@ namespace SignVR.Interaction.Orchestration
             }
             suspended = false;
             Attach();
-            status = IsTerminal(run.State)
-                ? "Terminal Run detected after resume."
-                : status;
+            if (!string.IsNullOrEmpty(pendingLifecycleAbortReason))
+            {
+                RetryPendingLifecycleAbort(
+                    immediate: true,
+                    out bool retryPublishedChange
+                );
+                if (!retryPublishedChange)
+                {
+                    NotifyChanged();
+                }
+                return;
+            }
+            else if (IsTerminal(run.State))
+            {
+                status = "Terminal Run detected after resume.";
+            }
             NotifyChanged();
         }
 
@@ -477,9 +544,18 @@ namespace SignVR.Interaction.Orchestration
             Exception failure = null;
             try
             {
-                if (!suspended && IsRunOwned(run.State))
+                if (IsRunOwned(run.State))
                 {
-                    BeginAbort("study_flow_disposed");
+                    InteractionStudyFlowCommandResult abort = BeginAbort(
+                        "study_flow_disposed"
+                    );
+                    if (!abort.Succeeded && IsRunOwned(run.State))
+                    {
+                        failure = new InvalidOperationException(
+                            "Study Flow disposal could not transfer its owned " +
+                            "Run to W6 abort: " + abort.Error
+                        );
+                    }
                 }
             }
             catch (Exception exception)
@@ -848,12 +924,24 @@ namespace SignVR.Interaction.Orchestration
             BeginAbort("presentation_fault");
         }
 
-        private InteractionStudyFlowCommandResult BeginAbort(string reason)
+        private InteractionStudyFlowCommandResult BeginAbort(
+            string reason,
+            bool disableTasks = true)
         {
             RunState state = run.State;
             if (state == RunState.Aborting)
             {
                 abortInProgress = true;
+                ClearPendingLifecycleAbort();
+                if (disableTasks && !TryDisableTasksForAbort(
+                        out string existingAbortDisableError))
+                {
+                    ArmPendingLifecycleAbort(reason);
+                    return Fail(
+                        "W7 Disable failed while Run abort is in progress: " +
+                        existingAbortDisableError
+                    );
+                }
                 return Fail("Run abort is already in progress.");
             }
             if (!IsRunOwned(state))
@@ -861,28 +949,67 @@ namespace SignVR.Interaction.Orchestration
                 return Fail("Run cannot abort from " + state + ".");
             }
 
-            string presentationError = null;
+            TryCompleteTerminalPresentationCleanup(
+                out string presentationError
+            );
+
+            bool accepted = false;
+            string abortError = null;
+            string taskDisableError = null;
             try
             {
-                presentation.EndPhase();
+                accepted = run.TryAbort(reason, out abortError);
             }
             catch (Exception exception)
             {
-                presentationError = exception.Message;
+                abortError = exception.Message;
             }
-            ClearPresentationTokens();
-
-            bool accepted = run.TryAbort(reason, out string error);
-            tasks.Disable();
-            abortInProgress = accepted || run.State == RunState.Aborting;
-            if (!accepted)
+            finally
             {
-                return Fail(
-                    string.IsNullOrWhiteSpace(presentationError)
-                        ? error
-                        : "W5 EndPhase failed: " + presentationError +
-                            "; W6 abort failed: " + error
-                );
+                if (disableTasks && !TryDisableTasksForAbort(
+                        out taskDisableError))
+                {
+                    RecordTerminalCleanupWarning(
+                        "W7 abort Disable failed: " + taskDisableError
+                    );
+                }
+            }
+
+            abortInProgress = accepted || run.State == RunState.Aborting;
+            if (abortInProgress)
+            {
+                if (abortTaskDisableComplete)
+                {
+                    ClearPendingLifecycleAbort();
+                }
+                else
+                {
+                    ArmPendingLifecycleAbort(reason);
+                }
+            }
+            if (!accepted || !string.IsNullOrWhiteSpace(taskDisableError))
+            {
+                var failures = new List<string>();
+                if (!string.IsNullOrWhiteSpace(presentationError))
+                {
+                    failures.Add("W5 EndPhase failed: " + presentationError);
+                }
+                if (!accepted)
+                {
+                    failures.Add(
+                        "W6 abort failed: " +
+                        (string.IsNullOrWhiteSpace(abortError)
+                            ? "unknown failure"
+                            : abortError)
+                    );
+                }
+                if (!string.IsNullOrWhiteSpace(taskDisableError))
+                {
+                    failures.Add(
+                        "W7 Disable failed: " + taskDisableError
+                    );
+                }
+                return Fail(string.Join("; ", failures));
             }
 
             status = string.IsNullOrWhiteSpace(presentationError)
@@ -924,6 +1051,11 @@ namespace SignVR.Interaction.Orchestration
                 reason = "Run abort is in progress.";
                 return false;
             }
+            if (!string.IsNullOrEmpty(pendingLifecycleAbortReason))
+            {
+                reason = "Run lifecycle abort retry is pending.";
+                return false;
+            }
             reason = null;
             return true;
         }
@@ -931,27 +1063,60 @@ namespace SignVR.Interaction.Orchestration
         private void ResetRunLocalState()
         {
             ClearPresentationTokens();
-            terminalTaskCleaned = false;
+            ResetTerminalCleanupAttempts();
             abortInProgress = false;
+            abortTaskDisableComplete = false;
+            ClearPendingLifecycleAbort();
             lastRequestSequence = 0L;
             lastRequestRunId = string.Empty;
             lastHandledResult = null;
             outcomeHandledPhaseId = null;
             progress = 0;
             requiredProgress = 0;
-            terminalCleanupWarning = string.Empty;
+            terminalWarnings.Clear();
+        }
+
+        private bool TryCompleteTerminalPresentationCleanup(out string error)
+        {
+            if (terminalPresentationCleanupComplete)
+            {
+                error = null;
+                return true;
+            }
+
+            try
+            {
+                // PhaseActive can already be false after a partially completed
+                // EndPhase. Only a complete, non-throwing call proves that all
+                // W5 output owners have converged.
+                presentation.EndPhase();
+                terminalPresentationCleanupComplete = true;
+                error = null;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                error = exception.Message;
+                RecordTerminalCleanupWarning(
+                    "W5 terminal EndPhase failed: " + exception.Message
+                );
+                return false;
+            }
+            finally
+            {
+                ClearPresentationTokens();
+            }
         }
 
         private void RecordTerminalCleanupWarning(string warning)
         {
-            if (string.IsNullOrWhiteSpace(warning))
-            {
-                return;
-            }
-            terminalCleanupWarning = string.IsNullOrWhiteSpace(
-                terminalCleanupWarning)
-                ? warning.Trim()
-                : terminalCleanupWarning + " | " + warning.Trim();
+            terminalWarnings.Add(warning);
+        }
+
+        private void ResetTerminalCleanupAttempts()
+        {
+            terminalPresentationCleanupComplete = false;
+            terminalTaskCleaned = false;
         }
 
         private void ClearPresentationTokens()
@@ -963,7 +1128,137 @@ namespace SignVR.Interaction.Orchestration
 
         private bool IsCurrent(long epoch)
         {
-            return !disposed && !suspended && epoch == bindingEpoch;
+            return !disposed && !suspended &&
+                string.IsNullOrEmpty(pendingLifecycleAbortReason) &&
+                epoch == bindingEpoch;
+        }
+
+        private bool RetryPendingLifecycleAbort(
+            bool immediate,
+            out bool notificationPublished)
+        {
+            notificationPublished = false;
+            if (string.IsNullOrEmpty(pendingLifecycleAbortReason))
+            {
+                return true;
+            }
+
+            if (!immediate && lifecycleAbortRetryDelayTicks > 0)
+            {
+                lifecycleAbortRetryDelayTicks--;
+                return false;
+            }
+
+            RunState state = run.State;
+            if (state == RunState.Aborting)
+            {
+                abortInProgress = true;
+                if (!TryDisableTasksForAbort(out string disableError))
+                {
+                    status = "W7 lifecycle Disable will retry: " +
+                        disableError;
+                    ScheduleLifecycleAbortRetry();
+                    NotifyChanged();
+                    notificationPublished = true;
+                    return false;
+                }
+                ClearPendingLifecycleAbort();
+                return true;
+            }
+            if (IsTerminal(state))
+            {
+                // W7's terminal Abort/Reset stage now owns convergence. A
+                // permanently broken Disable must not prevent W6 reset.
+                abortInProgress = false;
+                ClearPendingLifecycleAbort();
+                return true;
+            }
+            if (state == RunState.PreStart)
+            {
+                abortInProgress = false;
+                ClearPendingLifecycleAbort();
+                return true;
+            }
+            if (!IsRunOwned(state))
+            {
+                status = "Lifecycle abort retry is pending while W6 is " +
+                    state + ".";
+                NotifyChanged();
+                notificationPublished = true;
+                return false;
+            }
+
+            string reason = pendingLifecycleAbortReason;
+            InteractionStudyFlowCommandResult retry = BeginAbort(reason);
+            notificationPublished = true;
+            state = run.State;
+            if ((state == RunState.Aborting || IsTerminal(state)) &&
+                !abortTaskDisableComplete)
+            {
+                ScheduleLifecycleAbortRetry();
+                return false;
+            }
+            if (retry.Succeeded || state == RunState.Aborting ||
+                state == RunState.PreStart || IsTerminal(state))
+            {
+                ClearPendingLifecycleAbort();
+                return true;
+            }
+            ScheduleLifecycleAbortRetry();
+            return false;
+        }
+
+        private bool TryDisableTasksForAbort(out string error)
+        {
+            if (abortTaskDisableComplete)
+            {
+                error = null;
+                return true;
+            }
+
+            try
+            {
+                tasks.Disable();
+                abortTaskDisableComplete = true;
+                error = null;
+                return true;
+            }
+            catch (Exception exception)
+            {
+                error = exception.Message;
+                return false;
+            }
+        }
+
+        private void ArmPendingLifecycleAbort(string reason)
+        {
+            pendingLifecycleAbortReason = reason;
+            lifecycleAbortRetryDelayTicks = 0;
+            lifecycleAbortNextDelayTicks = 1;
+        }
+
+        private void ScheduleLifecycleAbortRetry()
+        {
+            lifecycleAbortRetryDelayTicks =
+                lifecycleAbortNextDelayTicks;
+            lifecycleAbortNextDelayTicks = Math.Min(
+                MaximumLifecycleAbortRetryDelayTicks,
+                checked(lifecycleAbortNextDelayTicks * 2)
+            );
+        }
+
+        private void ClearPendingLifecycleAbort()
+        {
+            pendingLifecycleAbortReason = string.Empty;
+            lifecycleAbortRetryDelayTicks = 0;
+            lifecycleAbortNextDelayTicks = 1;
+        }
+
+        private static string NormalizeLifecycleAbortReason(string reason)
+        {
+            return string.IsNullOrWhiteSpace(reason)
+                ? "study_flow_suspended"
+                : reason.Trim();
         }
 
         private string ResolveStatus()
@@ -1013,6 +1308,163 @@ namespace SignVR.Interaction.Orchestration
             return state == RunState.Completed ||
                 state == RunState.Aborted ||
                 state == RunState.Faulted;
+        }
+    }
+
+    /// <summary>
+    /// Bounded terminal diagnostics. Exact retained items are de-duplicated,
+    /// while the newest failure is never lost to an older full buffer.
+    /// </summary>
+    internal sealed class InteractionTerminalWarningBuffer
+    {
+        internal const int MaximumLength = 1024;
+        internal const int MaximumItemLength = 256;
+        internal const string TruncationMarker =
+            "[older warnings truncated]";
+        private const string Separator = " | ";
+
+        private readonly List<Entry> entries = new();
+        private readonly HashSet<string> canonicalItems = new(
+            StringComparer.Ordinal
+        );
+        private bool truncated;
+
+        public bool IsEmpty => entries.Count == 0;
+
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        internal int RetainedCanonicalCount => entries.Count;
+
+        internal int RetainedCanonicalCharacterCount
+        {
+            get
+            {
+                int total = 0;
+                for (int index = 0; index < entries.Count; index++)
+                {
+                    total = checked(total + entries[index].Canonical.Length);
+                }
+                return total;
+            }
+        }
+#endif
+
+        public string Value
+        {
+            get
+            {
+                var values = new List<string>(entries.Count + 1);
+                if (truncated)
+                {
+                    values.Add(TruncationMarker);
+                }
+                for (int index = 0; index < entries.Count; index++)
+                {
+                    values.Add(entries[index].Canonical);
+                }
+                return string.Join(Separator, values);
+            }
+        }
+
+        public bool Add(string warning)
+        {
+            string canonical = CreateBoundedCanonical(warning);
+            if (canonical == null)
+            {
+                return false;
+            }
+
+            if (!canonicalItems.Add(canonical))
+            {
+                return false;
+            }
+            entries.Add(new Entry(canonical));
+
+            while (Value.Length > MaximumLength && entries.Count > 1)
+            {
+                Entry removed = entries[0];
+                entries.RemoveAt(0);
+                canonicalItems.Remove(removed.Canonical);
+                truncated = true;
+            }
+            return true;
+        }
+
+        public void Clear()
+        {
+            entries.Clear();
+            canonicalItems.Clear();
+            truncated = false;
+        }
+
+        private static string CreateBoundedCanonical(string warning)
+        {
+            if (warning == null)
+            {
+                return null;
+            }
+
+            int start = 0;
+            int end = warning.Length;
+            while (start < end && char.IsWhiteSpace(warning[start]))
+            {
+                start++;
+            }
+            while (end > start && char.IsWhiteSpace(warning[end - 1]))
+            {
+                end--;
+            }
+            if (start == end)
+            {
+                return null;
+            }
+
+            int trimmedLength = end - start;
+            if (trimmedLength <= MaximumItemLength)
+            {
+                if (start == 0 && trimmedLength == warning.Length)
+                {
+                    // Reusing an already bounded input avoids even a bounded
+                    // duplicate allocation.
+                    return warning;
+                }
+                return CopyRange(warning, start, trimmedLength, false);
+            }
+
+            int copyLength = MaximumItemLength - 1;
+            int cut = start + copyLength;
+            if (char.IsHighSurrogate(warning[cut - 1]) &&
+                cut < end && char.IsLowSurrogate(warning[cut]))
+            {
+                copyLength--;
+            }
+            return CopyRange(warning, start, copyLength, true);
+        }
+
+        private static string CopyRange(
+            string source,
+            int start,
+            int length,
+            bool appendEllipsis)
+        {
+            var builder = new StringBuilder(
+                length + (appendEllipsis ? 1 : 0)
+            );
+            builder.Append(source, start, length);
+            if (appendEllipsis)
+            {
+                builder.Append('…');
+            }
+            return builder.ToString();
+        }
+
+        private sealed class Entry
+        {
+            public Entry(string canonical)
+            {
+                Canonical = canonical;
+            }
+
+            public string Canonical { get; }
         }
     }
 }

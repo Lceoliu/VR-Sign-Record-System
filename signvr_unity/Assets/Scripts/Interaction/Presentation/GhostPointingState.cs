@@ -119,14 +119,19 @@ namespace SignVR.Interaction.Presentation
                 return;
             }
 
-            AdvanceTo(monotonicTime);
-            if (VisualVisible)
+            try
             {
-                EndCurrentHit(monotonicTime);
+                AdvanceTo(monotonicTime);
+                if (VisualVisible)
+                {
+                    EndCurrentHit(monotonicTime);
+                }
             }
-
-            playbackActive = false;
-            lossDeadline = double.PositiveInfinity;
+            finally
+            {
+                playbackActive = false;
+                lossDeadline = double.PositiveInfinity;
+            }
         }
 
         public void ResetPhase(

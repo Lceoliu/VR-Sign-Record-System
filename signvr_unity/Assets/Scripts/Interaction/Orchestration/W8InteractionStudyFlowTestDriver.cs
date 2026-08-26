@@ -84,10 +84,14 @@ namespace SignVR.Interaction.Orchestration
             Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(6));
             Assert.That(fixture.Run.RecordedResults.Count, Is.GreaterThan(6));
 
+            fixture.Run.ResetRejectionsRemaining = 2;
             fixture.Run.MarkCompleted();
+            fixture.Flow.Tick();
+            fixture.Flow.Tick();
             fixture.Flow.Tick();
 
             Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(3));
             Assert.That(fixture.Tasks.ResetCount, Is.EqualTo(1));
             Assert.That(fixture.Tasks.AbortCount, Is.Zero);
             Assert.That(fixture.Run.StartCount, Is.EqualTo(1));
@@ -252,7 +256,7 @@ namespace SignVR.Interaction.Orchestration
         public static void TerminalAdapterFailuresStillConvergeToPreStart()
         {
             var fixture = StartFirstPhase();
-            fixture.Presentation.ThrowOnEndPhase = true;
+            fixture.Presentation.EndPhaseFailuresRemaining = 1;
             fixture.Tasks.ThrowOnAbort = true;
 
             Assert.That(
@@ -268,6 +272,68 @@ namespace SignVR.Interaction.Orchestration
             Assert.That(
                 fixture.Flow.Snapshot.Status,
                 Does.Contain("terminal cleanup warning")
+            );
+        }
+
+        public static void TerminalAdaptersRunOnceWhileW6ResetWaits()
+        {
+            var fixture = StartFirstPhase();
+            fixture.Presentation.EndPhaseFailuresRemaining = 1;
+            fixture.Tasks.ThrowOnAbort = true;
+            fixture.Run.ResetRejectionsRemaining = 2;
+
+            Assert.That(
+                fixture.Flow.TryAbort("participant_requested_abort").Succeeded,
+                Is.True
+            );
+            fixture.Run.MarkAborted();
+
+            fixture.Flow.Tick();
+            fixture.Flow.Tick();
+            fixture.Flow.Tick();
+
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(3));
+            Assert.That(fixture.Presentation.EndPhaseAttemptCount, Is.EqualTo(2));
+            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
+            Assert.That(
+                CountOccurrences(
+                    fixture.Flow.Snapshot.Status,
+                    "W5 terminal EndPhase failed"
+                ),
+                Is.EqualTo(1)
+            );
+        }
+
+        public static void TerminalResetExceptionRetriesWithoutRepeatingAdapters()
+        {
+            var fixture = StartFirstPhase();
+            fixture.Presentation.EndPhaseFailuresRemaining = 1;
+            fixture.Tasks.ThrowOnAbort = true;
+            fixture.Run.ResetExceptionsRemaining = 1;
+
+            Assert.That(
+                fixture.Flow.TryAbort("participant_requested_abort").Succeeded,
+                Is.True
+            );
+            fixture.Run.MarkAborted();
+
+            fixture.Flow.Tick();
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
+            fixture.Flow.Tick();
+
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(2));
+            Assert.That(fixture.Presentation.EndPhaseAttemptCount, Is.EqualTo(2));
+            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
+            Assert.That(
+                CountOccurrences(
+                    fixture.Flow.Snapshot.Status,
+                    "W6 terminal reset failed"
+                ),
+                Is.EqualTo(1)
             );
         }
 
@@ -292,6 +358,841 @@ namespace SignVR.Interaction.Orchestration
             Assert.That(fixture.Run.SubscriberCount, Is.EqualTo(1));
             Assert.That(fixture.Tasks.SubscriberCount, Is.EqualTo(1));
             Assert.That(fixture.Presentation.SubscriberCount, Is.EqualTo(1));
+        }
+
+        public static void AbortFailureRetriesW5WithoutRepeatingItsCompletedWork()
+        {
+            var fixture = StartFirstPhase();
+            fixture.Presentation.EndPhaseFailuresRemaining = 1;
+            fixture.Run.AbortExceptionsRemaining = 1;
+            fixture.Run.AbortRejectionsRemaining = 1;
+
+            InteractionStudyFlowCommandResult first =
+                fixture.Flow.TryAbort("participant_requested_abort");
+
+            Assert.That(first.Succeeded, Is.False);
+            Assert.That(fixture.Presentation.EndPhaseAttemptCount, Is.EqualTo(1));
+            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+
+            InteractionStudyFlowCommandResult second =
+                fixture.Flow.TryAbort("participant_requested_abort");
+
+            Assert.That(second.Succeeded, Is.False);
+            Assert.That(fixture.Presentation.EndPhaseAttemptCount, Is.EqualTo(2));
+            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+
+            InteractionStudyFlowCommandResult third =
+                fixture.Flow.TryAbort("participant_requested_abort");
+
+            Assert.That(third.Succeeded, Is.True);
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborting));
+            Assert.That(fixture.Presentation.EndPhaseAttemptCount, Is.EqualTo(2));
+            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+        }
+
+        public static void SuspendFailureStillDisablesAndResumeRetriesCleanup()
+        {
+            var fixture = StartFirstPhase();
+            fixture.Presentation.EndPhaseFailuresRemaining = 1;
+            fixture.Run.AbortExceptionsRemaining = 1;
+            fixture.Run.AbortRejectionsRemaining = 1;
+
+            fixture.Flow.Suspend("component_disabled");
+
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.SuccessfulDisableCount, Is.EqualTo(1));
+            Assert.That(fixture.Run.AbortAttemptCount, Is.EqualTo(1));
+            Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.True);
+            Assert.That(fixture.Run.SubscriberCount, Is.Zero);
+            Assert.That(fixture.Presentation.SubscriberCount, Is.Zero);
+            Assert.That(fixture.Tasks.SubscriberCount, Is.Zero);
+
+            fixture.Flow.Resume();
+            Assert.That(fixture.Run.AbortAttemptCount, Is.EqualTo(2));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Running));
+            Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.True);
+            Assert.That(fixture.Flow.TryReplay().Succeeded, Is.False);
+
+            fixture.Flow.Tick();
+            Assert.That(fixture.Run.AbortAttemptCount, Is.EqualTo(2));
+            fixture.Flow.Tick();
+
+            Assert.That(fixture.Run.AbortAttemptCount, Is.EqualTo(3));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborting));
+            Assert.That(fixture.Presentation.EndPhaseAttemptCount, Is.EqualTo(2));
+            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+
+            fixture.Run.MarkAborted();
+            fixture.Flow.Tick();
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.False);
+        }
+
+        public static void LifecycleAbortRetryIsBackedOffAndEventuallyConverges()
+        {
+            var fixture = StartFirstPhase();
+            fixture.Run.AbortRejectionsRemaining = 1_000;
+            int notificationCount = 0;
+            fixture.Flow.StateChanged += () => notificationCount++;
+
+            fixture.Flow.Suspend("component_disabled");
+            fixture.Flow.Resume();
+            int attemptsAfterResume = fixture.Run.AbortAttemptCount;
+            int notificationsAfterResume = notificationCount;
+
+            for (int index = 0; index < 64; index++)
+            {
+                fixture.Flow.Tick();
+            }
+
+            Assert.That(
+                fixture.Run.AbortAttemptCount - attemptsAfterResume,
+                Is.LessThan(10),
+                "Persistent rejection must use bounded exponential retry."
+            );
+            Assert.That(
+                notificationCount - notificationsAfterResume,
+                Is.LessThan(10),
+                "Backoff ticks must not publish an unchanged failure."
+            );
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
+            Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.True);
+
+            fixture.Run.AbortRejectionsRemaining = 0;
+            for (int index = 0;
+                 index <= 300 && fixture.Run.State != RunState.Aborting;
+                 index++)
+            {
+                fixture.Flow.Tick();
+            }
+
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborting));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
+        }
+
+        public static void AcceptedAbortRetriesOnlyFailedTaskDisable()
+        {
+            var fixture = StartFirstPhase();
+            fixture.Tasks.DisableFailuresRemaining = 1;
+
+            InteractionStudyFlowCommandResult abort =
+                fixture.Flow.TryAbort("participant_requested_abort");
+
+            Assert.That(abort.Succeeded, Is.False);
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborting));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.SuccessfulDisableCount, Is.Zero);
+            Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.True);
+
+            fixture.Flow.Tick();
+
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(2));
+            Assert.That(fixture.Tasks.SuccessfulDisableCount, Is.EqualTo(1));
+            fixture.Flow.Tick();
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(2));
+        }
+
+        public static void SuspendedAcceptedAbortRetainsFailedDisableRetry()
+        {
+            var fixture = StartFirstPhase();
+            fixture.Run.AbortExceptionsRemaining = 1;
+            fixture.Tasks.DisableFailuresRemaining = 2;
+
+            Assert.Throws<InvalidOperationException>(() =>
+                fixture.Flow.Suspend("component_disabled"));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Running));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+            Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.True);
+
+            fixture.Flow.Resume();
+
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborting));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(2));
+            Assert.That(fixture.Tasks.SuccessfulDisableCount, Is.Zero);
+            Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.True);
+
+            fixture.Flow.Tick();
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(2));
+            fixture.Flow.Tick();
+
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(3));
+            Assert.That(fixture.Tasks.SuccessfulDisableCount, Is.EqualTo(1));
+            fixture.Flow.Tick();
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(3));
+        }
+
+        public static void TerminalCleanupTakesOverPersistentlyFailedDisable()
+        {
+            var fixture = StartFirstPhase();
+            fixture.Tasks.DisableFailuresRemaining = 1_000;
+
+            Assert.That(
+                fixture.Flow.TryAbort("participant_requested_abort").Succeeded,
+                Is.False
+            );
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborting));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+
+            fixture.Run.MarkAborted();
+            fixture.Flow.Tick();
+
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
+            Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.False);
+            Assert.That(
+                fixture.Flow.Snapshot.Status,
+                Does.Contain("W7 abort Disable failed")
+            );
+        }
+
+        public static void SuspendedPendingAbortDisposeRetriesAndDetaches()
+        {
+            var fixture = StartFirstPhase();
+            fixture.Run.AbortRejectionsRemaining = 1_000;
+
+            fixture.Flow.Suspend("component_disabled");
+            Assert.That(fixture.Run.AbortAttemptCount, Is.EqualTo(1));
+            Assert.That(fixture.Run.SubscriberCount, Is.Zero);
+            Assert.That(fixture.Presentation.SubscriberCount, Is.Zero);
+            Assert.That(fixture.Tasks.SubscriberCount, Is.Zero);
+
+            InvalidOperationException failure =
+                Assert.Throws<InvalidOperationException>(() =>
+                    fixture.Flow.Dispose());
+
+            Assert.That(fixture.Run.AbortAttemptCount, Is.EqualTo(2));
+            Assert.That(
+                failure.Message,
+                Does.Contain("could not transfer its owned Run")
+            );
+            Assert.That(fixture.Run.SubscriberCount, Is.Zero);
+            Assert.That(fixture.Presentation.SubscriberCount, Is.Zero);
+            Assert.That(fixture.Tasks.SubscriberCount, Is.Zero);
+            Assert.That(
+                fixture.Flow.TryAbort("after_dispose").Succeeded,
+                Is.False
+            );
+        }
+
+        public static void CleanupFailureThenReconfigureUsesFreshAttemptState()
+        {
+            var original = StartFirstPhase();
+            original.Presentation.EndPhaseFailuresRemaining = 1;
+            Assert.That(
+                original.Flow.TryAbort("participant_requested_abort").Succeeded,
+                Is.True
+            );
+            original.Run.MarkAborted();
+            original.Flow.Tick();
+            Assert.That(original.Run.State, Is.EqualTo(RunState.PreStart));
+
+            var replacement = new FlowFixture(createFlow: false);
+            original.Flow.Reconfigure(
+                replacement.Run,
+                replacement.Presentation,
+                replacement.Tasks
+            );
+            Assert.That(original.Flow.TryStart().Succeeded, Is.True);
+            replacement.Run.PublishInitialPresentation();
+            Assert.That(
+                original.Flow.TryAbort("replacement_abort").Succeeded,
+                Is.True
+            );
+
+            Assert.That(
+                replacement.Presentation.EndPhaseAttemptCount,
+                Is.EqualTo(1)
+            );
+            Assert.That(replacement.Presentation.EndPhaseCount, Is.EqualTo(1));
+        }
+
+        public static void TerminalWarningBufferIsExactUnicodeSafeAndKeepsNewest()
+        {
+            var warnings = new InteractionTerminalWarningBuffer();
+            warnings.Add("outer failure contains inner failure");
+            warnings.Add("inner failure");
+            warnings.Add("inner failure");
+            Assert.That(
+                CountOccurrences(warnings.Value, "inner failure"),
+                Is.EqualTo(2),
+                "A substring is distinct, while its exact duplicate is not."
+            );
+
+            string emojiWarning = new string('x', 254) + "\U0001F680-tail";
+            var unicode = new InteractionTerminalWarningBuffer();
+            unicode.Add(emojiWarning);
+            Assert.That(
+                unicode.Value.Length,
+                Is.LessThan(
+                    InteractionTerminalWarningBuffer.MaximumItemLength + 1
+                )
+            );
+            Assert.That(unicode.Value, Does.Contain("…"));
+            Assert.That(IsWellFormedUtf16(unicode.Value), Is.True);
+
+            for (int index = 0; index < 20; index++)
+            {
+                warnings.Add(
+                    "old-warning-" + index + "-" + new string('z', 240)
+                );
+            }
+            warnings.Add("LATEST-ERROR");
+
+            Assert.That(
+                warnings.Value.Length,
+                Is.LessThan(InteractionTerminalWarningBuffer.MaximumLength + 1)
+            );
+            Assert.That(
+                warnings.Value,
+                Does.Contain(InteractionTerminalWarningBuffer.TruncationMarker)
+            );
+            Assert.That(warnings.Value, Does.Contain("LATEST-ERROR"));
+            Assert.That(IsWellFormedUtf16(warnings.Value), Is.True);
+        }
+
+        public static void TerminalWarningBufferBoundsHugeCanonicalRetention()
+        {
+            var warnings = new InteractionTerminalWarningBuffer();
+            string sharedPrefix = new string('q', 1_000_000);
+            string first = " \t" + sharedPrefix + "first-tail\U0001F680 \r\n";
+            string sameCanonical =
+                "\n" + sharedPrefix + "different-tail\U0001F680\t";
+
+            Assert.That(warnings.Add(first), Is.True);
+            Assert.That(
+                warnings.Add(sameCanonical),
+                Is.False,
+                "Inputs with the same bounded canonical must share one key."
+            );
+            Assert.That(warnings.RetainedCanonicalCount, Is.EqualTo(1));
+            Assert.That(
+                warnings.RetainedCanonicalCharacterCount,
+                Is.LessThan(
+                    InteractionTerminalWarningBuffer.MaximumItemLength + 1
+                )
+            );
+            Assert.That(IsWellFormedUtf16(warnings.Value), Is.True);
+
+            warnings.Clear();
+            Assert.That(warnings.RetainedCanonicalCount, Is.Zero);
+            Assert.That(
+                warnings.RetainedCanonicalCharacterCount,
+                Is.Zero
+            );
+        }
+
+        public static void RealGhostPointingCleanupSurvivesHitEndedFailure()
+        {
+            var root = new GameObject("W8 Active Pointing Cleanup Driver");
+            GhostPointingDetector detector = null;
+            Action<string, double> throwingHitEnded = null;
+            try
+            {
+                var player = root.AddComponent<InstructionGhostPlayer>();
+                detector = root.AddComponent<GhostPointingDetector>();
+                var highlightRoot = new GameObject("Highlight");
+                highlightRoot.transform.SetParent(root.transform, false);
+                var highlight = highlightRoot.AddComponent<
+                    InteractionTargetHighlightVisual>();
+                var target = new GameObject("Target");
+                target.transform.SetParent(root.transform, false);
+
+                detector.ConfigurePlayer(player);
+                detector.ConfigureHighlight(highlight);
+                detector.ConfigureTargetBindings(new[]
+                {
+                    new GhostPointingTargetBinding(
+                        "target_a",
+                        target.transform
+                    )
+                });
+                detector.ConfigurePhase(
+                    AssistanceCondition.TextAndPointing,
+                    new TaskVariant(
+                        1,
+                        PhaseSentenceRanges.FormatSentenceId(1),
+                        "w8_active_hit",
+                        new[] { "target_a" }
+                    )
+                );
+                Assert.That(
+                    detector.TryPresentPointingHitForTests(
+                        "target_a",
+                        Vector3.zero,
+                        Vector3.forward
+                    ),
+                    Is.True
+                );
+
+                LineRenderer ray = root.transform
+                    .Find("GhostPointingRay")
+                    .GetComponent<LineRenderer>();
+                Assert.That(detector.IsPointingVisible, Is.True);
+                Assert.That(highlight.IsVisible, Is.True);
+                Assert.That(ray.enabled, Is.True);
+
+                throwingHitEnded = (_, __) =>
+                    throw new InvalidOperationException(
+                        "injected active HitEnded failure"
+                    );
+                detector.HitEnded += throwingHitEnded;
+
+                Assert.Throws<AggregateException>(() =>
+                    detector.StopPointing());
+
+                Assert.That(detector.PhaseConfigured, Is.False);
+                Assert.That(detector.IsPointingVisible, Is.False);
+                Assert.That(
+                    detector.CurrentHitTargetId,
+                    Is.EqualTo(string.Empty)
+                );
+                Assert.That(ray.enabled, Is.False);
+                Assert.That(highlight.IsVisible, Is.False);
+                Assert.That(highlight.TargetRoot, Is.Null);
+            }
+            finally
+            {
+                if (detector != null)
+                {
+                    if (throwingHitEnded != null)
+                    {
+                        detector.HitEnded -= throwingHitEnded;
+                    }
+                    detector.enabled = false;
+                }
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        public static void ThrowingDisableStillUnbindsControllerAndDetector()
+        {
+            GameObject controllerRoot = null;
+            GameObject detectorRoot = null;
+            InstructionPresentationController controller = null;
+            InstructionGhostPlayer controllerPlayer = null;
+            Action throwingPlayerStateChanged = null;
+            GhostPointingDetector detector = null;
+            Action<string, double> throwingHitEnded = null;
+            try
+            {
+                controllerRoot = new GameObject(
+                    "W8 Controller Disable Cleanup Driver"
+                );
+                controller = CreateRealPresentationController(
+                    controllerRoot,
+                    out controllerPlayer,
+                    out _,
+                    out GhostPointingDetector controllerDetector
+                );
+                RunPlan plan = CreateFrozenRunPlan();
+                ConfigureDetectorTargets(
+                    controllerDetector,
+                    plan.Phases[0],
+                    controllerRoot.transform
+                );
+                controller.BeginPhase(
+                    plan.Phases[0],
+                    plan.AssistanceCondition
+                );
+                throwingPlayerStateChanged = () =>
+                    throw new InvalidOperationException(
+                        "injected controller OnDisable cleanup failure"
+                    );
+                controllerPlayer.StateChanged += throwingPlayerStateChanged;
+                Assert.That(
+                    controller.LifecycleSubscriptionsBoundForTests,
+                    Is.True
+                );
+
+                controller.enabled = false;
+
+                Assert.That(
+                    controller.LifecycleSubscriptionsBoundForTests,
+                    Is.False
+                );
+
+                detectorRoot = new GameObject(
+                    "W8 Detector Disable Cleanup Driver"
+                );
+                var detectorPlayer = detectorRoot.AddComponent<
+                    InstructionGhostPlayer>();
+                detector = detectorRoot.AddComponent<GhostPointingDetector>();
+                var highlight = new GameObject("Highlight").AddComponent<
+                    InteractionTargetHighlightVisual>();
+                highlight.transform.SetParent(detectorRoot.transform, false);
+                var target = new GameObject("Target");
+                target.transform.SetParent(detectorRoot.transform, false);
+                detector.ConfigurePlayer(detectorPlayer);
+                detector.ConfigureHighlight(highlight);
+                detector.ConfigureTargetBindings(new[]
+                {
+                    new GhostPointingTargetBinding(
+                        "target_a",
+                        target.transform
+                    )
+                });
+                detector.ConfigurePhase(
+                    AssistanceCondition.TextAndPointing,
+                    new TaskVariant(
+                        1,
+                        PhaseSentenceRanges.FormatSentenceId(1),
+                        "w8_disable_hit",
+                        new[] { "target_a" }
+                    )
+                );
+                Assert.That(
+                    detector.TryPresentPointingHitForTests(
+                        "target_a",
+                        Vector3.zero,
+                        Vector3.forward
+                    ),
+                    Is.True
+                );
+                throwingHitEnded = (_, __) =>
+                    throw new InvalidOperationException(
+                        "injected detector OnDisable cleanup failure"
+                    );
+                detector.HitEnded += throwingHitEnded;
+                Assert.That(
+                    detector.LifecycleSubscriptionsBoundForTests,
+                    Is.True
+                );
+
+                detector.enabled = false;
+
+                Assert.That(
+                    detector.LifecycleSubscriptionsBoundForTests,
+                    Is.False
+                );
+            }
+            finally
+            {
+                if (controllerPlayer != null &&
+                    throwingPlayerStateChanged != null)
+                {
+                    controllerPlayer.StateChanged -=
+                        throwingPlayerStateChanged;
+                }
+                if (detector != null && throwingHitEnded != null)
+                {
+                    detector.HitEnded -= throwingHitEnded;
+                }
+                if (controllerRoot != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(controllerRoot);
+                }
+                if (detectorRoot != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(detectorRoot);
+                }
+            }
+        }
+
+        public static void RealPresentationPortTerminalTickRetriesWithoutReplay()
+        {
+            var root = new GameObject("W8 Real Port Terminal Retry Driver");
+            InteractionStudyFlow flow = null;
+            InstructionPresentationController controller = null;
+            InstructionGhostPlayer player = null;
+            Action throwingPlayerStateChanged = null;
+            Action controllerStateChanged = null;
+            try
+            {
+                controller = CreateRealPresentationController(
+                    root,
+                    out player,
+                    out _,
+                    out GhostPointingDetector detector
+                );
+                var log = new List<string>();
+                var run = new FakeRunPort(log);
+                var tasks = new FakeTaskPort(log);
+                flow = new InteractionStudyFlow(
+                    run,
+                    new UnityInteractionStudyPresentationPort(controller),
+                    tasks
+                );
+                Assert.That(flow.TryStart().Succeeded, Is.True);
+                ConfigureDetectorTargets(
+                    detector,
+                    run.Plan.Phases[0],
+                    root.transform
+                );
+                run.PublishInitialPresentation();
+                Assert.That(controller.PhaseActive, Is.True);
+
+                int playerNotificationCount = 0;
+                throwingPlayerStateChanged = () =>
+                {
+                    playerNotificationCount++;
+                    if (playerNotificationCount == 1)
+                    {
+                        throw new InvalidOperationException(
+                            "injected real port W5 cleanup failure"
+                        );
+                    }
+                };
+                player.StateChanged += throwingPlayerStateChanged;
+                int controllerNotificationCount = 0;
+                controllerStateChanged = () => controllerNotificationCount++;
+                controller.StateChanged += controllerStateChanged;
+
+                run.Fault("injected terminal run");
+                flow.Tick();
+
+                Assert.That(run.State, Is.EqualTo(RunState.Faulted));
+                Assert.That(run.ResetAttemptCount, Is.Zero);
+                Assert.That(tasks.AbortCount, Is.Zero);
+                Assert.That(controller.PhaseActive, Is.False);
+                Assert.That(controller.CurrentPhasePlan, Is.Null);
+                Assert.That(player.IsLoading, Is.False);
+                Assert.That(playerNotificationCount, Is.EqualTo(1));
+                Assert.That(controllerNotificationCount, Is.EqualTo(1));
+
+                flow.Tick();
+
+                Assert.That(run.State, Is.EqualTo(RunState.PreStart));
+                Assert.That(run.ResetAttemptCount, Is.EqualTo(1));
+                Assert.That(tasks.AbortCount, Is.EqualTo(1));
+                Assert.That(playerNotificationCount, Is.EqualTo(1));
+                Assert.That(controllerNotificationCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                flow?.Dispose();
+                if (player != null && throwingPlayerStateChanged != null)
+                {
+                    player.StateChanged -= throwingPlayerStateChanged;
+                }
+                if (controller != null)
+                {
+                    if (controllerStateChanged != null)
+                    {
+                        controller.StateChanged -= controllerStateChanged;
+                    }
+                    controller.enabled = false;
+                }
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        public static void PresentationReplacementRejectsOnlyUnsettledCleanup()
+        {
+            var root = new GameObject("W8 Presentation Reconfigure Guard Driver");
+            InstructionPresentationController controller = null;
+            InstructionGhostPlayer firstPlayer = null;
+            InstructionGhostPlayer secondPlayer = null;
+            Action firstCleanupFailure = null;
+            Action secondCleanupFailure = null;
+            try
+            {
+                controller = CreateRealPresentationController(
+                    root,
+                    out firstPlayer,
+                    out InteractionPromptPresenter firstPrompt,
+                    out GhostPointingDetector firstDetector
+                );
+                var replacementRoot = new GameObject("Replacement Presentation");
+                replacementRoot.transform.SetParent(root.transform, false);
+                secondPlayer = replacementRoot.AddComponent<
+                    InstructionGhostPlayer>();
+                var secondPrompt = replacementRoot.AddComponent<
+                    InteractionPromptPresenter>();
+                var secondDetector = replacementRoot.AddComponent<
+                    GhostPointingDetector>();
+                RunPlan plan = CreateFrozenRunPlan();
+                ConfigureDetectorTargets(
+                    firstDetector,
+                    plan.Phases[0],
+                    root.transform
+                );
+                ConfigureDetectorTargets(
+                    secondDetector,
+                    plan.Phases[0],
+                    replacementRoot.transform
+                );
+                controller.BeginPhase(
+                    plan.Phases[0],
+                    plan.AssistanceCondition
+                );
+                Assert.Throws<InvalidOperationException>(() =>
+                    controller.Configure(
+                        secondPlayer,
+                        secondPrompt,
+                        secondDetector
+                    ));
+                Assert.That(controller.GhostPlayer, Is.SameAs(firstPlayer));
+
+                firstCleanupFailure = () =>
+                    throw new InvalidOperationException(
+                        "injected first dependency cleanup failure"
+                    );
+                firstPlayer.StateChanged += firstCleanupFailure;
+                Assert.Throws<AggregateException>(() => controller.EndPhase());
+                Assert.That(controller.PhaseActive, Is.False);
+                Assert.That(controller.CurrentPhasePlan, Is.Null);
+                firstPlayer.StateChanged -= firstCleanupFailure;
+                firstCleanupFailure = null;
+                controller.Configure(
+                    secondPlayer,
+                    secondPrompt,
+                    secondDetector
+                );
+                Assert.That(controller.GhostPlayer, Is.SameAs(secondPlayer));
+
+                controller.BeginPhase(
+                    plan.Phases[0],
+                    plan.AssistanceCondition
+                );
+                secondCleanupFailure = () =>
+                    throw new InvalidOperationException(
+                        "injected phase replacement cleanup failure"
+                    );
+                secondPlayer.StateChanged += secondCleanupFailure;
+
+                Assert.Throws<AggregateException>(() =>
+                    controller.BeginPhase(
+                        plan.Phases[1],
+                        plan.AssistanceCondition
+                    ));
+                Assert.That(controller.PhaseActive, Is.False);
+                Assert.That(controller.CurrentPhasePlan, Is.Null);
+
+                secondPlayer.StateChanged -= secondCleanupFailure;
+                secondCleanupFailure = null;
+                ConfigureDetectorTargets(
+                    secondDetector,
+                    plan.Phases[1],
+                    replacementRoot.transform
+                );
+                controller.BeginPhase(
+                    plan.Phases[1],
+                    plan.AssistanceCondition
+                );
+                Assert.That(controller.PhaseActive, Is.True);
+                Assert.That(
+                    controller.CurrentPhasePlan,
+                    Is.SameAs(plan.Phases[1])
+                );
+            }
+            finally
+            {
+                if (firstPlayer != null && firstCleanupFailure != null)
+                {
+                    firstPlayer.StateChanged -= firstCleanupFailure;
+                }
+                if (secondPlayer != null && secondCleanupFailure != null)
+                {
+                    secondPlayer.StateChanged -= secondCleanupFailure;
+                }
+                if (controller != null)
+                {
+                    controller.EndPhase();
+                    controller.enabled = false;
+                }
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        public static void RealW5EndPhaseCleansEveryResourceAfterCallbackFailure()
+        {
+            var root = new GameObject("W8 Real W5 Cleanup Driver");
+            InstructionPresentationController controller = null;
+            InstructionGhostPlayer player = null;
+            Action throwingPlayerStateChanged = null;
+            Action throwingControllerStateChanged = null;
+            Action controllerStateChanged = null;
+            try
+            {
+                player = root.AddComponent<InstructionGhostPlayer>();
+                var prompt = root.AddComponent<InteractionPromptPresenter>();
+                var detector = root.AddComponent<GhostPointingDetector>();
+                controller = root.AddComponent<InstructionPresentationController>();
+                controller.Configure(player, prompt, detector);
+
+                var fixture = new FlowFixture();
+                Assert.That(fixture.Flow.TryStart().Succeeded, Is.True);
+                RunPhasePlan phase = fixture.Run.Plan.Phases[0];
+                controller.BeginPhase(phase, AssistanceCondition.SignOnly);
+                Assert.That(controller.PhaseActive, Is.True);
+                Assert.That(detector.PhaseConfigured, Is.True);
+                Assert.That(controller.CurrentPhasePlan, Is.SameAs(phase));
+
+                int playerNotificationCount = 0;
+                throwingPlayerStateChanged = () =>
+                {
+                    playerNotificationCount++;
+                    if (playerNotificationCount == 1)
+                    {
+                        throw new InvalidOperationException(
+                            "injected ghost state callback failure"
+                        );
+                    }
+                };
+                player.StateChanged += throwingPlayerStateChanged;
+                int controllerNotificationCount = 0;
+                throwingControllerStateChanged = () =>
+                    throw new InvalidOperationException(
+                        "injected controller state callback failure"
+                    );
+                controllerStateChanged = () => controllerNotificationCount++;
+                controller.StateChanged += throwingControllerStateChanged;
+                controller.StateChanged += controllerStateChanged;
+
+                Assert.Throws<AggregateException>(() => controller.EndPhase());
+
+                Assert.That(controller.PhaseActive, Is.False);
+                Assert.That(controller.CurrentPhasePlan, Is.Null);
+                Assert.That(detector.PhaseConfigured, Is.False);
+                Assert.That(detector.IsPointingVisible, Is.False);
+                Assert.That(player.IsLoading, Is.False);
+                Assert.That(player.LoadedContent, Is.Null);
+                Assert.That(prompt.IsVisible, Is.False);
+                Assert.That(controllerNotificationCount, Is.EqualTo(1));
+                int playerCountAfterFailedCleanup = playerNotificationCount;
+
+                controller.EndPhase();
+                Assert.That(
+                    playerNotificationCount,
+                    Is.EqualTo(playerCountAfterFailedCleanup)
+                );
+                Assert.That(controllerNotificationCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                try
+                {
+                    if (player != null && throwingPlayerStateChanged != null)
+                    {
+                        player.StateChanged -= throwingPlayerStateChanged;
+                    }
+                    if (controller != null)
+                    {
+                        if (throwingControllerStateChanged != null)
+                        {
+                            controller.StateChanged -=
+                                throwingControllerStateChanged;
+                        }
+                        if (controllerStateChanged != null)
+                        {
+                            controller.StateChanged -= controllerStateChanged;
+                        }
+                        controller.enabled = false;
+                    }
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(root);
+                }
+            }
         }
 
         public static void DuplicateAndStalePresentationCallbacksAreExactlyOnce()
@@ -1151,6 +2052,51 @@ namespace SignVR.Interaction.Orchestration
             skeletonType.SetValue(skeleton, value);
         }
 
+        private static InstructionPresentationController
+            CreateRealPresentationController(
+                GameObject root,
+                out InstructionGhostPlayer player,
+                out InteractionPromptPresenter prompt,
+                out GhostPointingDetector detector)
+        {
+            player = root.AddComponent<InstructionGhostPlayer>();
+            prompt = root.AddComponent<InteractionPromptPresenter>();
+            detector = root.AddComponent<GhostPointingDetector>();
+            var controller = root.AddComponent<
+                InstructionPresentationController>();
+            controller.Configure(player, prompt, detector);
+            return controller;
+        }
+
+        private static RunPlan CreateFrozenRunPlan()
+        {
+            var source = new FakeRunPort(new List<string>());
+            Assert.That(source.TryStart(out string error), Is.True, error);
+            return source.Plan;
+        }
+
+        private static void ConfigureDetectorTargets(
+            GhostPointingDetector detector,
+            RunPhasePlan phase,
+            Transform parent)
+        {
+            IReadOnlyList<string> targetIds = phase.TaskVariant.TargetIds;
+            var bindings = new GhostPointingTargetBinding[targetIds.Count];
+            for (int index = 0; index < targetIds.Count; index++)
+            {
+                var target = new GameObject(
+                    "W8 Target " + targetIds[index]
+                );
+                target.transform.SetParent(parent, false);
+                target.transform.position = new Vector3(0f, 0f, 1f + index);
+                bindings[index] = new GhostPointingTargetBinding(
+                    targetIds[index],
+                    target.transform
+                );
+            }
+            detector.ConfigureTargetBindings(bindings);
+        }
+
         private static FlowFixture StartFirstPhase(List<string> log = null)
         {
             var fixture = new FlowFixture(log: log);
@@ -1160,6 +2106,46 @@ namespace SignVR.Interaction.Orchestration
                 InteractionPresentationPlaybackKind.First
             );
             return fixture;
+        }
+
+        private static int CountOccurrences(string value, string expected)
+        {
+            if (string.IsNullOrEmpty(value) || string.IsNullOrEmpty(expected))
+            {
+                return 0;
+            }
+            int count = 0;
+            int offset = 0;
+            while ((offset = value.IndexOf(
+                       expected,
+                       offset,
+                       StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                offset += expected.Length;
+            }
+            return count;
+        }
+
+        private static bool IsWellFormedUtf16(string value)
+        {
+            for (int index = 0; index < value.Length; index++)
+            {
+                char current = value[index];
+                if (char.IsHighSurrogate(current))
+                {
+                    if (index + 1 >= value.Length ||
+                        !char.IsLowSurrogate(value[++index]))
+                    {
+                        return false;
+                    }
+                }
+                else if (char.IsLowSurrogate(current))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private static void CompleteReplayThenGiveUp(FlowFixture fixture)
@@ -1325,6 +2311,12 @@ namespace SignVR.Interaction.Orchestration
             public int ReplayRequestCount { get; private set; }
             public int AcknowledgeCount { get; private set; }
             public int PlaybackCompletionCount { get; private set; }
+            public int ResetAttemptCount { get; private set; }
+            public int ResetRejectionsRemaining { get; set; }
+            public int ResetExceptionsRemaining { get; set; }
+            public int AbortAttemptCount { get; private set; }
+            public int AbortRejectionsRemaining { get; set; }
+            public int AbortExceptionsRemaining { get; set; }
             public int SubscriberCount => subscriber == null
                 ? 0
                 : subscriber.GetInvocationList().Length;
@@ -1477,7 +2469,21 @@ namespace SignVR.Interaction.Orchestration
 
             public bool TryAbort(string reason, out string error)
             {
+                AbortAttemptCount++;
                 log.Add("w6.abort");
+                if (AbortExceptionsRemaining > 0)
+                {
+                    AbortExceptionsRemaining--;
+                    throw new InvalidOperationException(
+                        "injected W6 abort failure"
+                    );
+                }
+                if (AbortRejectionsRemaining > 0)
+                {
+                    AbortRejectionsRemaining--;
+                    error = "injected W6 abort rejection";
+                    return false;
+                }
                 try
                 {
                     handshake?.CancelPending();
@@ -1498,6 +2504,19 @@ namespace SignVR.Interaction.Orchestration
                     State != RunState.Aborted &&
                     State != RunState.Faulted)
                 {
+                    return false;
+                }
+                ResetAttemptCount++;
+                if (ResetExceptionsRemaining > 0)
+                {
+                    ResetExceptionsRemaining--;
+                    throw new InvalidOperationException(
+                        "injected W6 terminal reset failure"
+                    );
+                }
+                if (ResetRejectionsRemaining > 0)
+                {
+                    ResetRejectionsRemaining--;
                     return false;
                 }
                 lastTerminal = machine.LastResult;
@@ -1589,10 +2608,11 @@ namespace SignVR.Interaction.Orchestration
             public int BeginPhaseCount { get; private set; }
             public int BeginReplayCount { get; private set; }
             public int EndPhaseCount { get; private set; }
+            public int EndPhaseAttemptCount { get; private set; }
             public AssistanceCondition LastCondition { get; private set; }
             public int SubscriberCount => firstFrame == null ? 0 : 1;
             public bool ThrowOnSubscribe { get; set; }
-            public bool ThrowOnEndPhase { get; set; }
+            public int EndPhaseFailuresRemaining { get; set; }
 
             public IDisposable Subscribe(
                 Action<InteractionPresentationPlaybackKind>
@@ -1649,15 +2669,21 @@ namespace SignVR.Interaction.Orchestration
 
             public void EndPhase()
             {
-                if (ThrowOnEndPhase)
+                EndPhaseAttemptCount++;
+                bool hadPhase = state.PhaseActive;
+                state.EndPhase();
+                if (hadPhase)
                 {
+                    EndPhaseCount++;
+                    log.Add("w5.end");
+                }
+                if (EndPhaseFailuresRemaining > 0)
+                {
+                    EndPhaseFailuresRemaining--;
                     throw new InvalidOperationException(
                         "injected presentation EndPhase failure"
                     );
                 }
-                state.EndPhase();
-                EndPhaseCount++;
-                log.Add("w5.end");
             }
 
             public void PublishFirstFrame(
@@ -1706,6 +2732,9 @@ namespace SignVR.Interaction.Orchestration
             public int? CurrentPhaseId => session.CurrentPhaseId;
             public int ResetCount { get; private set; }
             public int AbortCount { get; private set; }
+            public int DisableCount { get; private set; }
+            public int SuccessfulDisableCount { get; private set; }
+            public int DisableFailuresRemaining { get; set; }
             public int SubscriberCount => subscribers.Count;
             public bool ThrowOnAbort { get; set; }
 
@@ -1732,7 +2761,16 @@ namespace SignVR.Interaction.Orchestration
 
             public void Disable()
             {
+                DisableCount++;
+                if (DisableFailuresRemaining > 0)
+                {
+                    DisableFailuresRemaining--;
+                    throw new InvalidOperationException(
+                        "injected task Disable failure"
+                    );
+                }
                 session.Disable();
+                SuccessfulDisableCount++;
             }
 
             public void Synchronize(PhaseExecutionSnapshot snapshot)

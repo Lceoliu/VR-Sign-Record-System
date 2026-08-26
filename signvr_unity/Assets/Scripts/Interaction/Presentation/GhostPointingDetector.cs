@@ -87,6 +87,7 @@ namespace SignVR.Interaction.Presentation
         private int activeTargetCount;
         private bool phaseConfigured;
         private bool playerBound;
+        private bool pointingStateBound;
         private string visualTargetId = string.Empty;
 
         public event Action<string, double> HitStarted;
@@ -113,6 +114,11 @@ namespace SignVR.Interaction.Presentation
 
         public IReadOnlyList<GhostPointingTargetBinding> TargetBindings =>
             targetBindings;
+
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        internal bool LifecycleSubscriptionsBoundForTests =>
+            playerBound || pointingStateBound;
+#endif
 
         public void ConfigurePlayer(InstructionGhostPlayer player)
         {
@@ -313,14 +319,47 @@ namespace SignVR.Interaction.Presentation
 
         public void StopPointing()
         {
-            StopAndClear(Time.realtimeSinceStartupAsDouble);
-            phaseConfigured = false;
-            activeTargetCount = 0;
-            for (int index = 0; index < activeTargets.Length; index++)
+            try
             {
-                activeTargets[index] = null;
+                StopAndClear(Time.realtimeSinceStartupAsDouble);
+            }
+            finally
+            {
+                phaseConfigured = false;
+                activeTargetCount = 0;
+                for (int index = 0; index < activeTargets.Length; index++)
+                {
+                    activeTargets[index] = null;
+                }
             }
         }
+
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        internal bool TryPresentPointingHitForTests(
+            string targetId,
+            Vector3 rayStart,
+            Vector3 hitPoint)
+        {
+            if (!phaseConfigured || !PointingAllowed ||
+                !pointingStateBound ||
+                !geometryById.ContainsKey(targetId))
+            {
+                return false;
+            }
+
+            double now = Time.realtimeSinceStartupAsDouble;
+            if (!pointingState.PlaybackActive)
+            {
+                pointingState.BeginPlayback(now);
+            }
+            if (!pointingState.ObserveHit(targetId, now))
+            {
+                return false;
+            }
+            ShowRay(rayStart, hitPoint);
+            return true;
+        }
+#endif
 
         private void Awake()
         {
@@ -337,8 +376,7 @@ namespace SignVR.Interaction.Presentation
 
         private void OnEnable()
         {
-            pointingState.HitStarted += HandleHitStarted;
-            pointingState.HitEnded += HandleHitEnded;
+            BindPointingState();
             BindPlayer();
         }
 
@@ -538,10 +576,37 @@ namespace SignVR.Interaction.Presentation
 
         private void StopAndClear(double monotonicTime)
         {
-            pointingState.StopPlayback(monotonicTime);
-            HideRay();
-            targetHighlight?.Clear();
+            var failures = new List<Exception>();
+            TryCleanup(
+                () => pointingState.StopPlayback(monotonicTime),
+                failures
+            );
+            TryCleanup(HideRay, failures);
+            TryCleanup(() => targetHighlight?.Clear(), failures);
             visualTargetId = string.Empty;
+
+            if (failures.Count > 0)
+            {
+                throw new AggregateException(
+                    "Ghost pointing cleanup failed after every visual and " +
+                    "state cleanup step was attempted.",
+                    failures
+                );
+            }
+        }
+
+        private static void TryCleanup(
+            Action cleanup,
+            ICollection<Exception> failures)
+        {
+            try
+            {
+                cleanup();
+            }
+            catch (Exception exception)
+            {
+                failures.Add(exception);
+            }
         }
 
         private void RebuildGeometryCache()
@@ -665,6 +730,17 @@ namespace SignVR.Interaction.Presentation
             playerBound = true;
         }
 
+        private void BindPointingState()
+        {
+            if (pointingStateBound)
+            {
+                return;
+            }
+            pointingState.HitStarted += HandleHitStarted;
+            pointingState.HitEnded += HandleHitEnded;
+            pointingStateBound = true;
+        }
+
         private void UnbindPlayer()
         {
             if (!playerBound)
@@ -680,6 +756,17 @@ namespace SignVR.Interaction.Presentation
                 ghostPlayer.Failed -= HandlePlayerFailed;
             }
             playerBound = false;
+        }
+
+        private void UnbindPointingState()
+        {
+            if (!pointingStateBound)
+            {
+                return;
+            }
+            pointingState.HitStarted -= HandleHitStarted;
+            pointingState.HitEnded -= HandleHitEnded;
+            pointingStateBound = false;
         }
 
         private static Transform FindTipDescendant(Transform distal)
@@ -708,10 +795,15 @@ namespace SignVR.Interaction.Presentation
 
         private void OnDisable()
         {
-            StopPointing();
-            UnbindPlayer();
-            pointingState.HitStarted -= HandleHitStarted;
-            pointingState.HitEnded -= HandleHitEnded;
+            try
+            {
+                StopPointing();
+            }
+            finally
+            {
+                UnbindPlayer();
+                UnbindPointingState();
+            }
         }
 
         private void OnDestroy()
