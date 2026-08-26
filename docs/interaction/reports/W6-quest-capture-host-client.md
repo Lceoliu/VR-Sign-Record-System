@@ -151,6 +151,16 @@ The final-review items were closed as follows:
    `PlayerPrefs.Save()` after scene cleanup, even when an assertion or cleanup
    operation fails. The existing in-test assertions still detect any setup-time
    mutation before restoration.
+4. The final scene-cleanup boundary treats Unity's boolean API results as part
+   of the transaction result. Both active-scene restoration sites throw into
+   the independent cleanup aggregate when `SceneManager.SetActiveScene` returns
+   false; every target/guard close does the same when
+   `EditorSceneManager.CloseScene` returns false. Separate cleanup actions then
+   verify the target and guard handles are no longer loaded, so a failed close
+   cannot silently leave a dirty Test Runner scene behind. Normal completion
+   repeats both unload assertions after asset/PlayerPrefs cleanup. A primary
+   assertion remains primary, while all later scene, asset, and PlayerPrefs
+   cleanup actions are still attempted and attached as diagnostics.
 
 The final Standards follow-up was closed as follows:
 
@@ -395,6 +405,10 @@ it added the isolated PlayMode test assets listed above. No runtime asmdef,
 scene/settings asset, product lifecycle method, public Study API, or user setting
 was created or changed.
 
+The final cleanup-return pass modified only
+`W6InteractionCaptureHostTests.cs` and this report. No runtime, PlayMode test,
+`.meta`, scene/settings asset, or user setting changed.
+
 ## 3. Commands/tests executed and exact results
 
 No Git command was run. Unity Editor was not started.
@@ -601,10 +615,34 @@ Exact final results:
 - `PLAYMODE_TEST_METHODS=8`
 - `TOTAL_TEST_METHODS=62`
 
-All seven requested source targets were recompiled from current source with Unity
-`6000.5.6f1` references. Both NUnit wrapper gates use the already-validated
+All seven requested source targets were recompiled with Unity `6000.5.6f1`
+references at that boundary. Both NUnit wrapper gates use the already-validated
 compile-only stub; authoritative execution remains the Orchestrator's Unity Test
 Runner rerun after integration.
+
+The later cleanup-return pass changed only the EditMode test source. Its
+source-level RED gate found `2` unchecked cleanup `SetActiveScene` calls, `3`
+unchecked cleanup `CloseScene` calls, and `0` explicit unload checks. After the
+fix, the same gate reported:
+
+- `BOUNDARY_GREEN_UNCHECKED_SET_ACTIVE=0`
+- `BOUNDARY_GREEN_UNCHECKED_CLOSE_SCENE=0`
+- `BOUNDARY_GREEN_GUARDED_SET_ACTIVE=1`
+- `BOUNDARY_GREEN_GUARDED_CLOSE_SCENE=1`
+- `BOUNDARY_GREEN_INDEPENDENT_UNLOAD_CHECKS=3`
+- `BOUNDARY_GREEN_FINAL_UNLOAD_ASSERTS=2`
+
+Current EditMode and PlayMode test sources were then recompiled without Unity at:
+
+`C:\Users\woshica\AppData\Local\Temp\signvr-w6-cleanup-bool-static-10f9e87b98534b559b9814a33d0e88f7`
+
+Exact results:
+
+- `CURRENT_EDITMODE_STATIC_EXIT=0`
+- `CURRENT_PLAYMODE_STATIC_EXIT=0`
+
+The other five source targets were unchanged from the seven-target zero-exit
+gate above. No post-fix Unity Test Runner execution occurred in this worktree.
 
 ### Deterministic scenario execution
 
@@ -798,6 +836,9 @@ Orchestrator integration step.
 - `NUNIT_IGNORE_OR_EXPLICIT=0`
 - `EDITMODE_LIFECYCLE_WRAPPERS=0`
 - `PLAYMODE_LIFECYCLE_WRAPPERS=8`
+- cleanup bool/unload audit: `UNCHECKED_SET_ACTIVE=0`,
+  `UNCHECKED_CLOSE_SCENE=0`, `INDEPENDENT_UNLOAD_CHECKS=3`,
+  `FINAL_UNLOAD_ASSERTS=2`
 - `PLAYMODE_ASMDEF_INCLUDE_PLATFORMS=0`
 - `PLAYMODE_ASMDEF_TEST_CONSTRAINT=1`
 - `PLAYMODE_ISPLAYING_ASSERTS=1`
@@ -816,6 +857,7 @@ Orchestrator integration step.
 - test cleanup asset calls: `CREATE_FOLDER=1`, `SAVE_SCENE=1`,
   `DELETE_ASSET=2`
 - `LEFTOVER_W6_TEMP_ASSET_FOLDERS=0`
+- `LEFTOVER_W6_TEMP_SCENE_ASSETS=0`
 - outer restoration calls: `TEST_PREFS_SET=1`, `TEST_PREFS_DELETE=1`,
   `TEST_PREFS_SAVE=1`
 - `TRAILING_WHITESPACE_LINES=0`

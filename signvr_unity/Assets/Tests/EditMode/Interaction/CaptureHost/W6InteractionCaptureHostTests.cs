@@ -307,6 +307,8 @@ namespace SignVR.Interaction.Editor.Tests
             string diskHashBefore = HashFile(interactionLabPath);
             Scene guardScene = default(Scene);
             Scene targetScene = default(Scene);
+            ulong? guardSceneHandle = null;
+            ulong? targetSceneHandle = null;
             GameObject sentinel = null;
             string temporaryFolderAssetPath =
                 "Assets/__W6CaptureHostSetupTest_" +
@@ -330,6 +332,7 @@ namespace SignVR.Interaction.Editor.Tests
                     NewSceneSetup.EmptyScene,
                     NewSceneMode.Additive
                 );
+                guardSceneHandle = guardScene.handle.GetRawData();
                 Assert.That(SceneManager.SetActiveScene(guardScene), Is.True);
                 Assert.That(
                     EditorSceneManager.SaveScene(
@@ -358,6 +361,7 @@ namespace SignVR.Interaction.Editor.Tests
                         NewSceneSetup.EmptyScene,
                         NewSceneMode.Additive
                     );
+                    targetSceneHandle = targetScene.handle.GetRawData();
                     Assert.That(
                         SceneManager.SetActiveScene(targetScene),
                         Is.True
@@ -418,24 +422,23 @@ namespace SignVR.Interaction.Editor.Tests
                     TryEditorCleanup(
                         cleanupFailures,
                         "restore original active scene after target setup",
-                        () =>
-                        {
-                            if (originalActive.IsValid() && originalActive.isLoaded)
-                            {
-                                SceneManager.SetActiveScene(originalActive);
-                            }
-                        }
+                        () => RestoreActiveSceneOrThrow(originalActive)
                     );
                     TryEditorCleanup(
                         cleanupFailures,
                         "close isolated target scene",
-                        () =>
-                        {
-                            if (targetScene.IsValid() && targetScene.isLoaded)
-                            {
-                                EditorSceneManager.CloseScene(targetScene, true);
-                            }
-                        }
+                        () => CloseLoadedSceneOrThrow(
+                            targetScene,
+                            "isolated target scene"
+                        )
+                    );
+                    TryEditorCleanup(
+                        cleanupFailures,
+                        "verify isolated target scene unloaded",
+                        () => RequireSceneUnloaded(
+                            targetSceneHandle,
+                            "isolated target scene"
+                        )
                     );
                 }
 
@@ -490,35 +493,39 @@ namespace SignVR.Interaction.Editor.Tests
                 TryEditorCleanup(
                     cleanupFailures,
                     "restore original active scene",
-                    () =>
-                    {
-                        if (originalActive.IsValid() && originalActive.isLoaded)
-                        {
-                            SceneManager.SetActiveScene(originalActive);
-                        }
-                    }
+                    () => RestoreActiveSceneOrThrow(originalActive)
                 );
                 TryEditorCleanup(
                     cleanupFailures,
                     "close isolated target scene",
-                    () =>
-                    {
-                        if (targetScene.IsValid() && targetScene.isLoaded)
-                        {
-                            EditorSceneManager.CloseScene(targetScene, true);
-                        }
-                    }
+                    () => CloseLoadedSceneOrThrow(
+                        targetScene,
+                        "isolated target scene"
+                    )
+                );
+                TryEditorCleanup(
+                    cleanupFailures,
+                    "verify isolated target scene unloaded",
+                    () => RequireSceneUnloaded(
+                        targetSceneHandle,
+                        "isolated target scene"
+                    )
                 );
                 TryEditorCleanup(
                     cleanupFailures,
                     "close isolated guard scene",
-                    () =>
-                    {
-                        if (guardScene.IsValid() && guardScene.isLoaded)
-                        {
-                            EditorSceneManager.CloseScene(guardScene, true);
-                        }
-                    }
+                    () => CloseLoadedSceneOrThrow(
+                        guardScene,
+                        "isolated guard scene"
+                    )
+                );
+                TryEditorCleanup(
+                    cleanupFailures,
+                    "verify isolated guard scene unloaded",
+                    () => RequireSceneUnloaded(
+                        guardSceneHandle,
+                        "isolated guard scene"
+                    )
                 );
                 TryEditorCleanup(
                     cleanupFailures,
@@ -589,6 +596,16 @@ namespace SignVR.Interaction.Editor.Tests
                 AssetDatabase.IsValidFolder(temporaryFolderAssetPath),
                 Is.False,
                 "Isolated guard scene folder survived test cleanup."
+            );
+            Assert.That(
+                IsSceneHandleLoaded(targetSceneHandle),
+                Is.False,
+                "Isolated target scene survived test cleanup."
+            );
+            Assert.That(
+                IsSceneHandleLoaded(guardSceneHandle),
+                Is.False,
+                "Isolated guard scene survived test cleanup."
             );
             AssertOriginalScenesUnchanged(originalScenes);
             Assert.That(
@@ -693,6 +710,60 @@ namespace SignVR.Interaction.Editor.Tests
                     exception
                 ));
             }
+        }
+
+        private static void RestoreActiveSceneOrThrow(Scene scene)
+        {
+            if (!scene.IsValid() || !scene.isLoaded)
+            {
+                throw new InvalidOperationException(
+                    "The original active scene is no longer loaded."
+                );
+            }
+            if (!SceneManager.SetActiveScene(scene))
+            {
+                throw new InvalidOperationException(
+                    "Unity refused to restore the original active scene."
+                );
+            }
+        }
+
+        private static void CloseLoadedSceneOrThrow(
+            Scene scene,
+            string description)
+        {
+            if (!scene.IsValid() || !scene.isLoaded)
+            {
+                return;
+            }
+            if (!EditorSceneManager.CloseScene(scene, true))
+            {
+                throw new InvalidOperationException(
+                    "Unity refused to close the " + description + "."
+                );
+            }
+        }
+
+        private static void RequireSceneUnloaded(
+            ulong? sceneHandle,
+            string description)
+        {
+            if (IsSceneHandleLoaded(sceneHandle))
+            {
+                throw new InvalidOperationException(
+                    "The " + description + " is still loaded after cleanup."
+                );
+            }
+        }
+
+        private static bool IsSceneHandleLoaded(ulong? sceneHandle)
+        {
+            if (!sceneHandle.HasValue)
+            {
+                return false;
+            }
+            Scene scene = FindLoadedScene(sceneHandle.Value);
+            return scene.IsValid() && scene.isLoaded;
         }
 
         private static void ThrowCleanupFailuresWhenNoPrimary(
