@@ -13,7 +13,8 @@ namespace SignVR.Interaction.CaptureHost
             string runId,
             string directoryPath,
             bool sealedCapture,
-            bool acknowledged)
+            bool acknowledged,
+            bool questLocalAuthoritative)
         {
             BatchId = batchId;
             ParticipantId = participantId;
@@ -21,6 +22,7 @@ namespace SignVR.Interaction.CaptureHost
             DirectoryPath = directoryPath;
             IsSealed = sealedCapture;
             IsAcknowledged = acknowledged;
+            IsQuestLocalAuthoritative = questLocalAuthoritative;
         }
 
         public string BatchId { get; }
@@ -29,9 +31,13 @@ namespace SignVR.Interaction.CaptureHost
         public string DirectoryPath { get; }
         public bool IsSealed { get; }
         public bool IsAcknowledged { get; }
-        public bool NeedsUpload => IsSealed && !IsAcknowledged;
+        public bool IsQuestLocalAuthoritative { get; }
+        public bool IsLocallyComplete =>
+            IsQuestLocalAuthoritative && IsSealed;
+        public bool NeedsUpload =>
+            !IsQuestLocalAuthoritative && IsSealed && !IsAcknowledged;
         public bool NeedsRecovery => !IsSealed && !IsAcknowledged;
-        public bool NeedsAttention => !IsAcknowledged;
+        public bool NeedsAttention => NeedsRecovery || NeedsUpload;
 
         public string ManifestPath => Path.Combine(
             DirectoryPath,
@@ -51,6 +57,34 @@ namespace SignVR.Interaction.CaptureHost
     {
         public static IReadOnlyList<InteractionPendingRun> Discover(
             string persistentDataPath)
+        {
+            return Discover(
+                persistentDataPath,
+                questLocalAuthoritative: false,
+                failClosedOnInvalidManifest: false
+            );
+        }
+
+        /// <summary>
+        /// Discovers Quest-authoritative Runs for Standalone Study Mode. A
+        /// locally sealed five-file Run is complete without Host ACK. Any Run
+        /// directory with a missing, damaged, or mismatched manifest fails the
+        /// startup scan closed instead of being silently ignored.
+        /// </summary>
+        public static IReadOnlyList<InteractionPendingRun> DiscoverQuestLocal(
+            string persistentDataPath)
+        {
+            return Discover(
+                persistentDataPath,
+                questLocalAuthoritative: true,
+                failClosedOnInvalidManifest: true
+            );
+        }
+
+        private static IReadOnlyList<InteractionPendingRun> Discover(
+            string persistentDataPath,
+            bool questLocalAuthoritative,
+            bool failClosedOnInvalidManifest)
         {
             string root = InteractionStoragePaths.GetInteractionRoot(
                 persistentDataPath
@@ -111,28 +145,80 @@ namespace SignVR.Interaction.CaptureHost
                             runDirectory,
                             InteractionStoragePaths.ManifestFileName
                         );
-                        if (!File.Exists(manifest) ||
-                            !ManifestMatchesPath(
+                        if (!File.Exists(manifest))
+                        {
+                            if (failClosedOnInvalidManifest)
+                            {
+                                throw new IOException(
+                                    "Quest-local Run manifest is missing from " +
+                                    runDirectory + "."
+                                );
+                            }
+                            continue;
+                        }
+                        bool manifestMatches;
+                        try
+                        {
+                            manifestMatches = ManifestMatchesPath(
                                 manifest,
                                 batchId,
                                 participantId,
-                                runId))
+                                runId
+                            );
+                        }
+                        catch (Exception exception) when (
+                            exception is IOException ||
+                            exception is FormatException ||
+                            exception is UnauthorizedAccessException)
                         {
+                            if (failClosedOnInvalidManifest)
+                            {
+                                throw new IOException(
+                                    "Quest-local Run manifest is damaged at " +
+                                    manifest + ".",
+                                    exception
+                                );
+                            }
+                            continue;
+                        }
+                        if (!manifestMatches)
+                        {
+                            if (failClosedOnInvalidManifest)
+                            {
+                                throw new IOException(
+                                    "Quest-local Run manifest identity does not " +
+                                    "match its directory at " + manifest + "."
+                                );
+                            }
                             continue;
                         }
 
                         bool sealedCapture = RequiredQuestArtifacts.All(
                             file => File.Exists(Path.Combine(runDirectory, file))
                         );
-                        bool acknowledged = InteractionUploadStateStore
-                            .ReadAcknowledgedFlag(runDirectory);
+                        if (questLocalAuthoritative && sealedCapture)
+                        {
+                            ValidateTerminalSummary(
+                                Path.Combine(
+                                    runDirectory,
+                                    InteractionStoragePaths.SummaryFileName
+                                ),
+                                runId
+                            );
+                        }
+                        bool acknowledged = questLocalAuthoritative
+                            ? false
+                            : InteractionUploadStateStore.ReadAcknowledgedFlag(
+                                runDirectory
+                            );
                         results.Add(new InteractionPendingRun(
                             batchId,
                             participantId,
                             runId,
                             runDirectory,
                             sealedCapture,
-                            acknowledged
+                            acknowledged,
+                            questLocalAuthoritative
                         ));
                     }
                 }
@@ -182,33 +268,61 @@ namespace SignVR.Interaction.CaptureHost
             string participantId,
             string runId)
         {
+            IDictionary<string, object> manifest = InteractionJson.ParseObject(
+                InteractionAtomicFile.ReadUtf8(manifestPath)
+            );
+            return InteractionJson.RequireInt32(manifest, "schema_version") == 1 &&
+                string.Equals(
+                    InteractionJson.RequireString(manifest, "batch_id"),
+                    batchId,
+                    StringComparison.Ordinal
+                ) &&
+                string.Equals(
+                    InteractionJson.RequireString(manifest, "participant_id"),
+                    participantId,
+                    StringComparison.Ordinal
+                ) &&
+                string.Equals(
+                    InteractionJson.RequireString(manifest, "run_id"),
+                    runId,
+                    StringComparison.Ordinal
+                );
+        }
+
+        private static void ValidateTerminalSummary(
+            string summaryPath,
+            string runId)
+        {
             try
             {
-                IDictionary<string, object> manifest = InteractionJson.ParseObject(
-                    InteractionAtomicFile.ReadUtf8(manifestPath)
+                IDictionary<string, object> summary = InteractionJson.ParseObject(
+                    InteractionAtomicFile.ReadUtf8(summaryPath)
                 );
-                return InteractionJson.RequireInt32(manifest, "schema_version") == 1 &&
-                    string.Equals(
-                        InteractionJson.RequireString(manifest, "batch_id"),
-                        batchId,
-                        StringComparison.Ordinal
-                    ) &&
-                    string.Equals(
-                        InteractionJson.RequireString(manifest, "participant_id"),
-                        participantId,
-                        StringComparison.Ordinal
-                    ) &&
-                    string.Equals(
-                        InteractionJson.RequireString(manifest, "run_id"),
+                string status = InteractionJson.RequireString(summary, "status");
+                if (InteractionJson.RequireInt32(summary, "schema_version") != 1 ||
+                    !string.Equals(
+                        InteractionJson.RequireString(summary, "run_id"),
                         runId,
                         StringComparison.Ordinal
+                    ) ||
+                    (!string.Equals(status, "completed", StringComparison.Ordinal) &&
+                        !string.Equals(status, "aborted", StringComparison.Ordinal)))
+                {
+                    throw new FormatException(
+                        "Quest-local terminal summary identity or status is invalid."
                     );
+                }
             }
             catch (Exception exception) when (
-                exception is IOException || exception is FormatException ||
+                exception is IOException ||
+                exception is FormatException ||
                 exception is UnauthorizedAccessException)
             {
-                return false;
+                throw new IOException(
+                    "Quest-local terminal summary is damaged at " +
+                    summaryPath + ".",
+                    exception
+                );
             }
         }
 

@@ -41,6 +41,47 @@ namespace SignVR.Interaction.CaptureHost
         {
             IReadOnlyList<InteractionPendingRun> pending =
                 InteractionPendingRunDiscovery.Discover(persistentDataPath);
+            return TerminalizeAllAborted(
+                pending,
+                reason,
+                utcTime,
+                monotonicTimeSeconds,
+                frame
+            );
+        }
+
+        /// <summary>
+        /// Strict Standalone Study startup recovery. Quest-local sealed Runs
+        /// are already complete; only unsealed Runs are terminalized. Invalid
+        /// manifest evidence throws before a new Run may start.
+        /// </summary>
+        public static int TerminalizeAllAbortedQuestLocal(
+            string persistentDataPath,
+            string reason,
+            DateTimeOffset utcTime,
+            double monotonicTimeSeconds,
+            int frame)
+        {
+            IReadOnlyList<InteractionPendingRun> pending =
+                InteractionPendingRunDiscovery.DiscoverQuestLocal(
+                    persistentDataPath
+                );
+            return TerminalizeAllAborted(
+                pending,
+                reason,
+                utcTime,
+                monotonicTimeSeconds,
+                frame
+            );
+        }
+
+        private static int TerminalizeAllAborted(
+            IReadOnlyList<InteractionPendingRun> pending,
+            string reason,
+            DateTimeOffset utcTime,
+            double monotonicTimeSeconds,
+            int frame)
+        {
             int recovered = 0;
             for (int index = 0; index < pending.Count; index++)
             {
