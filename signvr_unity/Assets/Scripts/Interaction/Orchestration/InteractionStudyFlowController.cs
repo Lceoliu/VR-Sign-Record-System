@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.IO;
-using System.Linq;
 using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
 using SignVR.Interaction.PhaseAdapters;
@@ -15,7 +14,7 @@ namespace SignVR.Interaction.Orchestration
     [DisallowMultipleComponent]
     public sealed class InteractionStudyFlowController : MonoBehaviour
     {
-        private const double ReadinessRefreshIntervalSeconds = 2d;
+        private static ParticipantSession applicationParticipantSession;
 
         [SerializeField]
         private InteractionRunController runController;
@@ -37,19 +36,22 @@ namespace SignVR.Interaction.Orchestration
         private Coroutine manifestRoutine;
         private readonly InteractionStudyOperationGate manifestLoadGate =
             new();
-        private readonly InteractionStudyReadinessPollGate readinessPollGate =
-            new(ReadinessRefreshIntervalSeconds);
+        private InteractionBackgroundOperation<int> startupRecovery;
+        private ParticipantSession participantSession;
         private long manifestLoadToken;
         private bool manifestReady;
-        private bool identityArmed;
+        private bool automaticIdentityConfigured;
+        private bool recoveryStarted;
+        private bool recoveryComplete;
         private bool applicationPaused;
+        private bool activeRunPaused;
+        private bool pauseAbortNoticePending;
         private bool reconfiguring;
-        private string armedParticipantId = string.Empty;
-        private string armedBuildIdentity = string.Empty;
+        private string recoveryFailure = string.Empty;
         private string initializationStatus =
             "Instruction manifest has not loaded.";
         private string identityStatus =
-            "正在等待主机自动分配匿名实验编号。";
+            "正在自动准备匿名实验编号。";
         private string lastPublishedFingerprint = string.Empty;
 
         public event Action StateChanged;
@@ -63,10 +65,16 @@ namespace SignVR.Interaction.Orchestration
             contentManifestRelativePath;
         public bool ManifestReady => manifestReady;
         public bool ManifestLoadInFlight => manifestLoadGate.InFlight;
-        public bool ReadinessRefreshInFlight => readinessPollGate.InFlight;
-        public bool IdentityArmed => identityArmed;
-        public bool CanConfigureIdentity => runController != null &&
-            runController.State == RunState.PreStart;
+        public bool ReadinessRefreshInFlight => false;
+        public bool IdentityArmed => automaticIdentityConfigured;
+        public bool CanConfigureIdentity => false;
+        public bool RecoveryInFlight => startupRecovery != null &&
+            !startupRecovery.IsCompleted;
+        public bool RecoveryComplete => recoveryComplete;
+        public bool RecoveryFailed => !string.IsNullOrEmpty(recoveryFailure);
+        public string RecoveryFailure => recoveryFailure;
+        public string ParticipantSessionId =>
+            participantSession?.ParticipantId ?? string.Empty;
         public string ConfiguredParticipantId => runController?.ParticipantId ??
             string.Empty;
         public string ConfiguredBuildIdentity => runController?.GitCommit ??
@@ -124,23 +132,19 @@ namespace SignVR.Interaction.Orchestration
                 }
             }
 
-            InteractionRunController previousRun = runController;
             StopManifestLoad("Study dependencies were reconfigured.");
-            readinessPollGate.Invalidate();
-            previousRun?.InvalidateHostReadiness();
             runController = validatedRun;
             presentationController = validatedPresentation;
             phaseCoordinator = validatedPhases;
             captureBinding = validatedCapture;
-            runController.InvalidateHostReadiness();
             manifestReady = false;
             initializationStatus =
                 "Instruction manifest must be loaded for this configuration.";
-            DisarmIdentityInternal(
-                "Study dependencies changed; apply participant and build " +
-                "identity again.",
-                invalidateReadiness: false
-            );
+            automaticIdentityConfigured = false;
+            if (participantSession != null)
+            {
+                ApplyAutomaticIdentityToCurrentRun();
+            }
             if (Application.isPlaying && isActiveAndEnabled)
             {
                 RetryManifestLoad();
@@ -162,24 +166,24 @@ namespace SignVR.Interaction.Orchestration
                     initializationStatus
                 );
             }
-            if (!identityArmed)
+            if (!recoveryComplete)
+            {
+                return InteractionStudyFlowCommandResult.Failure(
+                    RecoveryFailed
+                        ? "Startup partial-Run recovery failed."
+                        : "Startup partial-Run recovery is still running."
+                );
+            }
+            if (!automaticIdentityConfigured)
             {
                 return InteractionStudyFlowCommandResult.Failure(
                     identityStatus
                 );
             }
             InteractionStudyFlowCommandResult result = flow.TryStart();
-            if (result.Succeeded || runController.State != RunState.PreStart)
+            if (result.Succeeded)
             {
-                // Identity is an operator confirmation for exactly one Run.
-                // W6 retains manifest identity, but another Start requires a
-                // new explicit confirmation after terminal cleanup.
-                identityArmed = false;
-                armedParticipantId = string.Empty;
-                armedBuildIdentity = string.Empty;
-                identityStatus =
-                    "Run consumed; reconfirm identity for the next Run.";
-                readinessPollGate.Invalidate();
+                identityStatus = "匿名实验编号已准备。";
                 PublishStateIfChanged(force: true);
             }
             return result;
@@ -189,107 +193,22 @@ namespace SignVR.Interaction.Orchestration
             string participantId,
             string integratedBuildIdentity)
         {
-            if (runController == null)
-            {
-                return InteractionStudyFlowCommandResult.Failure(
-                    "W6 Run controller is missing."
-                );
-            }
-            if (runController.State != RunState.PreStart)
-            {
-                return InteractionStudyFlowCommandResult.Failure(
-                    "Study identity can change only in PreStart."
-                );
-            }
-
-            try
-            {
-                InteractionStudyIdentityPolicy.Validate(
-                    participantId,
-                    integratedBuildIdentity,
-                    out string safeParticipant,
-                    out string safeBuild
-                );
-                runController.ConfigureIdentity(
-                    runController.BatchId,
-                    safeParticipant,
-                    safeBuild
-                );
-                identityArmed = true;
-                armedParticipantId = safeParticipant;
-                armedBuildIdentity = safeBuild;
-                identityStatus = "Identity armed for participant " +
-                    safeParticipant + " with build " + safeBuild + ".";
-                readinessPollGate.Invalidate();
-                // Automatic identity adoption runs from inside a completed
-                // readiness callback. Let Update start the replacement poll
-                // on the next frame, after the Host client has released the
-                // completed request's readiness slot.
-                PublishStateIfChanged(force: true);
-                return InteractionStudyFlowCommandResult.Success();
-            }
-            catch (Exception exception) when (
-                exception is ArgumentException ||
-                exception is InvalidOperationException)
-            {
-                identityArmed = false;
-                armedParticipantId = string.Empty;
-                armedBuildIdentity = string.Empty;
-                identityStatus = "Identity rejected: " + exception.Message;
-                readinessPollGate.Invalidate();
-                runController.InvalidateHostReadiness();
-                PublishStateIfChanged(force: true);
-                return InteractionStudyFlowCommandResult.Failure(
-                    identityStatus
-                );
-            }
+            return InteractionStudyFlowCommandResult.Failure(
+                "Participant identity is created automatically for this " +
+                "application launch."
+            );
         }
 
         public bool DisarmIdentityIfDraftChanged(
             string participantId,
             string integratedBuildIdentity)
         {
-            if (!identityArmed)
-            {
-                return false;
-            }
-            string participant = participantId?.Trim() ?? string.Empty;
-            string build = integratedBuildIdentity?.Trim() ?? string.Empty;
-            if (string.Equals(
-                    participant,
-                    armedParticipantId,
-                    StringComparison.Ordinal) &&
-                string.Equals(
-                    build,
-                    armedBuildIdentity,
-                    StringComparison.Ordinal))
-            {
-                return false;
-            }
-            DisarmIdentityInternal(
-                "Identity input changed. The armed identity remains " +
-                ConfiguredParticipantId + "/" + ConfiguredBuildIdentity +
-                "; apply an explicit PreStart identity before Start.",
-                invalidateReadiness: true
-            );
-            PublishStateIfChanged(force: true);
-            return true;
+            return false;
         }
 
         public bool TryUnlockIdentityForEditing()
         {
-            if (!identityArmed || runController == null ||
-                runController.State != RunState.PreStart)
-            {
-                return false;
-            }
-            DisarmIdentityInternal(
-                "Identity editing unlocked. Review both fields and apply " +
-                    "them again before Start.",
-                invalidateReadiness: true
-            );
-            PublishStateIfChanged(force: true);
-            return true;
+            return false;
         }
 
         public InteractionStudyFlowCommandResult TryReplay()
@@ -380,6 +299,7 @@ namespace SignVR.Interaction.Orchestration
             {
                 return;
             }
+            BeginStartupRecovery();
             RetryManifestLoad();
         }
 
@@ -389,8 +309,9 @@ namespace SignVR.Interaction.Orchestration
             {
                 return;
             }
+            BeginStartupRecovery();
             flow.Tick();
-            RefreshHostReadinessIfDue();
+            PollStartupRecovery();
             PublishStateIfChanged();
         }
 
@@ -401,6 +322,8 @@ namespace SignVR.Interaction.Orchestration
                 return;
             }
             EnsureConfigured();
+            EnsureParticipantSession(() => new ParticipantSession());
+            ApplyAutomaticIdentityToCurrentRun();
             captureBinding.ApplyToSampler();
             flow = new InteractionStudyFlow(
                 new UnityInteractionStudyRunPort(
@@ -503,8 +426,6 @@ namespace SignVR.Interaction.Orchestration
                     manifestReady = true;
                     initializationStatus =
                         "Instruction manifest is configured.";
-                    readinessPollGate.Invalidate();
-                    runController.InvalidateHostReadiness();
                 }
             }
             finally
@@ -517,99 +438,126 @@ namespace SignVR.Interaction.Orchestration
             }
         }
 
-        private void RefreshHostReadinessIfDue()
+        private ParticipantSession EnsureParticipantSession(
+            Func<ParticipantSession> factory)
         {
-            if (!manifestReady || runController == null ||
-                runController.State != RunState.PreStart ||
-                runController.HostClient == null)
+            if (participantSession != null)
             {
+                return participantSession;
+            }
+            if (factory == null)
+            {
+                throw new ArgumentNullException(nameof(factory));
+            }
+            if (Application.isPlaying)
+            {
+                applicationParticipantSession ??= factory() ??
+                    throw new InvalidOperationException(
+                        "Participant Session factory returned null."
+                    );
+                participantSession = applicationParticipantSession;
+            }
+            else
+            {
+                participantSession = factory() ??
+                    throw new InvalidOperationException(
+                        "Participant Session factory returned null."
+                    );
+            }
+            return participantSession;
+        }
+
+        [RuntimeInitializeOnLoadMethod(
+            RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetApplicationParticipantSession()
+        {
+            applicationParticipantSession = null;
+        }
+
+        private void ApplyAutomaticIdentityToCurrentRun()
+        {
+            automaticIdentityConfigured = false;
+            if (runController == null || participantSession == null)
+            {
+                identityStatus = "匿名实验编号尚未准备。";
                 return;
             }
-            double now = Time.realtimeSinceStartupAsDouble;
-            if (!readinessPollGate.TryBegin(now, out long token))
+            if (runController.State != RunState.PreStart)
             {
+                identityStatus =
+                    "Automatic identity can be applied only in PreStart.";
                 return;
             }
             try
             {
-                runController.RefreshHostReadiness(() =>
-                {
-                    if (readinessPollGate.TryComplete(
-                            token,
-                            Time.realtimeSinceStartupAsDouble))
-                    {
-                        TryAdoptAutomaticIdentity(
-                            runController.LastHostReadiness,
-                            ResolveAutomaticBuildIdentity()
-                        );
-                        PublishStateIfChanged(force: true);
-                    }
-                });
-            }
-            catch (Exception exception)
-            {
-                readinessPollGate.TryComplete(
-                    token,
-                    Time.realtimeSinceStartupAsDouble
+                runController.ConfigureIdentity(
+                    runController.BatchId,
+                    participantSession.ParticipantId,
+                    ResolveAutomaticBuildIdentity()
                 );
-                initializationStatus =
-                    "Host readiness request failed to start: " +
+                automaticIdentityConfigured = true;
+                identityStatus = "匿名实验编号已准备。";
+            }
+            catch (Exception exception) when (
+                exception is ArgumentException ||
+                exception is InvalidOperationException)
+            {
+                identityStatus =
+                    "Automatic participant identity failed: " +
                     exception.Message;
-                PublishStateIfChanged(force: true);
             }
         }
 
-        private bool TryAdoptAutomaticIdentity(
-            InteractionHostReadiness readiness,
-            string buildIdentity)
+        private void BeginStartupRecovery()
         {
-            if (runController == null ||
-                runController.State != RunState.PreStart ||
-                readiness == null ||
-                !readiness.ParticipantReady ||
-                !readiness.ParticipantFresh ||
-                string.IsNullOrWhiteSpace(readiness.ParticipantId))
+            if (recoveryStarted || runController == null)
             {
-                return false;
+                return;
             }
-
-            string participant = readiness.ParticipantId.Trim();
-            string build = buildIdentity?.Trim() ?? string.Empty;
-            if (identityArmed &&
-                string.Equals(
-                    ConfiguredParticipantId,
-                    participant,
-                    StringComparison.Ordinal
-                ) &&
-                string.Equals(
-                    ConfiguredBuildIdentity,
-                    build,
-                    StringComparison.Ordinal
-                ))
+            recoveryStarted = true;
+            recoveryComplete = false;
+            recoveryFailure = string.Empty;
+            try
             {
-                return false;
+                startupRecovery =
+                    runController.BeginRecoverAllPartialRunsAsAborted();
+                PollStartupRecovery();
             }
-
-            if (identityArmed)
+            catch (Exception exception)
             {
-                DisarmIdentityInternal(
-                    "主机已为下一轮分配新的匿名实验编号。",
-                    invalidateReadiness: true
-                );
+                startupRecovery = null;
+                recoveryFailure = exception.Message;
             }
+        }
 
-            InteractionStudyFlowCommandResult result = TryConfigureIdentity(
-                participant,
-                build
-            );
-            if (!result.Succeeded)
+        private void PollStartupRecovery()
+        {
+            InteractionBackgroundOperation<int> operation = startupRecovery;
+            if (operation == null || !operation.IsCompleted)
             {
-                return false;
+                return;
             }
-
-            identityStatus = "匿名实验编号已自动准备：" + participant;
+            startupRecovery = null;
+            if (!operation.Succeeded)
+            {
+                recoveryFailure = operation.Error?.Message ??
+                    "Partial-Run recovery failed.";
+                PublishStateIfChanged(force: true);
+                return;
+            }
+            try
+            {
+                operation.GetResult();
+                runController?.RefreshPendingRuns();
+                recoveryComplete = true;
+                recoveryFailure = string.Empty;
+            }
+            catch (Exception exception)
+            {
+                recoveryComplete = false;
+                recoveryFailure = exception.Message;
+            }
             PublishStateIfChanged(force: true);
-            return true;
         }
 
         private static string ResolveAutomaticBuildIdentity()
@@ -622,14 +570,21 @@ namespace SignVR.Interaction.Orchestration
             }
 
             string version = Application.version ?? string.Empty;
-            char[] safe = version.Select(character =>
-                (character >= 'A' && character <= 'Z') ||
-                (character >= 'a' && character <= 'z') ||
-                (character >= '0' && character <= '9') ||
-                character == '.' || character == '_' || character == '-'
-                    ? character
-                    : '-'
-            ).ToArray();
+            char[] safe = version.ToCharArray();
+            for (int index = 0; index < safe.Length; index++)
+            {
+                char character = safe[index];
+                bool allowed =
+                    (character >= 'A' && character <= 'Z') ||
+                    (character >= 'a' && character <= 'z') ||
+                    (character >= '0' && character <= '9') ||
+                    character == '.' || character == '_' ||
+                    character == '-';
+                if (!allowed)
+                {
+                    safe[index] = '-';
+                }
+            }
             string suffix = new string(safe).Trim('-', '.');
             return "version-" +
                 (string.IsNullOrWhiteSpace(suffix) ? "unversioned" : suffix);
@@ -707,32 +662,6 @@ namespace SignVR.Interaction.Orchestration
             }
         }
 
-        private void DisarmIdentityInternal(
-            string reason,
-            bool invalidateReadiness)
-        {
-            identityArmed = false;
-            armedParticipantId = string.Empty;
-            armedBuildIdentity = string.Empty;
-            identityStatus = string.IsNullOrWhiteSpace(reason)
-                ? "正在等待主机自动分配匿名实验编号。"
-                : reason;
-            readinessPollGate.Invalidate();
-            if (invalidateReadiness && runController != null)
-            {
-                runController.InvalidateHostReadiness();
-            }
-        }
-
-        private void InvalidateReadinessPolling()
-        {
-            readinessPollGate.Invalidate();
-            if (runController != null)
-            {
-                runController.InvalidateHostReadiness();
-            }
-        }
-
         private void SafeSuspendFlow(string reason)
         {
             if (flow == null)
@@ -777,14 +706,6 @@ namespace SignVR.Interaction.Orchestration
             {
                 return;
             }
-            if (identityArmed && flow?.Snapshot?.RunState !=
-                RunState.PreStart)
-            {
-                DisarmIdentityInternal(
-                    "Run consumed; reconfirm identity for the next Run.",
-                    invalidateReadiness: false
-                );
-            }
             PublishStateIfChanged(force: true);
         }
 
@@ -808,10 +729,14 @@ namespace SignVR.Interaction.Orchestration
             if (snapshot == null)
             {
                 return manifestReady + "|" + initializationStatus + "|" +
-                    identityArmed + "|" + identityStatus;
+                    automaticIdentityConfigured + "|" + identityStatus + "|" +
+                    recoveryComplete + "|" + recoveryFailure + "|" +
+                    pauseAbortNoticePending;
             }
             return manifestReady + "|" + initializationStatus + "|" +
-                identityArmed + "|" + identityStatus + "|" +
+                automaticIdentityConfigured + "|" + identityStatus + "|" +
+                recoveryComplete + "|" + recoveryFailure + "|" +
+                pauseAbortNoticePending + "|" +
                 snapshot.RunState + "|" + snapshot.PhaseId + "|" +
                 snapshot.Progress + "|" + snapshot.RequiredProgress + "|" +
                 snapshot.CanStart + "|" + snapshot.CanReplay + "|" +
@@ -821,22 +746,36 @@ namespace SignVR.Interaction.Orchestration
 
         private void OnApplicationPause(bool paused)
         {
-            if (!Application.isPlaying || flow == null)
+            HandleApplicationPause(paused, resumeWhenInactive: false);
+        }
+
+        private void HandleApplicationPause(
+            bool paused,
+            bool resumeWhenInactive)
+        {
+            if ((!Application.isPlaying && !resumeWhenInactive) || flow == null ||
+                applicationPaused == paused)
             {
                 return;
             }
             applicationPaused = paused;
             if (paused)
             {
+                activeRunPaused = InteractionLifecycleTerminationPolicy
+                    .RequiresLocalAbort(flow.Snapshot.RunState);
                 StopManifestLoad(
                     "Application paused during manifest load; Retry will " +
                     "resume in PreStart."
                 );
-                InvalidateReadinessPolling();
                 SafeSuspendFlow("application_pause");
             }
-            else if (isActiveAndEnabled)
+            else if (resumeWhenInactive || isActiveAndEnabled)
             {
+                if (activeRunPaused)
+                {
+                    pauseAbortNoticePending = true;
+                    activeRunPaused = false;
+                }
                 SafeResumeFlow();
                 try
                 {
@@ -854,7 +793,6 @@ namespace SignVR.Interaction.Orchestration
         private void OnApplicationQuit()
         {
             StopManifestLoad("Application quit during manifest load.");
-            InvalidateReadinessPolling();
             if (Application.isPlaying)
             {
                 SafeSuspendFlow("application_quit");
@@ -867,7 +805,6 @@ namespace SignVR.Interaction.Orchestration
                 "Component disabled during manifest load; Retry will resume " +
                 "in PreStart."
             );
-            InvalidateReadinessPolling();
             if (Application.isPlaying)
             {
                 SafeSuspendFlow("component_disabled");
@@ -878,7 +815,6 @@ namespace SignVR.Interaction.Orchestration
         private void OnDestroy()
         {
             StopManifestLoad("Component destroyed during manifest load.");
-            InvalidateReadinessPolling();
             InteractionStudyFlow disposing = flow;
             flow = null;
             if (disposing != null)
@@ -895,6 +831,80 @@ namespace SignVR.Interaction.Orchestration
             }
             StateChanged = null;
         }
+
+        internal bool TryConsumePauseAbortNotice()
+        {
+            if (!pauseAbortNoticePending)
+            {
+                return false;
+            }
+            pauseAbortNoticePending = false;
+            return true;
+        }
+
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        internal ParticipantSession EnsureParticipantSessionForTests(
+            Func<ParticipantSession> factory)
+        {
+            return EnsureParticipantSession(factory);
+        }
+
+        internal void ApplyAutomaticIdentityForTests(
+            Func<ParticipantSession> factory)
+        {
+            EnsureParticipantSession(factory);
+            ApplyAutomaticIdentityToCurrentRun();
+        }
+
+        internal void InstallStandaloneStateForTests(
+            InteractionStudyFlow installedFlow,
+            bool manifestIsReady,
+            bool recoveryIsComplete,
+            ParticipantSession session)
+        {
+            if (installedFlow == null)
+            {
+                throw new ArgumentNullException(nameof(installedFlow));
+            }
+            if (session == null)
+            {
+                throw new ArgumentNullException(nameof(session));
+            }
+            if (flow != null && !ReferenceEquals(flow, installedFlow))
+            {
+                throw new InvalidOperationException(
+                    "A different Study Flow is already installed."
+                );
+            }
+            flow = installedFlow;
+            flow.StateChanged -= HandleFlowStateChanged;
+            flow.StateChanged += HandleFlowStateChanged;
+            participantSession = session;
+            automaticIdentityConfigured = true;
+            manifestReady = manifestIsReady;
+            recoveryStarted = true;
+            recoveryComplete = recoveryIsComplete;
+            recoveryFailure = string.Empty;
+            identityStatus = "匿名实验编号已准备。";
+            PublishStateIfChanged(force: true);
+        }
+
+        internal void SetRecoveryStateForTests(
+            bool complete,
+            string failure)
+        {
+            recoveryStarted = true;
+            recoveryComplete = complete;
+            recoveryFailure = failure ?? string.Empty;
+            startupRecovery = null;
+            PublishStateIfChanged(force: true);
+        }
+
+        internal void HandleApplicationPauseForTests(bool paused)
+        {
+            HandleApplicationPause(paused, resumeWhenInactive: true);
+        }
+#endif
 
         private void EnsureConfigured()
         {

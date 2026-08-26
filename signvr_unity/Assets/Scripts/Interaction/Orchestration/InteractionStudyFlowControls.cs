@@ -7,6 +7,104 @@ using UnityEngine.UI;
 
 namespace SignVR.Interaction.Orchestration
 {
+    internal static class InteractionStudyParticipantText
+    {
+        internal const string Recovering =
+            "正在整理上一次未完整结束的实验，请稍候…";
+        internal const string RecoveryFailed =
+            "上一次实验数据整理失败，请联系工作人员。";
+        internal const string Ready =
+            "准备就绪，请点击“开始体验”。";
+        internal const string PauseAborted =
+            "上一次体验因头盔暂停已安全结束，可以开始新的体验。";
+
+        internal static string ForFailure(string error)
+        {
+            if (string.IsNullOrWhiteSpace(error))
+            {
+                return "操作暂时无法完成，请稍候重试。";
+            }
+            if (error.IndexOf(
+                    "manifest",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "实验内容仍在加载，请稍候。";
+            }
+            if (error.IndexOf("HMD", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                error.IndexOf("hand", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                error.IndexOf("XR", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                error.IndexOf(
+                    "capture gate",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "请戴好头显，并将双手置于可识别范围内。";
+            }
+            return "操作暂时无法完成，请联系工作人员。";
+        }
+
+        internal static string ForPreStart(
+            bool recoveryComplete,
+            bool recoveryFailed,
+            bool manifestReady,
+            bool identityReady,
+            bool canStart,
+            string initializationStatus,
+            string flowStatus,
+            string commandFeedback,
+            string pauseNotice)
+        {
+            if (recoveryFailed)
+            {
+                return RecoveryFailed;
+            }
+            if (!recoveryComplete)
+            {
+                return Recovering;
+            }
+            if (!manifestReady)
+            {
+                return ForFailure(initializationStatus);
+            }
+            if (!identityReady)
+            {
+                return "匿名实验编号仍在自动准备，请稍候。";
+            }
+            if (!string.IsNullOrWhiteSpace(commandFeedback))
+            {
+                return commandFeedback;
+            }
+            if (!canStart)
+            {
+                return ForFailure(flowStatus);
+            }
+            return string.IsNullOrEmpty(pauseNotice) ? Ready : pauseNotice;
+        }
+
+        internal static string ForRunState(RunState state, string status)
+        {
+            switch (state)
+            {
+                case RunState.AwaitingHost:
+                case RunState.Scheduled:
+                    return "正在启动体验，请稍候…";
+                case RunState.Running:
+                    return "请按照场景提示完成当前体验。";
+                case RunState.Completing:
+                    return "正在保存本次体验，请稍候…";
+                case RunState.Completed:
+                    return "本次体验已完成。";
+                case RunState.Aborting:
+                    return "正在安全结束本次体验，请稍候…";
+                case RunState.Aborted:
+                    return "本次体验已安全结束。";
+                case RunState.Faulted:
+                    return "本次体验无法继续，请联系工作人员。";
+                default:
+                    return ForFailure(status);
+            }
+        }
+    }
+
     /// <summary>
     /// Minimal W8 UI adapter. Start is W8-owned; the existing W5 controls are
     /// explicitly routed here for W6-token-authoritative Replay/GiveUp/Abort.
@@ -45,8 +143,8 @@ namespace SignVR.Interaction.Orchestration
         private TMP_Text progressLabel;
 
         private bool bound;
-        private bool synchronizingIdentityInputs;
         private string lastCommandFeedback = string.Empty;
+        private string pauseAbortNotice = string.Empty;
 
         public event Action StateChanged;
 
@@ -70,8 +168,7 @@ namespace SignVR.Interaction.Orchestration
             get
             {
                 RunState? state = flowController?.Snapshot?.RunState;
-                return state == RunState.AwaitingHost ||
-                    state == RunState.Scheduled ||
+                return state == RunState.Scheduled ||
                     state == RunState.Running ||
                     state == RunState.Completing;
             }
@@ -99,12 +196,6 @@ namespace SignVR.Interaction.Orchestration
                 throw new ArgumentNullException(nameof(startSurface));
             Button validatedStart = start ??
                 throw new ArgumentNullException(nameof(start));
-            TMP_InputField validatedParticipantInput = participantInput ??
-                throw new ArgumentNullException(nameof(participantInput));
-            TMP_InputField validatedBuildInput = buildInput ??
-                throw new ArgumentNullException(nameof(buildInput));
-            Button validatedApplyIdentity = applyIdentity ??
-                throw new ArgumentNullException(nameof(applyIdentity));
             TMP_Text validatedStatus = status ??
                 throw new ArgumentNullException(nameof(status));
             TMP_Text validatedProgress = progress ??
@@ -134,9 +225,9 @@ namespace SignVR.Interaction.Orchestration
             instructionControls = validatedInstructionControls;
             preStartRoot = validatedStartSurface;
             startButton = validatedStart;
-            participantIdInput = validatedParticipantInput;
-            buildIdentityInput = validatedBuildInput;
-            applyIdentityButton = validatedApplyIdentity;
+            participantIdInput = participantInput;
+            buildIdentityInput = buildInput;
+            applyIdentityButton = applyIdentity;
             statusLabel = validatedStatus;
             progressLabel = validatedProgress;
             try
@@ -198,9 +289,7 @@ namespace SignVR.Interaction.Orchestration
         private void Bind()
         {
             if (bound || !isActiveAndEnabled || flowController == null ||
-                instructionControls == null || startButton == null ||
-                participantIdInput == null || buildIdentityInput == null ||
-                applyIdentityButton == null)
+                instructionControls == null || startButton == null)
             {
                 return;
             }
@@ -214,13 +303,6 @@ namespace SignVR.Interaction.Orchestration
             {
                 flowController.StateChanged += Refresh;
                 startButton.onClick.AddListener(HandleStart);
-                applyIdentityButton.onClick.AddListener(HandleApplyIdentity);
-                participantIdInput.onValueChanged.AddListener(
-                    HandleIdentityDraftChanged
-                );
-                buildIdentityInput.onValueChanged.AddListener(
-                    HandleIdentityDraftChanged
-                );
                 bound = true;
             }
             catch
@@ -239,15 +321,6 @@ namespace SignVR.Interaction.Orchestration
                     flowController.StateChanged -= Refresh;
                 }
                 startButton?.onClick.RemoveListener(HandleStart);
-                applyIdentityButton?.onClick.RemoveListener(
-                    HandleApplyIdentity
-                );
-                participantIdInput?.onValueChanged.RemoveListener(
-                    HandleIdentityDraftChanged
-                );
-                buildIdentityInput?.onValueChanged.RemoveListener(
-                    HandleIdentityDraftChanged
-                );
                 bound = false;
             }
             if (instructionControls != null)
@@ -263,73 +336,17 @@ namespace SignVR.Interaction.Orchestration
                 InteractionStudyFlowCommandResult.Failure(
                     "Study Flow controller is missing."
                 );
-            lastCommandFeedback = result.Succeeded
-                ? string.Empty
-                : ParticipantFacingFailure(result.Error);
-            Refresh();
-        }
-
-        private void HandleApplyIdentity()
-        {
-            if (flowController?.IdentityArmed == true)
-            {
-                flowController.TryUnlockIdentityForEditing();
-                Refresh();
-                return;
-            }
-            InteractionStudyFlowCommandResult result =
-                flowController?.TryConfigureIdentity(
-                participantIdInput?.text,
-                buildIdentityInput?.text
-            ) ?? InteractionStudyFlowCommandResult.Failure(
-                "Study Flow controller is missing."
-            );
             if (result.Succeeded)
             {
-                SynchronizeInputsToConfiguredIdentity();
+                lastCommandFeedback = string.Empty;
+                pauseAbortNotice = string.Empty;
+            }
+            else
+            {
+                lastCommandFeedback =
+                    InteractionStudyParticipantText.ForFailure(result.Error);
             }
             Refresh();
-        }
-
-        private void HandleIdentityDraftChanged(string _)
-        {
-            if (synchronizingIdentityInputs || flowController == null ||
-                !flowController.IdentityArmed)
-            {
-                return;
-            }
-            if (flowController.DisarmIdentityIfDraftChanged(
-                    participantIdInput?.text,
-                    buildIdentityInput?.text))
-            {
-                // W6 still owns the last configured identity. Discard the
-                // unarmed draft so displayed and effective values cannot
-                // diverge.
-                SynchronizeInputsToConfiguredIdentity();
-                Refresh();
-            }
-        }
-
-        private void SynchronizeInputsToConfiguredIdentity()
-        {
-            if (flowController == null)
-            {
-                return;
-            }
-            synchronizingIdentityInputs = true;
-            try
-            {
-                participantIdInput?.SetTextWithoutNotify(
-                    flowController.ConfiguredParticipantId
-                );
-                buildIdentityInput?.SetTextWithoutNotify(
-                    flowController.ConfiguredBuildIdentity
-                );
-            }
-            finally
-            {
-                synchronizingIdentityInputs = false;
-            }
         }
 
         private void Refresh()
@@ -337,11 +354,9 @@ namespace SignVR.Interaction.Orchestration
             InteractionStudyFlowSnapshot snapshot = flowController?.Snapshot;
             bool preStart = snapshot == null ||
                 snapshot.RunState == RunState.PreStart;
-            bool identityArmed =
-                flowController?.IdentityArmed == true;
-            if (identityArmed)
+            if (flowController?.TryConsumePauseAbortNotice() == true)
             {
-                SynchronizeInputsToConfiguredIdentity();
+                pauseAbortNotice = InteractionStudyParticipantText.PauseAborted;
             }
             if (preStartRoot != null && preStartRoot != gameObject)
             {
@@ -351,7 +366,8 @@ namespace SignVR.Interaction.Orchestration
             {
                 startButton.interactable = preStart &&
                     flowController != null && flowController.ManifestReady &&
-                    identityArmed &&
+                    flowController.RecoveryComplete &&
+                    flowController.IdentityArmed &&
                     snapshot?.CanStart == true;
                 TMP_Text startLabel = startButton.GetComponentInChildren<
                     TMP_Text>(true);
@@ -362,31 +378,19 @@ namespace SignVR.Interaction.Orchestration
                         : "正在准备…";
                 }
             }
-            bool canConfigureIdentity = preStart &&
-                flowController?.CanConfigureIdentity == true &&
-                !identityArmed;
             if (participantIdInput != null)
             {
-                participantIdInput.interactable = canConfigureIdentity;
+                participantIdInput.interactable = false;
                 participantIdInput.gameObject.SetActive(false);
             }
             if (buildIdentityInput != null)
             {
-                buildIdentityInput.interactable = canConfigureIdentity;
+                buildIdentityInput.interactable = false;
                 buildIdentityInput.gameObject.SetActive(false);
             }
             if (applyIdentityButton != null)
             {
-                applyIdentityButton.interactable = preStart &&
-                    flowController?.CanConfigureIdentity == true;
-                TMP_Text applyLabel = applyIdentityButton
-                    .GetComponentInChildren<TMP_Text>(true);
-                if (applyLabel != null)
-                {
-                    applyLabel.text = identityArmed
-                        ? "修改参与者与构建身份"
-                        : "确认参与者与构建身份";
-                }
+                applyIdentityButton.interactable = false;
                 applyIdentityButton.gameObject.SetActive(false);
             }
             ApplyParticipantOnlyLayout();
@@ -396,30 +400,45 @@ namespace SignVR.Interaction.Orchestration
                 string initialization = flowController == null
                     ? "Study Flow controller is missing."
                     : flowController.InitializationStatus;
-                if (!string.IsNullOrWhiteSpace(lastCommandFeedback))
-                {
-                    statusLabel.text = lastCommandFeedback;
-                }
-                else if (flowController?.ManifestReady != true)
-                {
-                    statusLabel.text = ParticipantFacingFailure(initialization);
-                }
-                else if (!identityArmed)
+                if (flowController == null)
                 {
                     statusLabel.text =
-                        "正在等待电脑端 Host 自动分配匿名实验编号…";
-                }
-                else if (preStart && snapshot?.CanStart != true)
-                {
-                    statusLabel.text = ParticipantFacingFailure(flowStatus);
+                        InteractionStudyParticipantText.ForFailure(initialization);
                 }
                 else if (preStart)
                 {
-                    statusLabel.text = "准备就绪，请点击“开始体验”。";
+                    statusLabel.text = InteractionStudyParticipantText.ForPreStart(
+                        flowController.RecoveryComplete,
+                        flowController.RecoveryFailed,
+                        flowController.ManifestReady,
+                        flowController.IdentityArmed,
+                        snapshot?.CanStart == true,
+                        initialization,
+                        flowStatus,
+                        lastCommandFeedback,
+                        pauseAbortNotice
+                    );
+                }
+                else if (flowController.RecoveryFailed)
+                {
+                    statusLabel.text =
+                        InteractionStudyParticipantText.RecoveryFailed;
+                }
+                else if (!flowController.RecoveryComplete)
+                {
+                    statusLabel.text = InteractionStudyParticipantText.Recovering;
+                }
+                else if (!string.IsNullOrWhiteSpace(lastCommandFeedback))
+                {
+                    statusLabel.text = lastCommandFeedback;
                 }
                 else
                 {
-                    statusLabel.text = ParticipantFacingFailure(flowStatus);
+                    statusLabel.text =
+                        InteractionStudyParticipantText.ForRunState(
+                            snapshot.RunState,
+                            flowStatus
+                        );
                 }
             }
             if (progressLabel != null)
@@ -446,48 +465,6 @@ namespace SignVR.Interaction.Orchestration
                 statusLabel.rectTransform.sizeDelta =
                     new Vector2(700f, 150f);
             }
-        }
-
-        private static string ParticipantFacingFailure(string error)
-        {
-            if (string.IsNullOrWhiteSpace(error))
-            {
-                return "操作暂时无法完成，请稍候重试。";
-            }
-            if (error.IndexOf(
-                    "fresh Host readiness response",
-                    StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return "编号已自动准备；正在与电脑端 Host 同步，请稍候。";
-            }
-            if (error.IndexOf(
-                    "fresh Quest, camera, and participant readiness",
-                    StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return "编号已自动准备；正在等待电脑端 Host 与摄像头就绪。";
-            }
-            if (error.IndexOf(
-                    "consumed partial Interaction Run",
-                    StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return "检测到上一次未完整结束的实验，请联系工作人员处理。";
-            }
-            if (error.IndexOf("Host", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                error.IndexOf("Curl", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                error.IndexOf("readiness", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return "电脑端 Host 尚未连接或未就绪，请联系工作人员。";
-            }
-            if (error.IndexOf("manifest", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return "实验内容仍在加载，请稍候。";
-            }
-            if (error.IndexOf("identity", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                error.IndexOf("participant", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                return "匿名实验编号仍在自动准备，请稍候。";
-            }
-            return error;
         }
 
         private void OnDisable()

@@ -13,6 +13,18 @@ namespace SignVR.Interaction.Orchestration
         bool CanStartStudy(out string reason);
     }
 
+    public static class InteractionStudyRunModePolicy
+    {
+        public static bool RequiresStrictXrGate(InteractionRunMode mode)
+        {
+            if (!Enum.IsDefined(typeof(InteractionRunMode), mode))
+            {
+                throw new ArgumentOutOfRangeException(nameof(mode));
+            }
+            return mode == InteractionRunMode.StandaloneStudy;
+        }
+    }
+
     public sealed class UnityInteractionStudyRunPort :
         IInteractionStudyRunPort
     {
@@ -60,7 +72,8 @@ namespace SignVR.Interaction.Orchestration
             {
                 return false;
             }
-            if (controller.RunMode == InteractionRunMode.StandaloneStudy &&
+            if (InteractionStudyRunModePolicy.RequiresStrictXrGate(
+                    controller.RunMode) &&
                 (strictStartGate == null ||
                  !strictStartGate.CanStartStudy(out reason)))
             {
