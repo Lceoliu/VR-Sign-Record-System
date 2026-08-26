@@ -36,18 +36,20 @@ namespace SignVR.Interaction.Orchestration
         private Coroutine manifestRoutine;
         private readonly InteractionStudyOperationGate manifestLoadGate =
             new();
-        private InteractionBackgroundOperation<int> startupRecovery;
         private ParticipantSession participantSession;
         private long manifestLoadToken;
         private bool manifestReady;
         private bool automaticIdentityConfigured;
-        private bool recoveryStarted;
         private bool recoveryComplete;
+        private int recoveredPartialRunCount;
         private bool applicationPaused;
         private bool activeRunPaused;
         private bool pauseAbortNoticePending;
         private bool reconfiguring;
         private string recoveryFailure = string.Empty;
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        private bool recoveryStateOverriddenForTests;
+#endif
         private string initializationStatus =
             "Instruction manifest has not loaded.";
         private string identityStatus =
@@ -68,11 +70,12 @@ namespace SignVR.Interaction.Orchestration
         public bool ReadinessRefreshInFlight => false;
         public bool IdentityArmed => automaticIdentityConfigured;
         public bool CanConfigureIdentity => false;
-        public bool RecoveryInFlight => startupRecovery != null &&
-            !startupRecovery.IsCompleted;
+        public bool RecoveryInFlight => !recoveryComplete &&
+            string.IsNullOrEmpty(recoveryFailure);
         public bool RecoveryComplete => recoveryComplete;
         public bool RecoveryFailed => !string.IsNullOrEmpty(recoveryFailure);
         public string RecoveryFailure => recoveryFailure;
+        public int RecoveredPartialRunCount => recoveredPartialRunCount;
         public string ParticipantSessionId =>
             participantSession?.ParticipantId ?? string.Empty;
         public string ConfiguredParticipantId => runController?.ParticipantId ??
@@ -137,6 +140,10 @@ namespace SignVR.Interaction.Orchestration
             presentationController = validatedPresentation;
             phaseCoordinator = validatedPhases;
             captureBinding = validatedCapture;
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+            recoveryStateOverriddenForTests = false;
+#endif
+            SyncStartupRecoveryState();
             manifestReady = false;
             initializationStatus =
                 "Instruction manifest must be loaded for this configuration.";
@@ -154,6 +161,7 @@ namespace SignVR.Interaction.Orchestration
 
         public InteractionStudyFlowCommandResult TryStart()
         {
+            SyncStartupRecoveryState();
             if (flow == null)
             {
                 return InteractionStudyFlowCommandResult.Failure(
@@ -299,7 +307,7 @@ namespace SignVR.Interaction.Orchestration
             {
                 return;
             }
-            BeginStartupRecovery();
+            SyncStartupRecoveryState();
             RetryManifestLoad();
         }
 
@@ -309,9 +317,8 @@ namespace SignVR.Interaction.Orchestration
             {
                 return;
             }
-            BeginStartupRecovery();
+            SyncStartupRecoveryState();
             flow.Tick();
-            PollStartupRecovery();
             PublishStateIfChanged();
         }
 
@@ -508,56 +515,37 @@ namespace SignVR.Interaction.Orchestration
             }
         }
 
-        private void BeginStartupRecovery()
+        private void SyncStartupRecoveryState()
         {
-            if (recoveryStarted || runController == null)
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+            if (recoveryStateOverriddenForTests)
             {
                 return;
             }
-            recoveryStarted = true;
-            recoveryComplete = false;
-            recoveryFailure = string.Empty;
-            try
-            {
-                startupRecovery =
-                    runController.BeginRecoverAllPartialRunsAsAborted();
-                PollStartupRecovery();
-            }
-            catch (Exception exception)
-            {
-                startupRecovery = null;
-                recoveryFailure = exception.Message;
-            }
-        }
-
-        private void PollStartupRecovery()
-        {
-            InteractionBackgroundOperation<int> operation = startupRecovery;
-            if (operation == null || !operation.IsCompleted)
-            {
-                return;
-            }
-            startupRecovery = null;
-            if (!operation.Succeeded)
-            {
-                recoveryFailure = operation.Error?.Message ??
-                    "Partial-Run recovery failed.";
-                PublishStateIfChanged(force: true);
-                return;
-            }
-            try
-            {
-                operation.GetResult();
-                runController?.RefreshPendingRuns();
-                recoveryComplete = true;
-                recoveryFailure = string.Empty;
-            }
-            catch (Exception exception)
+#endif
+            if (runController == null)
             {
                 recoveryComplete = false;
-                recoveryFailure = exception.Message;
+                recoveredPartialRunCount = 0;
+                recoveryFailure = string.Empty;
+                return;
             }
-            PublishStateIfChanged(force: true);
+            InteractionStandaloneLocalRunRecoveryStatus status =
+                runController.StartupRecoveryStatus;
+            recoveredPartialRunCount = runController.RecoveredPartialRunCount;
+            recoveryComplete = status ==
+                InteractionStandaloneLocalRunRecoveryStatus.Succeeded;
+            if (status == InteractionStandaloneLocalRunRecoveryStatus.Failed)
+            {
+                recoveryFailure = string.IsNullOrWhiteSpace(
+                        runController.StartupRecoveryFailureReason)
+                    ? "Quest-local startup recovery failed."
+                    : runController.StartupRecoveryFailureReason;
+            }
+            else
+            {
+                recoveryFailure = string.Empty;
+            }
         }
 
         private static string ResolveAutomaticBuildIdentity()
@@ -730,12 +718,14 @@ namespace SignVR.Interaction.Orchestration
             {
                 return manifestReady + "|" + initializationStatus + "|" +
                     automaticIdentityConfigured + "|" + identityStatus + "|" +
-                    recoveryComplete + "|" + recoveryFailure + "|" +
+                    recoveryComplete + "|" + recoveredPartialRunCount + "|" +
+                    recoveryFailure + "|" +
                     pauseAbortNoticePending;
             }
             return manifestReady + "|" + initializationStatus + "|" +
                 automaticIdentityConfigured + "|" + identityStatus + "|" +
-                recoveryComplete + "|" + recoveryFailure + "|" +
+                recoveryComplete + "|" + recoveredPartialRunCount + "|" +
+                recoveryFailure + "|" +
                 pauseAbortNoticePending + "|" +
                 snapshot.RunState + "|" + snapshot.PhaseId + "|" +
                 snapshot.Progress + "|" + snapshot.RequiredProgress + "|" +
@@ -882,9 +872,10 @@ namespace SignVR.Interaction.Orchestration
             participantSession = session;
             automaticIdentityConfigured = true;
             manifestReady = manifestIsReady;
-            recoveryStarted = true;
             recoveryComplete = recoveryIsComplete;
+            recoveredPartialRunCount = 0;
             recoveryFailure = string.Empty;
+            recoveryStateOverriddenForTests = true;
             identityStatus = "匿名实验编号已准备。";
             PublishStateIfChanged(force: true);
         }
@@ -893,10 +884,10 @@ namespace SignVR.Interaction.Orchestration
             bool complete,
             string failure)
         {
-            recoveryStarted = true;
             recoveryComplete = complete;
+            recoveredPartialRunCount = 0;
             recoveryFailure = failure ?? string.Empty;
-            startupRecovery = null;
+            recoveryStateOverriddenForTests = true;
             PublishStateIfChanged(force: true);
         }
 
