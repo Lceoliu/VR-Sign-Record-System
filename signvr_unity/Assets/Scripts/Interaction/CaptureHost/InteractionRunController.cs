@@ -14,8 +14,6 @@ namespace SignVR.Interaction.CaptureHost
     [DisallowMultipleComponent]
     public sealed partial class InteractionRunController : MonoBehaviour
     {
-        private const string DeviceIdPlayerPrefsKey = "SignVR.DeviceId";
-
         [Header("Mode")]
         [SerializeField]
         private InteractionRunMode runMode = InteractionRunMode.StandaloneStudy;
@@ -28,9 +26,6 @@ namespace SignVR.Interaction.CaptureHost
         [Tooltip("EngineeringLocal requires this explicit arm flag and a debug build.")]
         private bool engineeringLocalExplicitlyArmed;
 
-        [SerializeField]
-        private bool requireHostForStart = true;
-
         [Header("Run identity")]
         [SerializeField]
         private string batchId = "pilot-20260826";
@@ -40,30 +35,6 @@ namespace SignVR.Interaction.CaptureHost
 
         [SerializeField]
         private string gitCommit = "unintegrated";
-
-        [Header("Host")]
-        [SerializeField]
-        private InteractionHostClient hostClient;
-
-        [SerializeField]
-        [Min(0.5f)]
-        private float readinessMaximumAgeSeconds = 5f;
-
-        [SerializeField]
-        [Range(1, 10)]
-        private int automaticRegistrationAttempts = 3;
-
-        [SerializeField]
-        [Min(0.25f)]
-        private float registrationRetryDelaySeconds = 2f;
-
-        [SerializeField]
-        [Range(1, 20)]
-        private int acknowledgementPollAttempts = 5;
-
-        [SerializeField]
-        [Min(0.25f)]
-        private float acknowledgementPollDelaySeconds = 2f;
 
         [Header("Capture")]
         [SerializeField]
@@ -81,16 +52,10 @@ namespace SignVR.Interaction.CaptureHost
 
         private readonly List<InteractionPendingRun> pendingRuns =
             new List<InteractionPendingRun>();
-        private readonly InteractionLatestResponseGate readinessResponseGate =
-            new InteractionLatestResponseGate();
         private readonly InteractionLifecycleShutdownGate lifecycleShutdown =
             new InteractionLifecycleShutdownGate();
         private readonly InteractionTerminalSealArbiter terminalSealArbiter =
             new InteractionTerminalSealArbiter();
-        private readonly InteractionArtifactOperationRegistry artifactOperations =
-            new InteractionArtifactOperationRegistry();
-        private IInteractionArtifactReadObserver artifactReadObserver =
-            InteractionArtifactReadObserver.None;
         private IInteractionBackgroundWorkQueue lifecycleWorkQueue =
             InteractionThreadPoolBackgroundWorkQueue.Shared;
 
@@ -98,40 +63,32 @@ namespace SignVR.Interaction.CaptureHost
         private InteractionRunStateMachine stateMachine;
         private InstructionContentCatalog contentCatalog;
         private string appSessionId;
-        private string questDeviceId;
-        private InteractionHostReadiness lastReadiness;
-        private double lastReadinessMonotonic = double.NegativeInfinity;
-        private InteractionFrozenRunRegistration frozenRegistration;
         private InteractionScheduledStartGate scheduledStartGate;
         private InteractionCaptureWriter captureWriter;
         private InteractionSummaryTracker summaryTracker;
-        private InteractionUploadStateMachine uploadStateMachine;
-        private InteractionPendingRun pendingUploadTarget;
         private InteractionPresentationHandshake presentationHandshake;
+        private InteractionStandaloneLocalRunRecoveryCoordinator startupRecovery;
+        private string storageRoot;
         private InteractionBackgroundOperation<InteractionCaptureWriter>
             captureInitialization;
         private InteractionBackgroundOperation<InteractionCaptureSealResult>
             captureTerminalization;
         private InteractionBackgroundOperation<bool> activePhaseCheckpoint;
         private InteractionCaptureTerminalKind? captureTerminalKind;
-        private string captureTerminalAbortReason;
-        private DateTimeOffset captureTerminalUtc;
-        private bool captureTerminalShouldUpload;
+        private bool captureInitializationReconciled;
         private bool captureTerminalizationReconciled;
-        private Coroutine initializationRoutine;
-        private Coroutine registrationRoutine;
         private Coroutine phaseCheckpointRoutine;
         private Coroutine terminalizationRoutine;
-        private Coroutine uploadRoutine;
         private InteractionLifecycleTerminalizationJob
             lifecycleTerminalizationJob;
-        private bool hostRegistrationAccepted;
         private bool textExposureActive;
         private bool pointingExposureActive;
         private string pointingTargetId;
+        private string pendingRunDiscoveryFailure = string.Empty;
         private string lastError = string.Empty;
 #if UNITY_EDITOR
         private bool editorLifecycleTestsArmed;
+        private bool? debugBuildOverrideForTests;
         private InteractionDetachedInitializationOwner
             detachedInitializationOwnerForTests;
 #endif
@@ -148,23 +105,22 @@ namespace SignVR.Interaction.CaptureHost
         public InteractionRunStateMachine StateMachine => stateMachine;
         public bool IsCaptureActive => captureWriter != null &&
             captureWriter.CaptureActive && State == RunState.Running;
-        public bool RegistrationInFlight => initializationRoutine != null ||
-            registrationRoutine != null;
-        public bool UploadInFlight => uploadRoutine != null;
-        public bool EligibleForLocalCleanup => uploadStateMachine != null &&
-            uploadStateMachine.EligibleForLocalCleanup;
         public string LastError => lastError;
         public string AppSessionId => appSessionId;
-        public string QuestDeviceId => questDeviceId;
         public string BatchId => batchId;
         public string ParticipantId => participantId;
         public string GitCommit => gitCommit;
         public InteractionRunMode RunMode => runMode;
         public bool DebugOverridesActive => debugOverridesActive;
-        public bool RequireHostForStart => requireHostForStart;
-        public InteractionHostClient HostClient => hostClient;
-        public InteractionHostReadiness LastHostReadiness => lastReadiness;
         public InteractionCaptureSampler CaptureSampler => captureSampler;
+        public InteractionStandaloneLocalRunRecoveryStatus StartupRecoveryStatus =>
+            startupRecovery == null
+                ? InteractionStandaloneLocalRunRecoveryStatus.NotStarted
+                : startupRecovery.Status;
+        public int RecoveredPartialRunCount =>
+            startupRecovery?.RecoveredRunCount ?? 0;
+        public string StartupRecoveryFailureReason =>
+            startupRecovery?.FailureReason ?? string.Empty;
         public InteractionPresentationRequest PendingPresentationRequest =>
             presentationHandshake?.PendingRequest;
         public IReadOnlyList<InteractionPendingRun> PendingRuns => pendingRuns;
@@ -184,27 +140,8 @@ namespace SignVR.Interaction.CaptureHost
                 new RunPlanGenerator()
             );
             appSessionId = "app_" + Guid.NewGuid().ToString("N");
-            questDeviceId = ResolveQuestDeviceId();
-            if (hostClient == null)
-            {
-                hostClient = GetComponent<InteractionHostClient>();
-            }
-            if (hostClient != null)
-            {
-                hostClient.ConfigureQuestDeviceId(questDeviceId);
-            }
-            RefreshPendingRuns();
-            RefreshHeartbeatConfiguration();
-        }
-
-        public void ConfigureHostClient(InteractionHostClient value)
-        {
-            hostClient = value ?? throw new ArgumentNullException(nameof(value));
-            if (!string.IsNullOrWhiteSpace(questDeviceId))
-            {
-                hostClient.ConfigureQuestDeviceId(questDeviceId);
-            }
-            RefreshHeartbeatConfiguration();
+            storageRoot = Application.persistentDataPath;
+            BeginStandaloneStartupRecovery(storageRoot);
         }
 
         public void ConfigureCaptureSampler(InteractionCaptureSampler value)
@@ -260,15 +197,12 @@ namespace SignVR.Interaction.CaptureHost
                 );
             }
             gitCommit = configuredGitCommit.Trim();
-            InvalidateHostReadiness();
-            RefreshHeartbeatConfiguration();
         }
 
         public void ConfigureMode(
             InteractionRunMode configuredMode,
             bool configuredDebugOverridesActive,
-            bool explicitlyArmEngineeringLocal,
-            bool configuredRequireHost)
+            bool explicitlyArmEngineeringLocal)
         {
             if (State != RunState.PreStart)
             {
@@ -279,67 +213,6 @@ namespace SignVR.Interaction.CaptureHost
             runMode = configuredMode;
             debugOverridesActive = configuredDebugOverridesActive;
             engineeringLocalExplicitlyArmed = explicitlyArmEngineeringLocal;
-            requireHostForStart = configuredRequireHost;
-            RefreshHeartbeatConfiguration();
-        }
-
-        public void RefreshHostReadiness()
-        {
-            RefreshHostReadiness(null);
-        }
-
-        /// <summary>
-        /// W8 completion seam for one-at-a-time readiness polling. The callback
-        /// is lifecycle-only; W6 remains the sole owner of readiness parsing,
-        /// freshness, participant matching, and CanStart policy.
-        /// </summary>
-        public void RefreshHostReadiness(Action completed)
-        {
-            if (hostClient == null)
-            {
-                lastError = "Interaction Host client is not configured.";
-                completed?.Invoke();
-                return;
-            }
-            long generation = readinessResponseGate.Issue();
-            try
-            {
-                StartCoroutine(hostClient.GetReadiness(result =>
-                {
-                    try
-                    {
-                        if (!readinessResponseGate.TryAccept(generation))
-                        {
-                            return;
-                        }
-                        if (!result.Success)
-                        {
-                            lastError = "Host readiness failed: " + result.Error;
-                            return;
-                        }
-                        lastReadiness = result.Value;
-                        lastReadinessMonotonic = NowMonotonic();
-                        lastError = string.Empty;
-                    }
-                    finally
-                    {
-                        completed?.Invoke();
-                    }
-                }));
-            }
-            catch
-            {
-                completed?.Invoke();
-                throw;
-            }
-        }
-
-        public void InvalidateHostReadiness()
-        {
-            readinessResponseGate.Issue();
-            hostClient?.CancelReadinessRequest();
-            lastReadiness = null;
-            lastReadinessMonotonic = double.NegativeInfinity;
         }
 
         public bool CanStart(out string reason)
@@ -348,6 +221,29 @@ namespace SignVR.Interaction.CaptureHost
             if (stateMachine == null || State != RunState.PreStart)
             {
                 reason = "Run is not in PreStart.";
+                return false;
+            }
+            if (StartupRecoveryStatus !=
+                InteractionStandaloneLocalRunRecoveryStatus.Succeeded)
+            {
+                reason = StartupRecoveryStatus ==
+                        InteractionStandaloneLocalRunRecoveryStatus.Failed
+                    ? "Standalone startup recovery failed: " +
+                        StartupRecoveryFailureReason
+                    : "Standalone startup recovery is still in progress.";
+                return false;
+            }
+            if (lifecycleShutdown.IsShutdownInitiated ||
+                captureInitialization != null ||
+                captureTerminalization != null ||
+                lifecycleTerminalizationJob != null)
+            {
+                reason = "The local capture lifecycle is not idle.";
+                return false;
+            }
+            if (!string.IsNullOrWhiteSpace(pendingRunDiscoveryFailure))
+            {
+                reason = pendingRunDiscoveryFailure;
                 return false;
             }
             if (contentCatalog == null)
@@ -370,8 +266,7 @@ namespace SignVR.Interaction.CaptureHost
                     runMode,
                     debugOverridesActive,
                     engineeringLocalExplicitlyArmed,
-                    Debug.isDebugBuild,
-                    requireHostForStart
+                    IsDebugBuild()
                 );
                 InteractionStoragePaths.ValidateSegment(batchId, nameof(batchId));
                 InteractionStoragePaths.ValidateSegment(
@@ -397,29 +292,6 @@ namespace SignVR.Interaction.CaptureHost
                     reason = "Study participant_id must be explicitly configured.";
                     return false;
                 }
-                if (hostClient == null || !hostClient.LastHeartbeatReady)
-                {
-                    reason =
-                        "Study requires an accepted, exactly echoed Quest " +
-                        "heartbeat from this application session.";
-                    return false;
-                }
-                double readinessAge = NowMonotonic() - lastReadinessMonotonic;
-                if (lastReadiness == null || readinessAge < 0d ||
-                    readinessAge > readinessMaximumAgeSeconds)
-                {
-                    reason = "A fresh Host readiness response is required.";
-                    return false;
-                }
-                if (!lastReadiness.IsStudyReady(
-                        questDeviceId,
-                        participantId))
-                {
-                    reason =
-                        "Backend/storage plus exact fresh Quest, camera, and " +
-                        "participant readiness must all match this Study identity.";
-                    return false;
-                }
                 string captureReason = null;
                 if (captureSampler == null ||
                     !captureSampler.IsStudyCaptureReady(
@@ -430,17 +302,12 @@ namespace SignVR.Interaction.CaptureHost
                         : captureReason;
                     return false;
                 }
-                if (HasUnsealedPendingRun())
-                {
-                    reason =
-                        "A consumed partial Interaction Run must be recovered " +
-                        "as an explicit abort before another Study Run starts.";
-                    return false;
-                }
             }
-            else if (requireHostForStart && hostClient == null)
+            if (HasUnsealedPendingRun())
             {
-                reason = "EngineeringLocal is configured to require a Host.";
+                reason =
+                    "A consumed partial Interaction Run must finish startup " +
+                    "recovery before another Run starts.";
                 return false;
             }
             return true;
@@ -479,14 +346,10 @@ namespace SignVR.Interaction.CaptureHost
                 try
                 {
                     bytes = InteractionRunManifestContractV1.SerializeUtf8(plan);
-                    frozenRegistration = new InteractionFrozenRunRegistration(
-                        plan,
-                        bytes
-                    );
                     summaryTracker = new InteractionSummaryTracker(plan.RunId);
                     captureInitialization =
                         InteractionCaptureWriter.BeginCreateNew(
-                        Application.persistentDataPath,
+                        storageRoot ?? Application.persistentDataPath,
                         plan,
                         bytes,
                         captureQueueCapacity,
@@ -509,11 +372,8 @@ namespace SignVR.Interaction.CaptureHost
                     );
                 }
 
-                hostRegistrationAccepted = false;
+                captureInitializationReconciled = false;
                 lastError = string.Empty;
-                initializationRoutine = StartCoroutine(
-                    InitializeConsumedRunRoutine(plan)
-                );
                 return true;
             }
             catch (Exception exception) when (
@@ -542,67 +402,6 @@ namespace SignVR.Interaction.CaptureHost
                     this
                 );
             }
-        }
-
-        public bool RetryHostRegistration()
-        {
-            if (State != RunState.AwaitingHost || frozenRegistration == null ||
-                initializationRoutine != null ||
-                captureWriter == null ||
-                captureInitialization == null ||
-                !captureInitialization.Succeeded ||
-                registrationRoutine != null || hostClient == null)
-            {
-                return false;
-            }
-            registrationRoutine = StartCoroutine(RegisterCurrentRunRoutine());
-            return true;
-        }
-
-        public bool RetryPendingUpload(string runId)
-        {
-            if (string.IsNullOrWhiteSpace(runId) || hostClient == null ||
-                uploadRoutine != null)
-            {
-                return false;
-            }
-            RefreshPendingRuns();
-            pendingUploadTarget = pendingRuns.Find(run =>
-                run.NeedsUpload && string.Equals(
-                    run.RunId,
-                    runId.Trim(),
-                    StringComparison.Ordinal
-                )
-            );
-            if (pendingUploadTarget == null)
-            {
-                lastError = "No sealed pending Run matches " + runId + ".";
-                return false;
-            }
-            uploadRoutine = StartCoroutine(
-                UploadDiscoveredRunRoutine(pendingUploadTarget)
-            );
-            return true;
-        }
-
-        public InteractionBackgroundOperation<int>
-            BeginRecoverAllPartialRunsAsAborted(
-            string reason = "recovered_after_process_restart")
-        {
-            if (State != RunState.PreStart || registrationRoutine != null ||
-                uploadRoutine != null)
-            {
-                throw new InvalidOperationException(
-                    "Partial recovery requires an idle PreStart controller."
-                );
-            }
-            return InteractionPartialRunRecovery.BeginTerminalizeAllAborted(
-                Application.persistentDataPath,
-                reason,
-                DateTimeOffset.UtcNow,
-                NowMonotonic(),
-                Time.frameCount
-            );
         }
 
         public void NotifyInstructionPlaybackStarted(
@@ -954,16 +753,11 @@ namespace SignVR.Interaction.CaptureHost
 
         public bool TryAbortRun(string reason, out string error)
         {
-            return TryAbortRunInternal(
-                reason,
-                allowHostUpload: true,
-                out error
-            );
+            return TryAbortRunInternal(reason, out error);
         }
 
         private bool TryAbortRunInternal(
             string reason,
-            bool allowHostUpload,
             out string error)
         {
             error = null;
@@ -972,8 +766,7 @@ namespace SignVR.Interaction.CaptureHost
                 error = "Abort reason is required.";
                 return false;
             }
-            if (State != RunState.AwaitingHost && State != RunState.Scheduled &&
-                State != RunState.Running && State != RunState.Completing)
+            if (!InteractionLifecycleTerminationPolicy.RequiresLocalAbort(State))
             {
                 error = "Run cannot abort from " + State + ".";
                 return false;
@@ -992,22 +785,9 @@ namespace SignVR.Interaction.CaptureHost
             string safeReason = reason.Trim();
             double now = NowMonotonic();
             DateTimeOffset utcNow = DateTimeOffset.UtcNow;
-            if (registrationRoutine != null)
-            {
-                hostClient?.CancelActiveRequests();
-                StopCoroutine(registrationRoutine);
-                registrationRoutine = null;
-            }
-            if (initializationRoutine != null)
-            {
-                StopCoroutine(initializationRoutine);
-                initializationRoutine = null;
-            }
             int? abortPhaseId = CurrentPhaseId;
             presentationHandshake?.CancelPending();
             stateMachine.AbortRun(safeReason);
-            bool willUpload = allowHostUpload && requireHostForStart &&
-                hostRegistrationAccepted;
             if (disposition ==
                 InteractionAbortRequestDisposition.QueueAfterCheckpoint)
             {
@@ -1033,35 +813,19 @@ namespace SignVR.Interaction.CaptureHost
                         abortPhaseId,
                         safeReason,
                         now,
-                        utcNow,
-                        willUpload
+                        utcNow
                     )
                 );
                 return true;
             }
             if (captureWriter == null && captureInitialization != null)
             {
-                if (allowHostUpload && isActiveAndEnabled)
-                {
-                    terminalizationRoutine = StartCoroutine(
-                        AbortAfterInitializationRoutine(
-                            safeReason,
-                            now,
-                            utcNow,
-                            Time.frameCount,
-                            willUpload
-                        )
-                    );
-                }
-                else
-                {
-                    StartLifecycleTerminalizationJob(
-                        safeReason,
-                        now,
-                        utcNow,
-                        Time.frameCount
-                    );
-                }
+                StartLifecycleTerminalizationJob(
+                    safeReason,
+                    now,
+                    utcNow,
+                    Time.frameCount
+                );
                 return true;
             }
             try
@@ -1070,8 +834,7 @@ namespace SignVR.Interaction.CaptureHost
                     abortPhaseId,
                     safeReason,
                     now,
-                    utcNow,
-                    willUpload
+                    utcNow
                 );
             }
             catch (Exception exception)
@@ -1086,14 +849,11 @@ namespace SignVR.Interaction.CaptureHost
                 error = lastError;
                 return false;
             }
-            if (allowHostUpload && isActiveAndEnabled)
+            if (isActiveAndEnabled)
             {
                 terminalizationRoutine = StartCoroutine(
                     AwaitTerminalSealRoutine(
-                        InteractionCaptureTerminalKind.Aborted,
-                        willUpload,
-                        safeReason,
-                        utcNow
+                        InteractionCaptureTerminalKind.Aborted
                     )
                 );
             }
@@ -1104,8 +864,7 @@ namespace SignVR.Interaction.CaptureHost
             int? abortPhaseId,
             string reason,
             double monotonicNow,
-            DateTimeOffset utcNow,
-            bool willUpload)
+            DateTimeOffset utcNow)
         {
             CloseAssistanceExposures(abortPhaseId, monotonicNow);
             RecordAt(
@@ -1116,17 +875,6 @@ namespace SignVR.Interaction.CaptureHost
                 null,
                 BuildReasonPayload(reason)
             );
-            if (willUpload)
-            {
-                RecordAt(
-                    InteractionEventNames.UploadStarted,
-                    null,
-                    monotonicNow,
-                    null,
-                    null,
-                    "{\"terminal_status\":\"aborted\"}"
-                );
-            }
             captureTerminalization = captureWriter.BeginSeal(
                 InteractionCaptureTerminalKind.Aborted,
                 completeness => summaryTracker.SealAborted(
@@ -1138,68 +886,7 @@ namespace SignVR.Interaction.CaptureHost
             );
             terminalSealArbiter.MarkAbortedSealQueued();
             captureTerminalKind = InteractionCaptureTerminalKind.Aborted;
-            captureTerminalAbortReason = reason;
-            captureTerminalUtc = utcNow;
-            captureTerminalShouldUpload = willUpload;
             captureTerminalizationReconciled = false;
-        }
-
-        private IEnumerator AbortAfterInitializationRoutine(
-            string reason,
-            double monotonicNow,
-            DateTimeOffset utcNow,
-            int frame,
-            bool willUpload)
-        {
-            try
-            {
-                // Ensure StartCoroutine returns before this routine can clear
-                // its ownership field on an already-completed operation.
-                yield return null;
-                while (captureInitialization != null &&
-                    !captureInitialization.IsCompleted)
-                {
-                    yield return null;
-                }
-                if (captureInitialization == null ||
-                    !captureInitialization.Succeeded)
-                {
-                    lastError =
-                        "Abort retained initialization partial: " +
-                        (captureInitialization?.Error?.Message ??
-                         "capture initialization did not complete.");
-                    if (State == RunState.Aborting)
-                    {
-                        stateMachine.FaultRun(
-                            "abort_capture_initialization_failed"
-                        );
-                    }
-                    terminalSealArbiter.MarkTerminal();
-                    yield break;
-                }
-                captureWriter = captureInitialization.GetResult();
-                BeginAbortSeal(
-                    null,
-                    reason,
-                    monotonicNow,
-                    utcNow,
-                    willUpload
-                );
-                while (!captureTerminalization.IsCompleted)
-                {
-                    yield return null;
-                }
-                CompleteTerminalSeal(
-                    InteractionCaptureTerminalKind.Aborted,
-                    willUpload,
-                    reason,
-                    utcNow
-                );
-            }
-            finally
-            {
-                terminalizationRoutine = null;
-            }
         }
 
         private IEnumerator AbortAfterPhaseCheckpointRoutine(
@@ -1207,8 +894,7 @@ namespace SignVR.Interaction.CaptureHost
             int? abortPhaseId,
             string reason,
             double monotonicNow,
-            DateTimeOffset utcNow,
-            bool willUpload)
+            DateTimeOffset utcNow)
         {
             try
             {
@@ -1245,18 +931,14 @@ namespace SignVR.Interaction.CaptureHost
                     abortPhaseId,
                     reason,
                     monotonicNow,
-                    utcNow,
-                    willUpload
+                    utcNow
                 );
                 while (!captureTerminalization.IsCompleted)
                 {
                     yield return null;
                 }
                 CompleteTerminalSeal(
-                    InteractionCaptureTerminalKind.Aborted,
-                    willUpload,
-                    reason,
-                    utcNow
+                    InteractionCaptureTerminalKind.Aborted
                 );
             }
             finally
@@ -1269,11 +951,7 @@ namespace SignVR.Interaction.CaptureHost
         public bool ResetToPreStart()
         {
             ReconcileLifecycleTerminalization();
-            if (uploadRoutine != null ||
-                lifecycleTerminalizationJob != null ||
-                artifactOperations.ActiveCount != 0 ||
-                (hostClient != null &&
-                 hostClient.ActiveArtifactOperationCount != 0) ||
+            if (lifecycleTerminalizationJob != null ||
                 (captureTerminalization != null &&
                  !captureTerminalization.IsCompleted) ||
                 (State != RunState.Completed && State != RunState.Aborted &&
@@ -1287,22 +965,17 @@ namespace SignVR.Interaction.CaptureHost
             captureTerminalization = null;
             activePhaseCheckpoint = null;
             captureTerminalKind = null;
-            captureTerminalAbortReason = null;
-            captureTerminalShouldUpload = false;
+            captureInitializationReconciled = false;
             captureTerminalizationReconciled = false;
             summaryTracker = null;
-            frozenRegistration = null;
             scheduledStartGate = null;
             presentationHandshake = null;
-            uploadStateMachine = null;
-            hostRegistrationAccepted = false;
             textExposureActive = false;
             pointingExposureActive = false;
             pointingTargetId = null;
             lifecycleShutdown.Reset();
             terminalSealArbiter.Reset();
             lifecycleTerminalizationJob = null;
-            artifactReadObserver = InteractionArtifactReadObserver.None;
             if (captureSampler != null)
             {
                 captureSampler.ResetCadence();
@@ -1310,7 +983,6 @@ namespace SignVR.Interaction.CaptureHost
             }
             stateMachine.ResetToPreStart();
             RefreshPendingRuns();
-            RefreshHeartbeatConfiguration();
             return true;
         }
 
@@ -1402,14 +1074,17 @@ namespace SignVR.Interaction.CaptureHost
             try
             {
                 pendingRuns.AddRange(
-                    InteractionPendingRunDiscovery.Discover(
-                        Application.persistentDataPath
+                    InteractionPendingRunDiscovery.DiscoverQuestLocal(
+                        storageRoot ?? Application.persistentDataPath
                     )
                 );
+                pendingRunDiscoveryFailure = string.Empty;
             }
             catch (Exception exception)
             {
-                lastError = "Pending Run discovery failed: " + exception.Message;
+                pendingRunDiscoveryFailure =
+                    "Pending Run discovery failed: " + exception.Message;
+                lastError = pendingRunDiscoveryFailure;
                 Debug.LogWarning(
                     "[InteractionRunController] " + lastError,
                     this
@@ -1419,6 +1094,8 @@ namespace SignVR.Interaction.CaptureHost
 
         private void Update()
         {
+            PollStandaloneStartupRecovery();
+            ReconcileConsumedRunInitialization();
             ReconcileLifecycleTerminalization();
             if (State == RunState.Scheduled && scheduledStartGate != null &&
                 scheduledStartGate.IsDue(NowMonotonic()) &&
@@ -1450,26 +1127,73 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
-        private IEnumerator InitializeConsumedRunRoutine(RunPlan plan)
+        private void BeginStandaloneStartupRecovery(string persistentDataPath)
         {
-            try
+            storageRoot = Path.GetFullPath(persistentDataPath);
+            startupRecovery =
+                new InteractionStandaloneLocalRunRecoveryCoordinator(storageRoot);
+            startupRecovery.Begin(
+                "app_start_partial_recovery",
+                DateTimeOffset.UtcNow,
+                NowMonotonic(),
+                Time.frameCount
+            );
+        }
+
+        private void PollStandaloneStartupRecovery()
+        {
+            if (startupRecovery == null)
             {
-                yield return null;
-                while (captureInitialization != null &&
-                    !captureInitialization.IsCompleted)
-                {
-                    yield return null;
-                }
-                if (captureInitialization == null)
-                {
-                    yield break;
-                }
-                CompleteConsumedRunInitialization(plan);
+                return;
             }
-            finally
+            if (startupRecovery.TryComplete())
             {
-                initializationRoutine = null;
+                ApplyStandaloneStartupRecoveryResult();
             }
+        }
+
+        private void ApplyStandaloneStartupRecoveryResult()
+        {
+            if (startupRecovery == null)
+            {
+                return;
+            }
+            if (startupRecovery.Status ==
+                InteractionStandaloneLocalRunRecoveryStatus.Failed)
+            {
+                lastError = "Standalone startup recovery failed: " +
+                    startupRecovery.FailureReason;
+                return;
+            }
+            if (startupRecovery.Status ==
+                InteractionStandaloneLocalRunRecoveryStatus.Succeeded)
+            {
+                lastError = string.Empty;
+                RefreshPendingRuns();
+            }
+        }
+
+        private bool IsDebugBuild()
+        {
+#if UNITY_EDITOR
+            if (debugBuildOverrideForTests.HasValue)
+            {
+                return debugBuildOverrideForTests.Value;
+            }
+#endif
+            return Debug.isDebugBuild;
+        }
+
+        private void ReconcileConsumedRunInitialization()
+        {
+            if (captureInitialization == null ||
+                !captureInitialization.IsCompleted ||
+                captureInitializationReconciled)
+            {
+                return;
+            }
+            captureInitializationReconciled = true;
+            CompleteConsumedRunInitialization(stateMachine.Plan);
         }
 
         private void CompleteConsumedRunInitialization(RunPlan plan)
@@ -1510,33 +1234,14 @@ namespace SignVR.Interaction.CaptureHost
                     null,
                     BuildRunCreatedPayload(plan)
                 );
-                if (runMode == InteractionRunMode.StandaloneStudy)
-                {
-                    RecordAt(
-                        InteractionEventNames.HostReady,
-                        null,
-                        now,
-                        null,
-                        null,
-                        BuildHostReadyPayload(lastReadiness)
-                    );
-                }
-                if (!requireHostForStart)
-                {
-                    ScheduleLocally(utcNow, now);
-                }
-                else
-                {
-                    registrationRoutine = StartCoroutine(
-                        RegisterCurrentRunRoutine()
-                    );
-                }
+                ScheduleLocally(utcNow, now);
             }
             catch (Exception exception)
             {
                 lastError = "Consumed Run initialization failed: " +
                     exception.Message;
-                if (State == RunState.AwaitingHost)
+                if (InteractionLifecycleTerminationPolicy
+                    .RequiresLocalAbort(State))
                 {
                     stateMachine.FaultRun(
                         "manifest_or_capture_initialization_failed"
@@ -1546,106 +1251,11 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
-        private IEnumerator RegisterCurrentRunRoutine()
-        {
-            try
-            {
-                if (hostClient == null)
-                {
-                    lastError = "Interaction Host client is not configured.";
-                    yield break;
-                }
-                int attempts = Mathf.Max(1, automaticRegistrationAttempts);
-                for (int attempt = 1; attempt <= attempts; attempt++)
-                {
-                    byte[] exactBytes = frozenRegistration.BeginAttempt();
-                    InteractionHostResult<InteractionHostRegistration> result = null;
-                    yield return hostClient.RegisterRun(
-                        frozenRegistration.Plan.RunId,
-                        exactBytes,
-                        value => result = value
-                    );
-                    if (result != null && result.Success)
-                    {
-                        frozenRegistration.RecordResponse(
-                            result.ResponseCode,
-                            true
-                        );
-                        stateMachine.HostScheduled(result.Value.StartAtUtc);
-                        double observedMonotonic = NowMonotonic();
-                        scheduledStartGate = new InteractionScheduledStartGate(
-                            result.Value.StartAtUtc,
-                            DateTimeOffset.UtcNow,
-                            observedMonotonic
-                        );
-                        hostRegistrationAccepted = true;
-                        lastError = string.Empty;
-                        yield break;
-                    }
-                    long status = result == null ? 0L : result.ResponseCode;
-                    frozenRegistration.RecordResponse(status, false);
-                    if (result != null && result.IsConflict)
-                    {
-                        InteractionHostResult<InteractionHostRunSnapshot>
-                            snapshotResult = null;
-                        yield return hostClient.GetRunSnapshot(
-                            frozenRegistration.Plan.RunId,
-                            value => snapshotResult = value
-                        );
-                        InteractionHostRunSnapshot snapshot =
-                            snapshotResult != null && snapshotResult.Success
-                                ? snapshotResult.Value
-                                : null;
-                        if (snapshot != null && snapshot.IsActive &&
-                            InteractionRegistrationRecoveryPolicy.CanRecover(
-                                snapshot,
-                                frozenRegistration.Plan.BatchId,
-                                frozenRegistration.Plan.ParticipantId,
-                                frozenRegistration.Plan.RunId
-                            ))
-                        {
-                            frozenRegistration.RecordRecoveredConflict();
-                            stateMachine.HostScheduled(snapshot.StartAtUtc);
-                            double observedMonotonic = NowMonotonic();
-                            scheduledStartGate =
-                                new InteractionScheduledStartGate(
-                                    snapshot.StartAtUtc,
-                                    DateTimeOffset.UtcNow,
-                                    observedMonotonic
-                                );
-                            hostRegistrationAccepted = true;
-                            lastError = string.Empty;
-                            yield break;
-                        }
-                        lastError =
-                            "Host returned 409, but GET of this exact Run did " +
-                            "not return a matching active batch/participant/run snapshot.";
-                    }
-                    else
-                    {
-                    lastError = result == null
-                        ? "Host registration produced no result."
-                        : "Host registration failed: " + result.Error;
-                    }
-                    if (attempt < attempts)
-                    {
-                        yield return new WaitForSecondsRealtime(
-                            registrationRetryDelaySeconds
-                        );
-                    }
-                }
-            }
-            finally
-            {
-                registrationRoutine = null;
-            }
-        }
-
         private void ScheduleLocally(
             DateTimeOffset utcNow,
             double monotonicNow)
         {
-            stateMachine.HostScheduled(utcNow);
+            InteractionLocalScheduleTransition.Schedule(stateMachine, utcNow);
             scheduledStartGate = new InteractionScheduledStartGate(
                 utcNow,
                 utcNow,
@@ -1787,10 +1397,7 @@ namespace SignVR.Interaction.CaptureHost
             }
             terminalizationRoutine = StartCoroutine(
                 AwaitTerminalSealRoutine(
-                    InteractionCaptureTerminalKind.Completed,
-                    captureTerminalShouldUpload,
-                    null,
-                    captureTerminalUtc
+                    InteractionCaptureTerminalKind.Completed
                 )
             );
         }
@@ -1802,13 +1409,11 @@ namespace SignVR.Interaction.CaptureHost
                 lastError = completenessReason;
                 TryAbortRunInternal(
                     "completed_capture_missing_required_streams",
-                    allowHostUpload: true,
                     out _
                 );
                 return false;
             }
             DateTimeOffset utcNow = DateTimeOffset.UtcNow;
-            bool willUpload = requireHostForStart && hostRegistrationAccepted;
             try
             {
                 RecordAt(
@@ -1819,17 +1424,6 @@ namespace SignVR.Interaction.CaptureHost
                     null,
                     "{}"
                 );
-                if (willUpload)
-                {
-                    RecordAt(
-                        InteractionEventNames.UploadStarted,
-                        null,
-                        now,
-                        null,
-                        null,
-                        "{\"terminal_status\":\"completed\"}"
-                    );
-                }
                 captureTerminalization = captureWriter.BeginSeal(
                     InteractionCaptureTerminalKind.Completed,
                     completeness => summaryTracker.SealCompleted(
@@ -1840,9 +1434,6 @@ namespace SignVR.Interaction.CaptureHost
                 );
                 terminalSealArbiter.MarkCompletedSealQueued();
                 captureTerminalKind = InteractionCaptureTerminalKind.Completed;
-                captureTerminalAbortReason = null;
-                captureTerminalUtc = utcNow;
-                captureTerminalShouldUpload = willUpload;
                 captureTerminalizationReconciled = false;
             }
             catch (Exception exception)
@@ -1859,10 +1450,7 @@ namespace SignVR.Interaction.CaptureHost
         }
 
         private IEnumerator AwaitTerminalSealRoutine(
-            InteractionCaptureTerminalKind terminalKind,
-            bool willUpload,
-            string abortReason,
-            DateTimeOffset terminalUtc)
+            InteractionCaptureTerminalKind terminalKind)
         {
             try
             {
@@ -1872,12 +1460,7 @@ namespace SignVR.Interaction.CaptureHost
                 {
                     yield return null;
                 }
-                CompleteTerminalSeal(
-                    terminalKind,
-                    willUpload,
-                    abortReason,
-                    terminalUtc
-                );
+                CompleteTerminalSeal(terminalKind);
             }
             finally
             {
@@ -1886,10 +1469,7 @@ namespace SignVR.Interaction.CaptureHost
         }
 
         private void CompleteTerminalSeal(
-            InteractionCaptureTerminalKind terminalKind,
-            bool willUpload,
-            string abortReason,
-            DateTimeOffset terminalUtc)
+            InteractionCaptureTerminalKind terminalKind)
         {
             if (captureTerminalization == null ||
                 !captureTerminalization.IsCompleted)
@@ -1926,421 +1506,8 @@ namespace SignVR.Interaction.CaptureHost
                 stateMachine.MarkRunAborted();
             }
             lastError = string.Empty;
-            if (willUpload && !lifecycleShutdown.IsShutdownInitiated)
-            {
-                BeginTerminalUpload(
-                    terminalKind == InteractionCaptureTerminalKind.Aborted,
-                    abortReason,
-                    terminalUtc
-                );
-            }
             captureTerminalizationReconciled = true;
             terminalSealArbiter.MarkTerminal();
-        }
-
-        private void BeginTerminalUpload(
-            bool aborted,
-            string abortReason,
-            DateTimeOffset terminalUtc)
-        {
-            if (uploadRoutine != null || hostClient == null ||
-                captureWriter == null || !captureWriter.IsSealed)
-            {
-                return;
-            }
-            uploadStateMachine = new InteractionUploadStateMachine(
-                captureWriter.RunId,
-                captureWriter.RunDirectory
-            );
-            uploadRoutine = StartCoroutine(UploadTerminalRunRoutine(
-                aborted,
-                abortReason,
-                terminalUtc
-            ));
-        }
-
-        private IEnumerator UploadTerminalRunRoutine(
-            bool aborted,
-            string abortReason,
-            DateTimeOffset terminalUtc)
-        {
-            try
-            {
-                uploadStateMachine.Begin(DateTimeOffset.UtcNow);
-                yield return AwaitUploadStatePersistence(
-                    uploadStateMachine,
-                    "upload_started"
-                );
-                InteractionHostResult<bool> terminalResult = null;
-                if (aborted)
-                {
-                    yield return hostClient.NotifyAbort(
-                        captureWriter.RunId,
-                        terminalUtc,
-                        abortReason,
-                        value => terminalResult = value
-                    );
-                }
-                else
-                {
-                    yield return hostClient.NotifyComplete(
-                        captureWriter.RunId,
-                        terminalUtc,
-                        value => terminalResult = value
-                    );
-                }
-                if (terminalResult == null || !terminalResult.Success)
-                {
-                    string terminalError = terminalResult == null
-                        ? "Host terminal notification produced no result."
-                        : terminalResult.Error;
-                    uploadStateMachine.Defer(terminalError);
-                    yield return AwaitUploadStatePersistence(
-                        uploadStateMachine,
-                        "terminal_notification_deferred"
-                    );
-                    lastError = terminalError;
-                    yield break;
-                }
-
-                if (!TryBeginArtifactFreeze(
-                        captureWriter.RunDirectory,
-                        out InteractionArtifactOperation<
-                            InteractionFrozenArtifactSet> freezeArtifacts))
-                {
-                    uploadStateMachine.Defer(
-                        "Artifact snapshot is already active for this Run."
-                    );
-                    yield return AwaitUploadStatePersistence(
-                        uploadStateMachine,
-                        "artifact_snapshot_busy"
-                    );
-                    lastError = uploadStateMachine.LastError;
-                    yield break;
-                }
-                while (!freezeArtifacts.IsCompleted)
-                {
-                    yield return null;
-                }
-                if (!freezeArtifacts.Succeeded)
-                {
-                    Exception exception = freezeArtifacts.Error;
-                    uploadStateMachine.Defer(
-                        "Artifact snapshot failed: " +
-                        (exception == null ? "unknown background failure."
-                            : exception.Message)
-                    );
-                    yield return AwaitUploadStatePersistence(
-                        uploadStateMachine,
-                        "artifact_snapshot_deferred"
-                    );
-                    lastError = uploadStateMachine.LastError;
-                    yield break;
-                }
-                InteractionFrozenArtifactSet artifacts =
-                    freezeArtifacts.GetResult();
-
-                foreach (string type in artifacts.ArtifactTypes)
-                {
-                    InteractionHostResult<bool> putResult = null;
-                    InteractionFrozenArtifact artifact = artifacts.For(type);
-                    yield return hostClient.PutArtifact(
-                        captureWriter.RunId,
-                        artifact,
-                        value => putResult = value
-                    );
-                    uploadStateMachine.RecordPutResponse(
-                        type,
-                        putResult == null ? 0L : putResult.ResponseCode
-                    );
-                    yield return AwaitUploadStatePersistence(
-                        uploadStateMachine,
-                        "artifact_put_response"
-                    );
-                }
-                uploadStateMachine.AwaitAck();
-                yield return AwaitUploadStatePersistence(
-                    uploadStateMachine,
-                    "awaiting_ack"
-                );
-
-                for (int attempt = 1;
-                    attempt <= Mathf.Max(1, acknowledgementPollAttempts);
-                    attempt++)
-                {
-                    InteractionHostResult<InteractionHostArtifactAck> ackResult = null;
-                    yield return hostClient.GetAck(
-                        captureWriter.RunId,
-                        value => ackResult = value
-                    );
-                    if (ackResult != null && ackResult.Success)
-                    {
-                        bool complete = uploadStateMachine.ApplyAck(
-                            ackResult.Value,
-                            DateTimeOffset.UtcNow
-                        );
-                        yield return AwaitUploadStatePersistence(
-                            uploadStateMachine,
-                            "ack_response"
-                        );
-                        if (complete)
-                        {
-                            lastError = string.Empty;
-                            yield break;
-                        }
-                    }
-                    else if (ackResult != null)
-                    {
-                        lastError = "Host ACK failed: " + ackResult.Error;
-                    }
-                    if (attempt < acknowledgementPollAttempts)
-                    {
-                        yield return new WaitForSecondsRealtime(
-                            acknowledgementPollDelaySeconds
-                        );
-                    }
-                }
-                lastError =
-                    "Host ACK is incomplete; Quest local Run remains retained.";
-            }
-            finally
-            {
-                uploadRoutine = null;
-                RefreshPendingRuns();
-            }
-        }
-
-        private IEnumerator UploadDiscoveredRunRoutine(
-            InteractionPendingRun pending)
-        {
-            try
-            {
-                byte[] manifestBytes = File.ReadAllBytes(pending.ManifestPath);
-                InteractionHostResult<InteractionHostRegistration> registration = null;
-                yield return hostClient.RegisterRun(
-                    pending.RunId,
-                    manifestBytes,
-                    value => registration = value
-                );
-                if (registration == null)
-                {
-                    lastError = "Pending registration produced no result.";
-                    yield break;
-                }
-                if (!registration.Success)
-                {
-                    if (!registration.IsConflict)
-                    {
-                        lastError = "Pending registration failed: " +
-                            registration.Error;
-                        yield break;
-                    }
-                    InteractionHostResult<InteractionHostRunSnapshot>
-                        snapshotResult = null;
-                    yield return hostClient.GetRunSnapshot(
-                        pending.RunId,
-                        value => snapshotResult = value
-                    );
-                    InteractionHostRunSnapshot snapshot =
-                        snapshotResult != null && snapshotResult.Success
-                            ? snapshotResult.Value
-                            : null;
-                    if (!InteractionRegistrationRecoveryPolicy.CanRecover(
-                            snapshot,
-                            pending.BatchId,
-                            pending.ParticipantId,
-                            pending.RunId
-                        ))
-                    {
-                        lastError =
-                            "Pending registration 409 was not recoverable: " +
-                            "GET did not return the same batch/participant/run.";
-                        yield break;
-                    }
-                }
-
-                string summaryPath = pending.ArtifactPath(
-                    InteractionArtifactTypes.Summary
-                );
-                IDictionary<string, object> summary = InteractionJson.ParseObject(
-                    InteractionAtomicFile.ReadUtf8(summaryPath)
-                );
-                string status = InteractionJson.RequireString(summary, "status");
-                string abortReason = InteractionJson.OptionalString(
-                    summary,
-                    "abort_reason"
-                );
-                InteractionHostResult<bool> terminal = null;
-                if (string.Equals(status, "aborted", StringComparison.Ordinal))
-                {
-                    yield return hostClient.NotifyAbort(
-                        pending.RunId,
-                        DateTimeOffset.UtcNow,
-                        abortReason ?? "recovered_after_restart",
-                        value => terminal = value
-                    );
-                }
-                else if (string.Equals(status, "completed", StringComparison.Ordinal))
-                {
-                    yield return hostClient.NotifyComplete(
-                        pending.RunId,
-                        DateTimeOffset.UtcNow,
-                        value => terminal = value
-                    );
-                }
-                else
-                {
-                    lastError = "Pending summary has unknown terminal status.";
-                    yield break;
-                }
-                if (terminal == null || !terminal.Success)
-                {
-                    lastError = terminal == null
-                        ? "Pending terminal notification produced no result."
-                        : terminal.Error;
-                    yield break;
-                }
-
-                var tracker = new InteractionUploadStateMachine(
-                    pending.RunId,
-                    pending.DirectoryPath
-                );
-                tracker.Begin(DateTimeOffset.UtcNow);
-                yield return AwaitUploadStatePersistence(
-                    tracker,
-                    "recovered_upload_started"
-                );
-                if (!TryBeginArtifactFreeze(
-                        pending.DirectoryPath,
-                        out InteractionArtifactOperation<
-                            InteractionFrozenArtifactSet> freezeArtifacts))
-                {
-                    tracker.Defer(
-                        "Recovered artifact snapshot is already active for this Run."
-                    );
-                    yield return AwaitUploadStatePersistence(
-                        tracker,
-                        "recovered_snapshot_busy"
-                    );
-                    lastError = tracker.LastError;
-                    yield break;
-                }
-                while (!freezeArtifacts.IsCompleted)
-                {
-                    yield return null;
-                }
-                if (!freezeArtifacts.Succeeded)
-                {
-                    tracker.Defer(
-                        "Recovered artifact snapshot failed: " +
-                        (freezeArtifacts.Error == null
-                            ? "unknown background failure."
-                            : freezeArtifacts.Error.Message)
-                    );
-                    yield return AwaitUploadStatePersistence(
-                        tracker,
-                        "recovered_snapshot_deferred"
-                    );
-                    lastError = tracker.LastError;
-                    yield break;
-                }
-                InteractionFrozenArtifactSet artifacts =
-                    freezeArtifacts.GetResult();
-                foreach (string type in artifacts.ArtifactTypes)
-                {
-                    InteractionHostResult<bool> put = null;
-                    yield return hostClient.PutArtifact(
-                        pending.RunId,
-                        artifacts.For(type),
-                        value => put = value
-                    );
-                    tracker.RecordPutResponse(
-                        type,
-                        put == null ? 0L : put.ResponseCode
-                    );
-                    yield return AwaitUploadStatePersistence(
-                        tracker,
-                        "recovered_put_response"
-                    );
-                }
-                tracker.AwaitAck();
-                yield return AwaitUploadStatePersistence(
-                    tracker,
-                    "recovered_awaiting_ack"
-                );
-                for (int attempt = 1;
-                    attempt <= Mathf.Max(1, acknowledgementPollAttempts);
-                    attempt++)
-                {
-                    InteractionHostResult<InteractionHostArtifactAck> ack = null;
-                    yield return hostClient.GetAck(
-                        pending.RunId,
-                        value => ack = value
-                    );
-                    if (ack != null && ack.Success)
-                    {
-                        bool acknowledged = tracker.ApplyAck(
-                                ack.Value,
-                                DateTimeOffset.UtcNow
-                            );
-                        yield return AwaitUploadStatePersistence(
-                            tracker,
-                            "recovered_ack_response"
-                        );
-                        if (acknowledged)
-                        {
-                            lastError = string.Empty;
-                            yield break;
-                        }
-                    }
-                    if (attempt < acknowledgementPollAttempts)
-                    {
-                        yield return new WaitForSecondsRealtime(
-                            acknowledgementPollDelaySeconds
-                        );
-                    }
-                }
-                lastError =
-                    "Recovered Run ACK is incomplete; local data remains retained.";
-            }
-            finally
-            {
-                pendingUploadTarget = null;
-                uploadRoutine = null;
-                RefreshPendingRuns();
-            }
-        }
-
-        private IEnumerator AwaitUploadStatePersistence(
-            InteractionUploadStateMachine machine,
-            string operation)
-        {
-            if (machine == null)
-            {
-                throw new ArgumentNullException(nameof(machine));
-            }
-            InteractionBackgroundOperation<bool> persistence =
-                machine.PendingPersistence;
-            if (persistence == null)
-            {
-                throw new InvalidOperationException(
-                    "Upload state did not schedule persistence for " +
-                    operation + "."
-                );
-            }
-            while (!persistence.IsCompleted)
-            {
-                yield return null;
-            }
-            if (!persistence.Succeeded)
-            {
-                lastError = "Upload state persistence failed during " +
-                    operation + ": " +
-                    (persistence.Error == null
-                        ? "unknown background failure."
-                        : persistence.Error.Message);
-                throw new IOException(lastError, persistence.Error);
-            }
         }
 
         private void CloseAssistanceExposures(double now)
@@ -2435,19 +1602,6 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
-        private void RefreshHeartbeatConfiguration()
-        {
-            if (hostClient == null)
-            {
-                return;
-            }
-            if (stateMachine == null || State == RunState.PreStart)
-            {
-                hostClient.RestoreRequestsForPreStart();
-            }
-            hostClient.ConfigureQuestHeartbeat(requireHostForStart);
-        }
-
         private bool HasUnsealedPendingRun()
         {
             for (int index = 0; index < pendingRuns.Count; index++)
@@ -2480,8 +1634,7 @@ namespace SignVR.Interaction.CaptureHost
         private void HandleCaptureFailure(string faultReason, Exception exception)
         {
             lastError = faultReason + ": " + exception.Message;
-            if (State == RunState.AwaitingHost || State == RunState.Scheduled ||
-                State == RunState.Running || State == RunState.Completing ||
+            if (InteractionLifecycleTerminationPolicy.RequiresLocalAbort(State) ||
                 State == RunState.Aborting)
             {
                 stateMachine.FaultRun(faultReason);
@@ -2535,10 +1688,8 @@ namespace SignVR.Interaction.CaptureHost
             }
             catch
             {
-                if (State == RunState.AwaitingHost ||
-                    State == RunState.Scheduled ||
-                    State == RunState.Running ||
-                    State == RunState.Completing ||
+                if (InteractionLifecycleTerminationPolicy
+                        .RequiresLocalAbort(State) ||
                     State == RunState.Aborting)
                 {
                     stateMachine.FaultRun("event_capture_failed");
@@ -2561,29 +1712,6 @@ namespace SignVR.Interaction.CaptureHost
                 ) + "}";
         }
 
-        private static string BuildHostReadyPayload(
-            InteractionHostReadiness readiness)
-        {
-            return "{\"backend_ready\":" + Boolean(readiness.BackendReady) +
-                ",\"storage_ready\":" + Boolean(readiness.StorageReady) +
-                ",\"paired_quest_ready\":" +
-                Boolean(readiness.PairedQuestReady) +
-                ",\"quest_fresh\":" +
-                Boolean(readiness.QuestHeartbeatFresh) +
-                ",\"browser_camera_ready\":" +
-                Boolean(readiness.BrowserCameraReady) +
-                ",\"browser_camera_fresh\":" +
-                Boolean(readiness.BrowserCameraFresh) +
-                ",\"participant_ready\":" +
-                Boolean(readiness.ParticipantReady) +
-                ",\"participant_fresh\":" +
-                Boolean(readiness.ParticipantFresh) +
-                ",\"participant_id\":" +
-                Quote(readiness.ParticipantId) +
-                ",\"quest_device_id\":" +
-                Quote(readiness.QuestDeviceId) + "}";
-        }
-
         private static string BuildReasonPayload(string reason)
         {
             return "{\"reason\":" + Quote(reason.Trim()) + "}";
@@ -2594,11 +1722,6 @@ namespace SignVR.Interaction.CaptureHost
             var builder = new StringBuilder();
             InteractionJson.AppendQuoted(builder, value);
             return builder.ToString();
-        }
-
-        private static string Boolean(bool value)
-        {
-            return value ? "true" : "false";
         }
 
         private static int CreateRandomSeed()
@@ -2616,50 +1739,6 @@ namespace SignVR.Interaction.CaptureHost
             return Time.realtimeSinceStartupAsDouble;
         }
 
-        private bool TryBeginArtifactFreeze(
-            string runDirectory,
-            out InteractionArtifactOperation<InteractionFrozenArtifactSet>
-                operation)
-        {
-            string canonicalDirectory = Path.GetFullPath(
-                runDirectory ?? throw new ArgumentNullException(
-                    nameof(runDirectory)
-                )
-            );
-            string key = InteractionArtifactOperationKeys.ForFreeze(
-                canonicalDirectory
-            );
-            IInteractionArtifactReadObserver observerSnapshot =
-                artifactReadObserver;
-            return artifactOperations.TryStart(
-                key,
-                cancellation => InteractionFrozenArtifactSet.ReadOnceOnWorker(
-                    canonicalDirectory,
-                    cancellation,
-                    observerSnapshot
-                ),
-                out operation
-            );
-        }
-
-        private static string ResolveQuestDeviceId()
-        {
-            string value = PlayerPrefs.GetString(
-                DeviceIdPlayerPrefsKey,
-                string.Empty
-            );
-            if (string.IsNullOrWhiteSpace(value))
-            {
-                value = Guid.NewGuid().ToString("N");
-                PlayerPrefs.SetString(DeviceIdPlayerPrefsKey, value);
-                PlayerPrefs.Save();
-            }
-            return InteractionStoragePaths.ValidateSegment(
-                value,
-                "questDeviceId"
-            );
-        }
-
         private void BeginLifecycleShutdown(string reason)
         {
             if (string.IsNullOrWhiteSpace(reason))
@@ -2670,16 +1749,9 @@ namespace SignVR.Interaction.CaptureHost
                 );
             }
             bool first = lifecycleShutdown.TryBegin(reason);
-            artifactOperations.CancelAll();
-            hostClient?.DisableQuestHeartbeat();
-            hostClient?.CancelActiveRequests();
             StopAllCoroutines();
-            initializationRoutine = null;
-            registrationRoutine = null;
             phaseCheckpointRoutine = null;
             terminalizationRoutine = null;
-            uploadRoutine = null;
-            pendingUploadTarget = null;
             if (captureSampler != null)
             {
                 captureSampler.enabled = false;
@@ -2689,11 +1761,10 @@ namespace SignVR.Interaction.CaptureHost
                 return;
             }
 
-            // A terminal seal already queued behind prior checkpoints is left
-            // to finish locally, but shutdown permanently suppresses upload.
+            // A terminal seal already queued behind prior checkpoints remains
+            // the unique local terminalization owner.
             if (captureTerminalization != null)
             {
-                captureTerminalShouldUpload = false;
                 return;
             }
             if (!InteractionLifecycleTerminationPolicy.RequiresLocalAbort(State) &&
@@ -2856,20 +1927,13 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return;
             }
-            CompleteTerminalSeal(
-                captureTerminalKind.Value,
-                false,
-                captureTerminalAbortReason,
-                captureTerminalUtc
-            );
+            CompleteTerminalSeal(captureTerminalKind.Value);
             RefreshPendingRuns();
         }
 
         private void TryRestorePreStartLifecycle()
         {
-            if (stateMachine == null ||
-                !InteractionHeartbeatLifecyclePolicy
-                    .ShouldRestoreAfterResume(State))
+            if (stateMachine == null || State != RunState.PreStart)
             {
                 return;
             }
@@ -2878,7 +1942,6 @@ namespace SignVR.Interaction.CaptureHost
             {
                 captureSampler.enabled = true;
             }
-            RefreshHeartbeatConfiguration();
         }
 
         private void OnEnable()
@@ -2980,28 +2043,6 @@ namespace SignVR.Interaction.CaptureHost
 
         private void OnValidate()
         {
-            readinessMaximumAgeSeconds = Mathf.Max(
-                0.5f,
-                readinessMaximumAgeSeconds
-            );
-            automaticRegistrationAttempts = Mathf.Clamp(
-                automaticRegistrationAttempts,
-                1,
-                10
-            );
-            registrationRetryDelaySeconds = Mathf.Max(
-                0.25f,
-                registrationRetryDelaySeconds
-            );
-            acknowledgementPollAttempts = Mathf.Clamp(
-                acknowledgementPollAttempts,
-                1,
-                20
-            );
-            acknowledgementPollDelaySeconds = Mathf.Max(
-                0.25f,
-                acknowledgementPollDelaySeconds
-            );
             captureQueueCapacity = Mathf.Max(16, captureQueueCapacity);
             captureGapThresholdSeconds = Mathf.Max(
                 0.05f,

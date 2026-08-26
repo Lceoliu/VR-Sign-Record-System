@@ -16,6 +16,21 @@ namespace SignVR.Interaction.CaptureHost
             InteractionRunMode mode,
             bool debugOverridesActive,
             bool engineeringLocalExplicitlyArmed,
+            bool debugBuild)
+        {
+            Validate(
+                mode,
+                debugOverridesActive,
+                engineeringLocalExplicitlyArmed,
+                debugBuild,
+                hostRequired: false
+            );
+        }
+
+        public static void Validate(
+            InteractionRunMode mode,
+            bool debugOverridesActive,
+            bool engineeringLocalExplicitlyArmed,
             bool debugBuild,
             bool hostRequired)
         {
@@ -237,6 +252,24 @@ namespace SignVR.Interaction.CaptureHost
                 state == RunState.Scheduled ||
                 state == RunState.Running ||
                 state == RunState.Completing;
+        }
+    }
+
+    /// <summary>
+    /// Keeps the standalone controller independent from the legacy transport
+    /// vocabulary still present in the W1 state machine transition name.
+    /// </summary>
+    public static class InteractionLocalScheduleTransition
+    {
+        public static void Schedule(
+            InteractionRunStateMachine stateMachine,
+            DateTimeOffset startAtUtc)
+        {
+            if (stateMachine == null)
+            {
+                throw new ArgumentNullException(nameof(stateMachine));
+            }
+            stateMachine.HostScheduled(startAtUtc);
         }
     }
 

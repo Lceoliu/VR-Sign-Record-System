@@ -6,6 +6,61 @@ namespace SignVR.Interaction.CaptureHost
 {
     public sealed partial class InteractionRunController
     {
+        internal void InstallStandalonePreStartForTests(
+            InteractionRunStateMachine machine,
+            InstructionContentCatalog catalog,
+            string persistentDataPath,
+            bool debugBuild)
+        {
+            if (machine == null || machine.Plan != null ||
+                machine.State != RunState.PreStart)
+            {
+                throw new ArgumentException(
+                    "Standalone Controller tests require a PreStart W1 machine.",
+                    nameof(machine)
+                );
+            }
+            stateMachine = machine;
+            contentCatalog = catalog ?? throw new ArgumentNullException(
+                nameof(catalog)
+            );
+            storageRoot = System.IO.Path.GetFullPath(persistentDataPath);
+            appSessionId = "app_standalone_controller_test";
+            startupRecovery = null;
+            debugBuildOverrideForTests = debugBuild;
+            lifecycleShutdown.Reset();
+            terminalSealArbiter.Reset();
+            pendingRunDiscoveryFailure = string.Empty;
+            lastError = string.Empty;
+        }
+
+        internal void BeginStandaloneStartupRecoveryForTests()
+        {
+            BeginStandaloneStartupRecovery(storageRoot);
+        }
+
+        internal bool CompleteStandaloneStartupRecoveryForTests(
+            TimeSpan timeout)
+        {
+            if (startupRecovery == null || !startupRecovery.Wait(timeout))
+            {
+                return false;
+            }
+            ApplyStandaloneStartupRecoveryResult();
+            return true;
+        }
+
+        internal bool WaitForCaptureInitializationForTests(TimeSpan timeout)
+        {
+            return captureInitialization != null &&
+                captureInitialization.Wait(timeout);
+        }
+
+        internal void ReconcileConsumedRunInitializationForTests()
+        {
+            ReconcileConsumedRunInitialization();
+        }
+
         internal void ArmUnityLifecycleForTests()
         {
             if (UnityEngine.Application.isPlaying)
@@ -23,7 +78,7 @@ namespace SignVR.Interaction.CaptureHost
             InteractionCaptureWriter writer,
             InteractionBackgroundOperation<InteractionCaptureWriter>
                 initialization,
-            InteractionHostClient client)
+            string persistentDataPath = null)
         {
             if (machine == null || machine.Plan == null)
             {
@@ -49,24 +104,22 @@ namespace SignVR.Interaction.CaptureHost
                 );
             }
             stateMachine = machine;
+            if (!string.IsNullOrWhiteSpace(persistentDataPath))
+            {
+                storageRoot = System.IO.Path.GetFullPath(persistentDataPath);
+            }
             summaryTracker = summary;
             captureWriter = writer;
             captureInitialization = initialization;
-            hostClient = client ?? throw new ArgumentNullException(nameof(client));
-            requireHostForStart = false;
-            hostRegistrationAccepted = false;
+            captureInitializationReconciled = writer != null;
             captureTerminalization = null;
             captureTerminalKind = null;
-            captureTerminalAbortReason = null;
-            captureTerminalShouldUpload = false;
             captureTerminalizationReconciled = false;
             lifecycleTerminalizationJob = null;
-            initializationRoutine = null;
-            registrationRoutine = null;
             phaseCheckpointRoutine = null;
             terminalizationRoutine = null;
-            uploadRoutine = null;
             activePhaseCheckpoint = null;
+            pendingRunDiscoveryFailure = string.Empty;
             lastError = string.Empty;
             lifecycleShutdown.Reset();
             terminalSealArbiter.Reset();
@@ -102,12 +155,7 @@ namespace SignVR.Interaction.CaptureHost
                     "No deterministic terminal seal is owned."
                 );
             }
-            CompleteTerminalSeal(
-                captureTerminalKind.Value,
-                false,
-                captureTerminalAbortReason,
-                captureTerminalUtc
-            );
+            CompleteTerminalSeal(captureTerminalKind.Value);
         }
 
         internal void ReconcileLifecycleTerminalizationForTests()
@@ -115,28 +163,17 @@ namespace SignVR.Interaction.CaptureHost
             ReconcileLifecycleTerminalization();
         }
 
-        internal bool BeginArtifactFreezeForTests(
-            string runDirectory,
-            IInteractionArtifactReadObserver observer,
-            out InteractionArtifactOperation<InteractionFrozenArtifactSet>
-                operation)
+        internal bool WaitForLifecycleTerminalizationForTests(TimeSpan timeout)
         {
-            artifactReadObserver = observer ??
-                throw new ArgumentNullException(nameof(observer));
-            return TryBeginArtifactFreeze(runDirectory, out operation);
-        }
-
-        internal void InstallArtifactReadObserverForTests(
-            IInteractionArtifactReadObserver observer)
-        {
-            artifactReadObserver = observer ??
-                throw new ArgumentNullException(nameof(observer));
-        }
-
-        internal void InstallArtifactWorkQueueForTests(
-            IInteractionBackgroundWorkQueue workQueue)
-        {
-            artifactOperations.ConfigureWorkQueue(workQueue);
+            InteractionLifecycleTerminalizationJob job =
+                lifecycleTerminalizationJob;
+            if (job != null && !job.Wait(timeout))
+            {
+                return false;
+            }
+            ReconcileLifecycleTerminalization();
+            return lifecycleTerminalizationJob == null &&
+                State == RunState.Aborted;
         }
 
         internal void InstallLifecycleWorkQueueForTests(
@@ -146,14 +183,13 @@ namespace SignVR.Interaction.CaptureHost
                 throw new ArgumentNullException(nameof(workQueue));
         }
 
-        internal int ActiveArtifactOperationCountForTests =>
-            artifactOperations.ActiveCount;
-
-        internal InteractionArtifactOperationRegistry
-            ArtifactOperationRegistryForTests => artifactOperations;
-
         internal InteractionTerminalSealArbitrationState
             TerminalSealStateForTests => terminalSealArbiter.State;
+
+        internal void ProcessApplicationPauseForTests()
+        {
+            ProcessLifecycleSignal(ControllerLifecycleSignal.ApplicationPaused);
+        }
     }
 
     public sealed partial class InteractionHostClient
