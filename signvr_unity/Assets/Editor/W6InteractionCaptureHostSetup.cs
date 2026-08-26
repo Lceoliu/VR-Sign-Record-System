@@ -131,13 +131,6 @@ namespace SignVR.Editor.Interaction
             InteractionCaptureSampler sampler =
                 GetOrAdd<InteractionCaptureSampler>(captureAnchor.gameObject);
 
-            foreach (InteractionHostClient client in
-                     EnumerateSceneComponents<InteractionHostClient>(scene)
-                         .ToArray())
-            {
-                Undo.DestroyObjectImmediate(client);
-            }
-            ClearOptionalObjectReference(controller, "hostClient");
             SetObjectReference(
                 controller,
                 "captureSampler",
@@ -182,30 +175,25 @@ namespace SignVR.Editor.Interaction
                 );
             }
             InteractionCaptureSetupPolicy.ValidateStructure(
-                0,
                 controllers.Length,
                 samplers.Length,
                 controllers[0].CaptureSampler == samplers[0] &&
                     samplers[0].Controller == controllers[0],
                 controllers[0].RunMode,
-                controllers[0].DebugOverridesActive,
-                false
+                controllers[0].DebugOverridesActive
             );
 
             int controllerCount = EnumerateSceneComponents<InteractionRunController>(
                 scene
             ).Count();
-            int clientCount = EnumerateSceneComponents<InteractionHostClient>(
-                scene
-            ).Count();
             int samplerCount = EnumerateSceneComponents<InteractionCaptureSampler>(
                 scene
             ).Count();
-            if (controllerCount != 1 || clientCount != 0 || samplerCount != 1)
+            if (controllerCount != 1 || samplerCount != 1)
             {
                 throw new InvalidOperationException(
-                    "InteractionLab must contain no Host client and exactly one " +
-                    "W6 controller and sampler in the whole scene."
+                    "InteractionLab must contain exactly one W6 controller and " +
+                    "sampler in the whole scene."
                 );
             }
         }
@@ -240,23 +228,18 @@ namespace SignVR.Editor.Interaction
             RequireInteractionScene(scene, requireCanonicalScenePath);
             Transform runtimeAnchor = RequireTransform(scene, RuntimeAnchorPath);
             Transform captureAnchor = RequireTransform(scene, CaptureAnchorPath);
-            InteractionHostClient[] clients =
-                EnumerateSceneComponents<InteractionHostClient>(scene).ToArray();
             InteractionRunController[] controllers =
                 EnumerateSceneComponents<InteractionRunController>(scene).ToArray();
             InteractionCaptureSampler[] samplers =
                 EnumerateSceneComponents<InteractionCaptureSampler>(scene).ToArray();
-            if (clients.Length > 1 || controllers.Length > 1 ||
-                samplers.Length > 1)
+            if (controllers.Length > 1 || samplers.Length > 1)
             {
                 throw new InvalidOperationException(
-                    "W6 setup preflight requires zero or one existing client, " +
-                    "controller, and sampler in the target scene."
+                    "W6 setup preflight requires zero or one existing controller " +
+                    "and sampler in the target scene."
                 );
             }
-            if ((clients.Length == 1 &&
-                 clients[0].transform != runtimeAnchor) ||
-                (controllers.Length == 1 &&
+            if ((controllers.Length == 1 &&
                  controllers[0].transform != runtimeAnchor) ||
                 (samplers.Length == 1 &&
                  samplers[0].transform != captureAnchor))
@@ -273,30 +256,6 @@ namespace SignVR.Editor.Interaction
                     "Existing W6 controller is not the default standalone Study configuration."
                 );
             }
-        }
-
-        private static void ClearOptionalObjectReference(
-            UnityEngine.Object target,
-            string propertyName)
-        {
-            var serialized = new SerializedObject(target);
-            serialized.Update();
-            SerializedProperty property = serialized.FindProperty(propertyName);
-            if (property == null)
-            {
-                return;
-            }
-            if (property.propertyType != SerializedPropertyType.ObjectReference)
-            {
-                throw new InvalidOperationException(
-                    target.GetType().Name + " has a non-reference " +
-                    propertyName + "."
-                );
-            }
-            Undo.RecordObject(target, "W6 Remove Legacy Host Reference");
-            property.objectReferenceValue = null;
-            serialized.ApplyModifiedProperties();
-            EditorUtility.SetDirty(target);
         }
 
         private static void SetObjectReference(

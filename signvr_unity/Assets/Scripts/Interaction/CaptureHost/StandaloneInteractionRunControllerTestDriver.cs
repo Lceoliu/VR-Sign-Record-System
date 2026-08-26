@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using UnityEngine;
 using SignVR.Interaction.Core;
@@ -435,12 +436,16 @@ namespace SignVR.Interaction.CaptureHost
                     "Standalone terminal Run is missing " + files[index] + "."
                 );
             }
+            string[] actualFiles = Directory.GetFiles(writer.RunDirectory)
+                .Select(Path.GetFileName)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            string[] expectedFiles = files
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
             Require(
-                !File.Exists(Path.Combine(
-                    writer.RunDirectory,
-                    InteractionStoragePaths.UploadStateFileName
-                )),
-                "Standalone terminal Run created remote-transfer state."
+                actualFiles.SequenceEqual(expectedFiles),
+                "Standalone terminal Run must contain exactly five local artifacts."
             );
 
             controller.RefreshPendingRuns();
@@ -455,7 +460,6 @@ namespace SignVR.Interaction.CaptureHost
             }
             Require(
                 pending != null && pending.IsLocallyComplete &&
-                !pending.IsAcknowledged && !pending.NeedsUpload &&
                 !pending.NeedsRecovery && !pending.NeedsAttention,
                 "A sealed Quest-local Run was not classified as locally complete."
             );

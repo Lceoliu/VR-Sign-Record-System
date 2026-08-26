@@ -50,14 +50,13 @@ namespace SignVR.Interaction.Editor.Tests.CaptureHost
         }
 
         [Test]
-        public void StandaloneStudy_StartsWithoutHostArmOrDebugBuild()
+        public void StandaloneStudy_StartsWithStrictStudyDefaults()
         {
             Assert.DoesNotThrow(() => ValidateStart(
                 "StandaloneStudy",
                 debugOverridesActive: false,
                 engineeringLocalExplicitlyArmed: false,
-                debugBuild: false,
-                hostRequired: false
+                debugBuild: false
             ));
         }
 
@@ -68,32 +67,18 @@ namespace SignVR.Interaction.Editor.Tests.CaptureHost
                 "StandaloneStudy",
                 debugOverridesActive: true,
                 engineeringLocalExplicitlyArmed: false,
-                debugBuild: true,
-                hostRequired: false
+                debugBuild: true
             ));
         }
 
         [Test]
-        public void StandaloneStudy_RejectsHostRequiredConfiguration()
-        {
-            Assert.Throws<InvalidOperationException>(() => ValidateStart(
-                "StandaloneStudy",
-                debugOverridesActive: false,
-                engineeringLocalExplicitlyArmed: false,
-                debugBuild: false,
-                hostRequired: true
-            ));
-        }
-
-        [Test]
-        public void EngineeringLocal_StartsOnlyWhenArmedInDebugBuildWithoutHost()
+        public void EngineeringLocal_StartsOnlyWhenArmedInDebugBuild()
         {
             Assert.DoesNotThrow(() => ValidateStart(
                 "EngineeringLocal",
                 debugOverridesActive: false,
                 engineeringLocalExplicitlyArmed: true,
-                debugBuild: true,
-                hostRequired: false
+                debugBuild: true
             ));
         }
 
@@ -104,8 +89,7 @@ namespace SignVR.Interaction.Editor.Tests.CaptureHost
                 "EngineeringLocal",
                 debugOverridesActive: false,
                 engineeringLocalExplicitlyArmed: true,
-                debugBuild: false,
-                hostRequired: false
+                debugBuild: false
             ));
         }
 
@@ -116,48 +100,31 @@ namespace SignVR.Interaction.Editor.Tests.CaptureHost
                 "EngineeringLocal",
                 debugOverridesActive: false,
                 engineeringLocalExplicitlyArmed: false,
-                debugBuild: true,
-                hostRequired: false
+                debugBuild: true
             ));
         }
 
         [Test]
-        public void EngineeringLocal_RejectsHostRequiredConfiguration()
-        {
-            Assert.Throws<InvalidOperationException>(() => ValidateStart(
-                "EngineeringLocal",
-                debugOverridesActive: false,
-                engineeringLocalExplicitlyArmed: true,
-                debugBuild: true,
-                hostRequired: true
-            ));
-        }
-
-        [Test]
-        public void StandaloneStructure_AcceptsNoHostWithStrictStudyDefaults()
+        public void StandaloneStructure_AcceptsStrictStudyDefaults()
         {
             Assert.DoesNotThrow(() => ValidateStructure(
-                hostClientCount: 0,
                 controllerCount: 1,
                 samplerCount: 1,
                 referencesWired: true,
                 runModeName: "StandaloneStudy",
-                debugOverridesActive: false,
-                requireHostForStart: false
+                debugOverridesActive: false
             ));
         }
 
         [Test]
-        public void StandaloneStructure_RejectsHostClient()
+        public void StandaloneStructure_RejectsDebugOverrides()
         {
             Assert.Throws<InvalidOperationException>(() => ValidateStructure(
-                hostClientCount: 1,
                 controllerCount: 1,
                 samplerCount: 1,
                 referencesWired: true,
                 runModeName: "StandaloneStudy",
-                debugOverridesActive: false,
-                requireHostForStart: false
+                debugOverridesActive: true
             ));
         }
 
@@ -165,8 +132,7 @@ namespace SignVR.Interaction.Editor.Tests.CaptureHost
             string runModeName,
             bool debugOverridesActive,
             bool engineeringLocalExplicitlyArmed,
-            bool debugBuild,
-            bool hostRequired)
+            bool debugBuild)
         {
             InvokePublicStatic(
                 StartPolicyTypeName,
@@ -174,30 +140,25 @@ namespace SignVR.Interaction.Editor.Tests.CaptureHost
                 ParseRunMode(runModeName),
                 debugOverridesActive,
                 engineeringLocalExplicitlyArmed,
-                debugBuild,
-                hostRequired
+                debugBuild
             );
         }
 
         private static void ValidateStructure(
-            int hostClientCount,
             int controllerCount,
             int samplerCount,
             bool referencesWired,
             string runModeName,
-            bool debugOverridesActive,
-            bool requireHostForStart)
+            bool debugOverridesActive)
         {
             InvokePublicStatic(
                 SetupPolicyTypeName,
                 "ValidateStructure",
-                hostClientCount,
                 controllerCount,
                 samplerCount,
                 referencesWired,
                 ParseRunMode(runModeName),
-                debugOverridesActive,
-                requireHostForStart
+                debugOverridesActive
             );
         }
 

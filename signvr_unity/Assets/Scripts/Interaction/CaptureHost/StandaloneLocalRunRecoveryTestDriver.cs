@@ -24,7 +24,7 @@ namespace SignVR.Interaction.CaptureHost
                     .DiscoverQuestLocal(root)
                     .Single();
 
-                RequireLocallyCompleteWithoutAck(run, "Completed");
+                RequireLocallyComplete(run, "Completed");
             }
             finally
             {
@@ -43,7 +43,7 @@ namespace SignVR.Interaction.CaptureHost
                     .DiscoverQuestLocal(root)
                     .Single();
 
-                RequireLocallyCompleteWithoutAck(run, "Aborted");
+                RequireLocallyComplete(run, "Aborted");
             }
             finally
             {
@@ -85,8 +85,8 @@ namespace SignVR.Interaction.CaptureHost
                 InteractionPendingRun untouched = runs.Single(
                     value => value.DirectoryPath == completedDirectory
                 );
-                RequireLocallyCompleteWithoutAck(recovered, "Recovered");
-                RequireLocallyCompleteWithoutAck(untouched, "Existing completed");
+                RequireLocallyComplete(recovered, "Recovered");
+                RequireLocallyComplete(untouched, "Existing completed");
                 RequireEvidenceUnchanged(
                     completedDirectory,
                     completedEvidence
@@ -141,13 +141,7 @@ namespace SignVR.Interaction.CaptureHost
                         "app_start_partial_recovery",
                     "Recovery summary did not seal the Run as Aborted."
                 );
-                Require(
-                    !File.Exists(Path.Combine(
-                        recovered.DirectoryPath,
-                        InteractionStoragePaths.UploadStateFileName
-                    )),
-                    "Standalone recovery fabricated Host acknowledgement state."
-                );
+                RequireFiveSealedFiles(recovered.DirectoryPath);
             }
             finally
             {
@@ -552,15 +546,13 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
-        private static void RequireLocallyCompleteWithoutAck(
+        private static void RequireLocallyComplete(
             InteractionPendingRun run,
             string description)
         {
             Require(
                 run.IsSealed && run.IsLocallyComplete &&
-                run.IsQuestLocalAuthoritative && !run.IsAcknowledged &&
-                !run.NeedsUpload && !run.NeedsRecovery &&
-                !run.NeedsAttention,
+                !run.NeedsRecovery && !run.NeedsAttention,
                 description +
                     " Run was not complete under Quest-local authority."
             );
@@ -574,6 +566,17 @@ namespace SignVR.Interaction.CaptureHost
             Require(
                 names.All(name => File.Exists(Path.Combine(directory, name))),
                 "The locally sealed Run does not contain all five files."
+            );
+            string[] actual = Directory.GetFiles(directory)
+                .Select(Path.GetFileName)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            string[] expected = names
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            Require(
+                actual.SequenceEqual(expected),
+                "The locally sealed Run contains non-authoritative files."
             );
         }
 

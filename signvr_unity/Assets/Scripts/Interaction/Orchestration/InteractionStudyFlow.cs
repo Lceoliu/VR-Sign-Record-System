@@ -743,7 +743,7 @@ namespace SignVR.Interaction.Orchestration
             {
                 PhaseExecutionSnapshot snapshot = run.CurrentPhase ??
                     throw new InvalidOperationException(
-                    "W1 exposed no phase after first-frame confirmation."
+                        "W1 exposed no phase after first-frame confirmation."
                     );
                 tasks.Synchronize(snapshot);
                 tasks.Enable();

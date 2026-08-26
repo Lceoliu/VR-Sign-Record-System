@@ -27,36 +27,6 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void FrozenRegistrationRetriesExactBytesAfter409()
-        {
-            Invoke(nameof(FrozenRegistrationRetriesExactBytesAfter409));
-        }
-
-        [Test]
-        public void ConflictRecoveryRequiresMatchingSnapshot()
-        {
-            Invoke(nameof(ConflictRecoveryRequiresMatchingSnapshot));
-        }
-
-        [Test]
-        public void HostNotReadyAndConflictNeverRedrawPlan()
-        {
-            Invoke(nameof(HostNotReadyAndConflictNeverRedrawPlan));
-        }
-
-        [Test]
-        public void StudyReadinessRequiresMatchingFreshParticipant()
-        {
-            Invoke(nameof(StudyReadinessRequiresMatchingFreshParticipant));
-        }
-
-        [Test]
-        public void StudyReadinessRejectsQuestIdCaseMismatch()
-        {
-            Invoke(nameof(StudyReadinessRejectsQuestIdCaseMismatch));
-        }
-
-        [Test]
         public void ScheduledStartGateBlocksPreStartCapture()
         {
             Invoke(nameof(ScheduledStartGateBlocksPreStartCapture));
@@ -105,78 +75,6 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void RestartDiscoversPendingRun()
-        {
-            Invoke(nameof(RestartDiscoversPendingRun));
-        }
-
-        [Test]
-        public void RestartFlagsAbnormalPartialRunForRecovery()
-        {
-            Invoke(nameof(RestartFlagsAbnormalPartialRunForRecovery));
-        }
-
-        [Test]
-        public void PartialRunCanBeTerminalizedAfterRestart()
-        {
-            Invoke(nameof(PartialRunCanBeTerminalizedAfterRestart));
-        }
-
-        [Test]
-        public void AtomicBackupRecoversBeforeRead()
-        {
-            Invoke(nameof(AtomicBackupRecoversBeforeRead));
-        }
-
-        [Test]
-        public void AckRequiresWebcamAndAllFiveArtifacts()
-        {
-            Invoke(nameof(AckRequiresWebcamAndAllFiveArtifacts));
-        }
-
-        [Test]
-        public void AckStateNeverMutatesSealedArtifacts()
-        {
-            Invoke(nameof(AckStateNeverMutatesSealedArtifacts));
-        }
-
-        [Test]
-        public void ArtifactRetrySnapshotStaysByteIdentical()
-        {
-            Invoke(nameof(ArtifactRetrySnapshotStaysByteIdentical));
-        }
-
-        [Test]
-        public void FrozenArtifactsEnforceHostByteLimits()
-        {
-            Invoke(nameof(FrozenArtifactsEnforceHostByteLimits));
-        }
-
-        [Test]
-        public void W3AccurateResponsesAndTerminalBodiesMatch()
-        {
-            Invoke(nameof(W3AccurateResponsesAndTerminalBodiesMatch));
-        }
-
-        [Test]
-        public void QuestHeartbeatContractIsExplicit()
-        {
-            Invoke(nameof(QuestHeartbeatContractIsExplicit));
-        }
-
-        [Test]
-        public void HeartbeatLifecycleHasOneRoutineAcrossPauseResume()
-        {
-            Invoke(nameof(HeartbeatLifecycleHasOneRoutineAcrossPauseResume));
-        }
-
-        [Test]
-        public void ReadinessGenerationRejectsStaleCallbacks()
-        {
-            Invoke(nameof(ReadinessGenerationRejectsStaleCallbacks));
-        }
-
-        [Test]
         public void WriterWaitsHaveShortFiniteLimits()
         {
             Invoke(nameof(WriterWaitsHaveShortFiniteLimits));
@@ -186,12 +84,6 @@ namespace SignVR.Interaction.Editor.Tests
         public void BackgroundOperationRunsOffCallingThread()
         {
             Invoke(nameof(BackgroundOperationRunsOffCallingThread));
-        }
-
-        [Test]
-        public void ArtifactIntegrityWorkRunsOffCallingThread()
-        {
-            Invoke(nameof(ArtifactIntegrityWorkRunsOffCallingThread));
         }
 
         [Test]
@@ -231,12 +123,6 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void LifecycleShutdownAndRequestCancellationAreIdempotent()
-        {
-            Invoke(nameof(LifecycleShutdownAndRequestCancellationAreIdempotent));
-        }
-
-        [Test]
         public void TerminalSealArbitrationPreventsDoubleSeal()
         {
             Invoke(nameof(TerminalSealArbitrationPreventsDoubleSeal));
@@ -261,24 +147,6 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void ArtifactFreezeOwnerCancelsAndReapsWithoutOverlap()
-        {
-            Invoke(nameof(ArtifactFreezeOwnerCancelsAndReapsWithoutOverlap));
-        }
-
-        [Test]
-        public void ArtifactVerifyOwnerCancelsAndReapsWithoutOverlap()
-        {
-            Invoke(nameof(ArtifactVerifyOwnerCancelsAndReapsWithoutOverlap));
-        }
-
-        [Test]
-        public void HeartbeatLifecycleResumePolicyIsPreStartOnly()
-        {
-            Invoke(nameof(HeartbeatLifecycleResumePolicyIsPreStartOnly));
-        }
-
-        [Test]
         public void CompletedSealRejectsAbortThroughController()
         {
             InvokeController(nameof(CompletedSealRejectsAbortThroughController));
@@ -293,15 +161,8 @@ namespace SignVR.Interaction.Editor.Tests
         [Test]
         public void SetupUndoGroupRollsBackOnFailure()
         {
-            const string heartbeatKey =
-                "SignVR.Interaction.QuestHeartbeatGeneration.v1";
             const string interactionLabAssetPath =
                 "Assets/Scenes/InteractionLab.unity";
-            bool heartbeatExisted = PlayerPrefs.HasKey(heartbeatKey);
-            string heartbeatBefore = PlayerPrefs.GetString(
-                heartbeatKey,
-                string.Empty
-            );
             Scene originalActive = SceneManager.GetActiveScene();
             LoadedSceneSnapshot[] originalScenes = CaptureLoadedScenes();
             string interactionLabPath = Path.GetFullPath(
@@ -508,16 +369,6 @@ namespace SignVR.Interaction.Editor.Tests
                     Is.EqualTo(new Vector3(3f, 4f, 5f))
                 );
                 Assert.That(
-                    PlayerPrefs.HasKey(heartbeatKey),
-                    Is.EqualTo(heartbeatExisted),
-                    "Edit-mode setup allocated heartbeat PlayerPrefs."
-                );
-                Assert.That(
-                    PlayerPrefs.GetString(heartbeatKey, string.Empty),
-                    Is.EqualTo(heartbeatBefore),
-                    "Edit-mode setup changed heartbeat generation state."
-                );
-                Assert.That(
                     HashFile(interactionLabPath),
                     Is.EqualTo(diskHashBefore),
                     "W6 setup test changed InteractionLab disk bytes."
@@ -600,26 +451,6 @@ namespace SignVR.Interaction.Editor.Tests
                         targetSceneAssetPath
                     )
                 );
-                TryEditorCleanup(
-                    cleanupFailures,
-                    "restore heartbeat PlayerPrefs value",
-                    () =>
-                    {
-                        if (heartbeatExisted)
-                        {
-                            PlayerPrefs.SetString(heartbeatKey, heartbeatBefore);
-                        }
-                        else
-                        {
-                            PlayerPrefs.DeleteKey(heartbeatKey);
-                        }
-                    }
-                );
-                TryEditorCleanup(
-                    cleanupFailures,
-                    "save restored heartbeat PlayerPrefs",
-                    PlayerPrefs.Save
-                );
                 ThrowCleanupFailuresWhenNoPrimary(
                     primaryFailure,
                     cleanupFailures,
@@ -664,29 +495,6 @@ namespace SignVR.Interaction.Editor.Tests
                 guardSceneAssetPath,
                 targetSceneAssetPath
             );
-            Assert.That(PlayerPrefs.HasKey(heartbeatKey), Is.EqualTo(heartbeatExisted));
-            Assert.That(
-                PlayerPrefs.GetString(heartbeatKey, string.Empty),
-                Is.EqualTo(heartbeatBefore)
-            );
-        }
-
-        [Test]
-        public void HeartbeatGenerationPersistsAndStrictlyIncrements()
-        {
-            Invoke(nameof(HeartbeatGenerationPersistsAndStrictlyIncrements));
-        }
-
-        [Test]
-        public void HeartbeatAckRequiresExactFreshEcho()
-        {
-            Invoke(nameof(HeartbeatAckRequiresExactFreshEcho));
-        }
-
-        [Test]
-        public void HeartbeatDeadlineDoesNotDriftAfterSlowResponse()
-        {
-            Invoke(nameof(HeartbeatDeadlineDoesNotDriftAfterSlowResponse));
         }
 
         [Test]
@@ -696,15 +504,15 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void GeneratedFixtureCarriesW3StrictIdentity()
-        {
-            Invoke(nameof(GeneratedFixtureCarriesW3StrictIdentity));
-        }
-
-        [Test]
         public void PathsFailClosedAgainstTraversalAndIllegalIds()
         {
             Invoke(nameof(PathsFailClosedAgainstTraversalAndIllegalIds));
+        }
+
+        [Test]
+        public void StudyRejectsDebugOverrides()
+        {
+            Invoke(nameof(StudyRejectsDebugOverrides));
         }
 
         [Test]
@@ -917,11 +725,6 @@ namespace SignVR.Interaction.Editor.Tests
 
         private static string CaptureW6SceneState()
         {
-            Type client = Type.GetType(
-                "SignVR.Interaction.CaptureHost.InteractionHostClient, " +
-                "Assembly-CSharp",
-                throwOnError: true
-            );
             Type controller = Type.GetType(
                 "SignVR.Interaction.CaptureHost.InteractionRunController, " +
                 "Assembly-CSharp",
@@ -933,14 +736,13 @@ namespace SignVR.Interaction.Editor.Tests
                 throwOnError: true
             );
             var entries = new List<string>();
-            foreach (Type type in new[] { client, controller, sampler })
+            foreach (Type type in new[] { controller, sampler })
             {
                 foreach (Component component in FindSceneComponents(type))
                 {
                     var serialized = new SerializedObject(component);
                     entries.Add(
                         type.FullName + ":" + component.GetEntityId() + ":" +
-                        ReferenceId(serialized, "hostClient") + ":" +
                         ReferenceId(serialized, "captureSampler") + ":" +
                         ReferenceId(serialized, "controller")
                     );
