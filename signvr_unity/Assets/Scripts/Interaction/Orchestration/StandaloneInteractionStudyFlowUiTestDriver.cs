@@ -764,7 +764,7 @@ namespace SignVR.Interaction.Orchestration
                 if (State != RunState.Scheduled &&
                     State != RunState.Running &&
                     State != RunState.Completing &&
-                    State != RunState.AwaitingHost)
+                    State != RunState.Preparing)
                 {
                     error = "Run is not active.";
                     return false;

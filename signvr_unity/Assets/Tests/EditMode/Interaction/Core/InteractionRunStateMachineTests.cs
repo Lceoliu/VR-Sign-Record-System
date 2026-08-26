@@ -13,11 +13,11 @@ namespace SignVR.Interaction.Core.Tests
                 .CreateStateMachine();
 
             RunPlan plan = machine.Start(CoreTestData.CreateRequest(1001));
-            Assert.That(machine.State, Is.EqualTo(RunState.AwaitingHost));
+            Assert.That(machine.State, Is.EqualTo(RunState.Preparing));
             Assert.That(machine.Plan, Is.SameAs(plan));
 
             DateTimeOffset scheduled = CoreTestData.FixedUtc.AddSeconds(2);
-            machine.HostScheduled(scheduled);
+            machine.Schedule(scheduled);
             Assert.That(machine.State, Is.EqualTo(RunState.Scheduled));
             Assert.That(machine.ScheduledStartUtc, Is.EqualTo(scheduled));
 
@@ -167,7 +167,7 @@ namespace SignVR.Interaction.Core.Tests
             InteractionRunStateMachine machine = CoreTestData
                 .CreateStateMachine(4321);
             RunPlan firstPlan = machine.Start(CoreTestData.CreateRequest(10));
-            machine.HostScheduled(CoreTestData.FixedUtc.AddSeconds(1));
+            machine.Schedule(CoreTestData.FixedUtc.AddSeconds(1));
             machine.RunStarted(TimeSpan.Zero);
             machine.AdvanceTaskProgress();
             machine.AdvanceTaskProgress();

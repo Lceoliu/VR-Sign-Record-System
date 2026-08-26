@@ -80,7 +80,7 @@ namespace SignVR.Interaction.Core.Tests
         {
             InteractionRunStateMachine machine = CreateStateMachine();
             machine.Start(CreateRequest(seed));
-            machine.HostScheduled(FixedUtc.AddSeconds(2));
+            machine.Schedule(FixedUtc.AddSeconds(2));
             machine.RunStarted(startedAt ?? TimeSpan.Zero);
             return machine;
         }

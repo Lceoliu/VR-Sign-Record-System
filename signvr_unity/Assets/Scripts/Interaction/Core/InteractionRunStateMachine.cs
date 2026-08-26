@@ -186,13 +186,13 @@ namespace SignVR.Interaction.Core
             currentPhaseIndex = -1;
             abortReason = null;
             faultReason = null;
-            State = RunState.AwaitingHost;
+            State = RunState.Preparing;
             return plan;
         }
 
-        public void HostScheduled(DateTimeOffset startAtUtc)
+        public void Schedule(DateTimeOffset startAtUtc)
         {
-            EnsureState(RunState.AwaitingHost);
+            EnsureState(RunState.Preparing);
             scheduledStartUtc = startAtUtc.ToUniversalTime();
             State = RunState.Scheduled;
         }
@@ -329,7 +329,7 @@ namespace SignVR.Interaction.Core
 
         public void AbortRun(string reason)
         {
-            if (State != RunState.AwaitingHost &&
+            if (State != RunState.Preparing &&
                 State != RunState.Scheduled &&
                 State != RunState.Running &&
                 State != RunState.Completing)

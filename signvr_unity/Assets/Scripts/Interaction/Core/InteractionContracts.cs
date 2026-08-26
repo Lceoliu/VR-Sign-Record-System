@@ -12,7 +12,7 @@ namespace SignVR.Interaction.Core
     public enum RunState
     {
         PreStart,
-        AwaitingHost,
+        Preparing,
         Scheduled,
         Running,
         Completing,

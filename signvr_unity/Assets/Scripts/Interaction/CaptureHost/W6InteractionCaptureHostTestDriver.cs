@@ -347,7 +347,7 @@ namespace SignVR.Interaction.CaptureHost
                 CreateGenerator()
             );
             RunPlan plan = machine.Start(CreateRequest(93, "P001"));
-            machine.HostScheduled(FixedUtc.AddSeconds(2));
+            machine.Schedule(FixedUtc.AddSeconds(2));
             var handshake = new InteractionPresentationHandshake(machine);
             InteractionPresentationRequest first =
                 handshake.RequestInitialPlayback();
@@ -2684,7 +2684,7 @@ namespace SignVR.Interaction.CaptureHost
                     RunState.PreStart
                 ) &&
                 InteractionLifecycleTerminationPolicy.RequiresLocalAbort(
-                    RunState.AwaitingHost
+                    RunState.Preparing
                 ) &&
                 InteractionLifecycleTerminationPolicy.RequiresLocalAbort(
                     RunState.Scheduled
@@ -2972,7 +2972,7 @@ namespace SignVR.Interaction.CaptureHost
                 CreateGenerator()
             );
             machine.Start(CreateRequest(seed + 1, participantId));
-            machine.HostScheduled(FixedUtc);
+            machine.Schedule(FixedUtc);
             machine.RunStarted(TimeSpan.FromSeconds(1d));
             for (int phaseId = 1;
                 phaseId <= PhaseSentenceRanges.PhaseCount;
@@ -2997,7 +2997,7 @@ namespace SignVR.Interaction.CaptureHost
                 CreateGenerator()
             );
             machine.Start(CreateRequest(seed + 1, participantId));
-            machine.HostScheduled(FixedUtc);
+            machine.Schedule(FixedUtc);
             machine.RunStarted(TimeSpan.FromSeconds(1d));
             Require(
                 machine.State == RunState.Running,

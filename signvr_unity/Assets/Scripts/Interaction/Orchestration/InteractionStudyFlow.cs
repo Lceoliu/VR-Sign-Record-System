@@ -1297,7 +1297,7 @@ namespace SignVR.Interaction.Orchestration
 
         private static bool IsRunOwned(RunState state)
         {
-            return state == RunState.AwaitingHost ||
+            return state == RunState.Preparing ||
                 state == RunState.Scheduled ||
                 state == RunState.Running ||
                 state == RunState.Completing;

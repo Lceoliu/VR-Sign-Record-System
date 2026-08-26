@@ -248,7 +248,7 @@ namespace SignVR.Interaction.CaptureHost
     {
         public static bool RequiresLocalAbort(RunState state)
         {
-            return state == RunState.AwaitingHost ||
+            return state == RunState.Preparing ||
                 state == RunState.Scheduled ||
                 state == RunState.Running ||
                 state == RunState.Completing;
@@ -256,8 +256,8 @@ namespace SignVR.Interaction.CaptureHost
     }
 
     /// <summary>
-    /// Keeps the standalone controller independent from the legacy transport
-    /// vocabulary still present in the W1 state machine transition name.
+    /// Centralizes the immediate local scheduling transition used by the
+    /// standalone controller.
     /// </summary>
     public static class InteractionLocalScheduleTransition
     {
@@ -269,7 +269,7 @@ namespace SignVR.Interaction.CaptureHost
             {
                 throw new ArgumentNullException(nameof(stateMachine));
             }
-            stateMachine.HostScheduled(startAtUtc);
+            stateMachine.Schedule(startAtUtc);
         }
     }
 

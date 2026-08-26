@@ -84,7 +84,7 @@ namespace SignVR.Interaction.Orchestration
         {
             switch (state)
             {
-                case RunState.AwaitingHost:
+                case RunState.Preparing:
                 case RunState.Scheduled:
                     return "正在启动体验，请稍候…";
                 case RunState.Running:

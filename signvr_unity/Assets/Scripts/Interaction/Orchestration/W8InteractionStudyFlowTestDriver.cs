@@ -2434,7 +2434,7 @@ namespace SignVR.Interaction.Orchestration
                     return false;
                 }
                 machine.Start(request);
-                machine.HostScheduled(DateTimeOffset.UtcNow);
+                machine.Schedule(DateTimeOffset.UtcNow);
                 handshake = new InteractionPresentationHandshake(machine);
                 StartCount++;
                 return true;
