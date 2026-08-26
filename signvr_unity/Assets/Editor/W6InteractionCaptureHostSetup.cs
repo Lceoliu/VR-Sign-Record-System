@@ -18,12 +18,12 @@ namespace SignVR.Editor.Interaction
         private const string CaptureAnchorPath =
             "InteractionSceneRoot/Anchors/ExperimentCaptureAnchor";
 
-        [MenuItem("Tools/SignVR/Interaction/W6 Configure Capture and Host (Unsaved)")]
+        [MenuItem("Tools/SignVR/Interaction/W6 Configure Local Capture (Unsaved)")]
         public static void ConfigureLoadedSceneUnsaved()
         {
             ConfigureLoadedSceneUnsavedForAutomation(null);
             Debug.Log(
-                "[W6InteractionCaptureHostSetup] Capture/Host wiring is valid. " +
+                "[W6InteractionCaptureHostSetup] Standalone capture wiring is valid. " +
                 "The scene is intentionally left unsaved for Orchestrator review."
             );
         }
@@ -45,7 +45,7 @@ namespace SignVR.Editor.Interaction
         {
             PreflightLoadedSceneStructure(scene, requireCanonicalScenePath);
             ExecuteUndoGroupForAutomation(
-                "W6 Configure Capture and Host",
+                "W6 Configure Local Capture",
                 () => ConfigureLoadedSceneStructure(
                     scene,
                     requireCanonicalScenePath,
@@ -126,19 +126,18 @@ namespace SignVR.Editor.Interaction
             Transform runtimeAnchor = RequireTransform(scene, RuntimeAnchorPath);
             Transform captureAnchor = RequireTransform(scene, CaptureAnchorPath);
 
-            InteractionHostClient client = GetOrAdd<InteractionHostClient>(
-                runtimeAnchor.gameObject
-            );
             InteractionRunController controller =
                 GetOrAdd<InteractionRunController>(runtimeAnchor.gameObject);
             InteractionCaptureSampler sampler =
                 GetOrAdd<InteractionCaptureSampler>(captureAnchor.gameObject);
 
-            SetObjectReference(
-                controller,
-                "hostClient",
-                client
-            );
+            foreach (InteractionHostClient client in
+                     EnumerateSceneComponents<InteractionHostClient>(scene)
+                         .ToArray())
+            {
+                Undo.DestroyObjectImmediate(client);
+            }
+            ClearOptionalObjectReference(controller, "hostClient");
             SetObjectReference(
                 controller,
                 "captureSampler",
@@ -163,23 +162,19 @@ namespace SignVR.Editor.Interaction
             Transform runtimeAnchor = RequireTransform(scene, RuntimeAnchorPath);
             Transform captureAnchor = RequireTransform(scene, CaptureAnchorPath);
 
-            InteractionHostClient[] clients = runtimeAnchor
-                .GetComponents<InteractionHostClient>();
             InteractionRunController[] controllers = runtimeAnchor
                 .GetComponents<InteractionRunController>();
             InteractionCaptureSampler[] samplers = captureAnchor
                 .GetComponents<InteractionCaptureSampler>();
-            if (clients.Length != 1 || controllers.Length != 1 ||
-                samplers.Length != 1)
+            if (controllers.Length != 1 || samplers.Length != 1)
             {
                 throw new InvalidOperationException(
-                    "W6 requires exactly one Host client and Run controller on " +
-                    "RuntimeSystemsAnchor, and one capture sampler on " +
+                    "W6 requires exactly one Run controller on " +
+                    "RuntimeSystemsAnchor and one capture sampler on " +
                     "ExperimentCaptureAnchor."
                 );
             }
-            if (controllers[0].HostClient != clients[0] ||
-                controllers[0].CaptureSampler != samplers[0] ||
+            if (controllers[0].CaptureSampler != samplers[0] ||
                 samplers[0].Controller != controllers[0])
             {
                 throw new InvalidOperationException(
@@ -187,26 +182,15 @@ namespace SignVR.Editor.Interaction
                 );
             }
             InteractionCaptureSetupPolicy.ValidateStructure(
-                clients.Length,
+                0,
                 controllers.Length,
                 samplers.Length,
-                controllers[0].HostClient == clients[0] &&
-                    controllers[0].CaptureSampler == samplers[0] &&
+                controllers[0].CaptureSampler == samplers[0] &&
                     samplers[0].Controller == controllers[0],
                 controllers[0].RunMode,
                 controllers[0].DebugOverridesActive,
-                controllers[0].RequireHostForStart
+                false
             );
-
-            var clientObject = new SerializedObject(clients[0]);
-            SerializedProperty url = clientObject.FindProperty("hostBaseUrl");
-            if (url == null)
-            {
-                throw new InvalidOperationException(
-                    "InteractionHostClient hostBaseUrl field is missing."
-                );
-            }
-            InteractionHostClient.NormalizeHttpBaseUrl(url.stringValue);
 
             int controllerCount = EnumerateSceneComponents<InteractionRunController>(
                 scene
@@ -217,11 +201,11 @@ namespace SignVR.Editor.Interaction
             int samplerCount = EnumerateSceneComponents<InteractionCaptureSampler>(
                 scene
             ).Count();
-            if (controllerCount != 1 || clientCount != 1 || samplerCount != 1)
+            if (controllerCount != 1 || clientCount != 0 || samplerCount != 1)
             {
                 throw new InvalidOperationException(
-                    "InteractionLab must contain exactly one W6 controller, client, " +
-                    "and sampler in the whole scene."
+                    "InteractionLab must contain no Host client and exactly one " +
+                    "W6 controller and sampler in the whole scene."
                 );
             }
         }
@@ -283,25 +267,36 @@ namespace SignVR.Editor.Interaction
             }
             if (controllers.Length == 1 &&
                 (controllers[0].RunMode != InteractionRunMode.StandaloneStudy ||
-                 controllers[0].DebugOverridesActive ||
-                 !controllers[0].RequireHostForStart))
+                 controllers[0].DebugOverridesActive))
             {
                 throw new InvalidOperationException(
-                    "Existing W6 controller is not the default Study configuration."
+                    "Existing W6 controller is not the default standalone Study configuration."
                 );
             }
-            if (clients.Length == 1)
+        }
+
+        private static void ClearOptionalObjectReference(
+            UnityEngine.Object target,
+            string propertyName)
+        {
+            var serialized = new SerializedObject(target);
+            serialized.Update();
+            SerializedProperty property = serialized.FindProperty(propertyName);
+            if (property == null)
             {
-                var serialized = new SerializedObject(clients[0]);
-                SerializedProperty url = serialized.FindProperty("hostBaseUrl");
-                if (url == null)
-                {
-                    throw new InvalidOperationException(
-                        "InteractionHostClient hostBaseUrl field is missing."
-                    );
-                }
-                InteractionHostClient.NormalizeHttpBaseUrl(url.stringValue);
+                return;
             }
+            if (property.propertyType != SerializedPropertyType.ObjectReference)
+            {
+                throw new InvalidOperationException(
+                    target.GetType().Name + " has a non-reference " +
+                    propertyName + "."
+                );
+            }
+            Undo.RecordObject(target, "W6 Remove Legacy Host Reference");
+            property.objectReferenceValue = null;
+            serialized.ApplyModifiedProperties();
+            EditorUtility.SetDirty(target);
         }
 
         private static void SetObjectReference(
@@ -313,7 +308,7 @@ namespace SignVR.Editor.Interaction
             {
                 throw new ArgumentNullException(nameof(target));
             }
-            Undo.RecordObject(target, "W6 Wire Capture and Host");
+            Undo.RecordObject(target, "W6 Wire Standalone Capture");
             var serialized = new SerializedObject(target);
             serialized.Update();
             SerializedProperty property = serialized.FindProperty(propertyName);
