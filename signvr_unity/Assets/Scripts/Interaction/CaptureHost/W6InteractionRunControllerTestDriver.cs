@@ -144,6 +144,14 @@ namespace SignVR.Interaction.CaptureHost
                     InteractionRunController controller =
                         owner.AddComponent<InteractionRunController>();
                     owner.SetActive(true);
+                    owner.SetActive(false);
+                    W6InteractionCaptureHostTestDriver.Require(
+                        controller.State == RunState.PreStart &&
+                        !host.HeartbeatLoopActiveForTests &&
+                        host.ActiveRequestCount == 0,
+                        "Warm-up deactivation did not finish Awake and clear " +
+                        "ordinary Host ownership."
+                    );
                     InteractionRunStateMachine machine =
                         W6InteractionCaptureHostTestDriver
                             .CreateRunningStateMachine(112, "P945");
@@ -178,6 +186,7 @@ namespace SignVR.Interaction.CaptureHost
                         host
                     );
                     ArmUnityLifecycleOnlyOutsidePlayMode(controller);
+                    owner.SetActive(true);
 
                     controller.enabled = false;
                     job = controller.LifecycleTerminalizationForTests;
@@ -295,6 +304,14 @@ namespace SignVR.Interaction.CaptureHost
                     InteractionRunController controller =
                         owner.AddComponent<InteractionRunController>();
                     owner.SetActive(true);
+                    owner.SetActive(false);
+                    W6InteractionCaptureHostTestDriver.Require(
+                        controller.State == RunState.PreStart &&
+                        !host.HeartbeatLoopActiveForTests &&
+                        host.ActiveRequestCount == 0,
+                        "Warm-up deactivation did not finish Awake and clear " +
+                        "ordinary Host ownership."
+                    );
                     InteractionRunStateMachine machine =
                         W6InteractionCaptureHostTestDriver
                             .CreateRunningStateMachine(114, "P947");
@@ -329,6 +346,7 @@ namespace SignVR.Interaction.CaptureHost
                         host
                     );
                     ArmUnityLifecycleOnlyOutsidePlayMode(controller);
+                    owner.SetActive(true);
                     controller.enabled = false;
                     job = controller.LifecycleTerminalizationForTests;
                     W6InteractionCaptureHostTestDriver.Require(

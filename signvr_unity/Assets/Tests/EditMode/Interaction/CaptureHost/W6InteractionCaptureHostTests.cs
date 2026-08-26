@@ -289,6 +289,8 @@ namespace SignVR.Interaction.Editor.Tests
         {
             const string heartbeatKey =
                 "SignVR.Interaction.QuestHeartbeatGeneration.v1";
+            const string interactionLabAssetPath =
+                "Assets/Scenes/InteractionLab.unity";
             bool heartbeatExisted = PlayerPrefs.HasKey(heartbeatKey);
             string heartbeatBefore = PlayerPrefs.GetString(
                 heartbeatKey,
@@ -297,12 +299,18 @@ namespace SignVR.Interaction.Editor.Tests
             Scene originalActive = SceneManager.GetActiveScene();
             LoadedSceneSnapshot[] originalScenes = CaptureLoadedScenes();
             string interactionLabPath = Path.GetFullPath(
-                "Assets/Scenes/InteractionLab.unity"
+                interactionLabAssetPath
             );
             Assert.That(
                 File.Exists(interactionLabPath),
                 Is.True,
                 "InteractionLab disk scene is unavailable; refusing unsafe setup test."
+            );
+            Assert.That(
+                AssetDatabase.LoadAssetAtPath<SceneAsset>(
+                    interactionLabAssetPath),
+                Is.Not.Null,
+                "InteractionLab scene asset is unavailable; refusing unsafe setup test."
             );
             string diskHashBefore = HashFile(interactionLabPath);
             Scene guardScene = default(Scene);
@@ -315,6 +323,8 @@ namespace SignVR.Interaction.Editor.Tests
                 Guid.NewGuid().ToString("N");
             string guardSceneAssetPath =
                 temporaryFolderAssetPath + "/Guard.unity";
+            string targetSceneAssetPath =
+                temporaryFolderAssetPath + "/Target.unity";
             var cleanupFailures = new List<Exception>();
             Exception primaryFailure = null;
             try
@@ -328,47 +338,71 @@ namespace SignVR.Interaction.Editor.Tests
                     Is.False,
                     "Could not create an isolated guard-scene asset folder."
                 );
-                guardScene = EditorSceneManager.NewScene(
-                    NewSceneSetup.EmptyScene,
-                    NewSceneMode.Additive
+                Assert.That(
+                    AssetDatabase.CopyAsset(
+                        interactionLabAssetPath,
+                        guardSceneAssetPath
+                    ),
+                    Is.True,
+                    "Could not create the saved guard-scene copy."
+                );
+                Assert.That(
+                    AssetDatabase.CopyAsset(
+                        interactionLabAssetPath,
+                        targetSceneAssetPath
+                    ),
+                    Is.True,
+                    "Could not create the saved target-scene copy."
+                );
+                guardScene = EditorSceneManager.OpenScene(
+                    guardSceneAssetPath,
+                    OpenSceneMode.Additive
                 );
                 guardSceneHandle = guardScene.handle.GetRawData();
                 Assert.That(SceneManager.SetActiveScene(guardScene), Is.True);
-                Assert.That(
-                    EditorSceneManager.SaveScene(
-                        guardScene,
-                        guardSceneAssetPath,
-                        false
-                    ),
-                    Is.True,
-                    "Could not save the isolated guard scene before target creation."
-                );
-                Assert.That(guardScene.isDirty, Is.False);
                 Assert.That(
                     guardScene.path,
                     Is.EqualTo(guardSceneAssetPath),
                     "Guard scene did not acquire its isolated saved asset path."
                 );
+                Assert.That(guardScene.isDirty, Is.False);
+                ClearTestSceneRoots(guardScene);
                 sentinel = new GameObject("W6 Dirty Scene Sentinel");
                 sentinel.transform.localPosition = new Vector3(3f, 4f, 5f);
                 sentinel.SetActive(false);
                 EditorSceneManager.MarkSceneDirty(guardScene);
+                Assert.That(
+                    guardScene.GetRootGameObjects().Length,
+                    Is.EqualTo(1),
+                    "Guard copy contains objects other than its sentinel."
+                );
                 string guardSignatureBefore = CaptureSceneObjects(guardScene);
 
                 try
                 {
-                    targetScene = EditorSceneManager.NewScene(
-                        NewSceneSetup.EmptyScene,
-                        NewSceneMode.Additive
+                    targetScene = EditorSceneManager.OpenScene(
+                        targetSceneAssetPath,
+                        OpenSceneMode.Additive
                     );
                     targetSceneHandle = targetScene.handle.GetRawData();
                     Assert.That(
                         SceneManager.SetActiveScene(targetScene),
                         Is.True
                     );
+                    ClearTestSceneRoots(targetScene);
+                    Assert.That(
+                        targetScene.GetRootGameObjects().Length,
+                        Is.EqualTo(0),
+                        "Target template roots survived isolation."
+                    );
                     CreateIsolatedInteractionHierarchy(
                         out GameObject runtimeAnchor,
                         out _
+                    );
+                    Assert.That(
+                        targetScene.GetRootGameObjects().Length,
+                        Is.EqualTo(1),
+                        "Target copy contains objects outside the minimal W6 hierarchy."
                     );
                     Type controllerType = Type.GetType(
                         "SignVR.Interaction.CaptureHost.InteractionRunController, " +
@@ -529,36 +563,36 @@ namespace SignVR.Interaction.Editor.Tests
                 );
                 TryEditorCleanup(
                     cleanupFailures,
+                    "delete isolated target scene asset",
+                    () => DeleteAssetOrThrow(
+                        targetSceneAssetPath,
+                        "isolated target scene asset"
+                    )
+                );
+                TryEditorCleanup(
+                    cleanupFailures,
                     "delete isolated guard scene asset",
-                    () =>
-                    {
-                        if (AssetDatabase.LoadAssetAtPath<SceneAsset>(
-                                guardSceneAssetPath) != null)
-                        {
-                            if (!AssetDatabase.DeleteAsset(guardSceneAssetPath))
-                            {
-                                throw new IOException(
-                                    "Could not delete " + guardSceneAssetPath
-                                );
-                            }
-                        }
-                    }
+                    () => DeleteAssetOrThrow(
+                        guardSceneAssetPath,
+                        "isolated guard scene asset"
+                    )
                 );
                 TryEditorCleanup(
                     cleanupFailures,
                     "delete isolated guard scene folder",
-                    () =>
-                    {
-                        if (AssetDatabase.IsValidFolder(
-                                temporaryFolderAssetPath) &&
-                            !AssetDatabase.DeleteAsset(
-                                temporaryFolderAssetPath))
-                        {
-                            throw new IOException(
-                                "Could not delete " + temporaryFolderAssetPath
-                            );
-                        }
-                    }
+                    () => DeleteAssetOrThrow(
+                        temporaryFolderAssetPath,
+                        "isolated scene asset folder"
+                    )
+                );
+                TryEditorCleanup(
+                    cleanupFailures,
+                    "verify isolated scene assets and metadata deleted",
+                    () => RequireAssetAndMetaDeleted(
+                        temporaryFolderAssetPath,
+                        guardSceneAssetPath,
+                        targetSceneAssetPath
+                    )
                 );
                 TryEditorCleanup(
                     cleanupFailures,
@@ -593,6 +627,12 @@ namespace SignVR.Interaction.Editor.Tests
                 "Isolated guard scene asset survived test cleanup."
             );
             Assert.That(
+                AssetDatabase.LoadAssetAtPath<SceneAsset>(
+                    targetSceneAssetPath),
+                Is.Null,
+                "Isolated target scene asset survived test cleanup."
+            );
+            Assert.That(
                 AssetDatabase.IsValidFolder(temporaryFolderAssetPath),
                 Is.False,
                 "Isolated guard scene folder survived test cleanup."
@@ -613,6 +653,11 @@ namespace SignVR.Interaction.Editor.Tests
                 Is.EqualTo(originalActive.handle.GetRawData())
             );
             Assert.That(HashFile(interactionLabPath), Is.EqualTo(diskHashBefore));
+            RequireAssetAndMetaDeleted(
+                temporaryFolderAssetPath,
+                guardSceneAssetPath,
+                targetSceneAssetPath
+            );
             Assert.That(PlayerPrefs.HasKey(heartbeatKey), Is.EqualTo(heartbeatExisted));
             Assert.That(
                 PlayerPrefs.GetString(heartbeatKey, string.Empty),
@@ -741,6 +786,55 @@ namespace SignVR.Interaction.Editor.Tests
                 throw new InvalidOperationException(
                     "Unity refused to close the " + description + "."
                 );
+            }
+        }
+
+        private static void ClearTestSceneRoots(Scene scene)
+        {
+            foreach (GameObject root in scene.GetRootGameObjects())
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+            if (scene.GetRootGameObjects().Length != 0)
+            {
+                throw new InvalidOperationException(
+                    "Could not clear the saved scene template roots."
+                );
+            }
+        }
+
+        private static void DeleteAssetOrThrow(
+            string assetPath,
+            string description)
+        {
+            string fullPath = Path.GetFullPath(assetPath);
+            bool exists = AssetDatabase.IsValidFolder(assetPath) ||
+                AssetDatabase.LoadMainAssetAtPath(assetPath) != null ||
+                File.Exists(fullPath) || Directory.Exists(fullPath) ||
+                File.Exists(fullPath + ".meta");
+            if (exists && !AssetDatabase.DeleteAsset(assetPath))
+            {
+                throw new IOException(
+                    "Unity refused to delete the " + description + "."
+                );
+            }
+        }
+
+        private static void RequireAssetAndMetaDeleted(params string[] assetPaths)
+        {
+            foreach (string assetPath in assetPaths)
+            {
+                string fullPath = Path.GetFullPath(assetPath);
+                if (AssetDatabase.IsValidFolder(assetPath) ||
+                    AssetDatabase.LoadMainAssetAtPath(assetPath) != null ||
+                    File.Exists(fullPath) || Directory.Exists(fullPath) ||
+                    File.Exists(fullPath + ".meta"))
+                {
+                    throw new InvalidOperationException(
+                        "Temporary asset or metadata survived cleanup: " +
+                        assetPath
+                    );
+                }
             }
         }
 

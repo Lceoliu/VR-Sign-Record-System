@@ -111,19 +111,24 @@ The follow-up review items were closed as follows:
    outside Play Mode, so setup cannot allocate heartbeat PlayerPrefs or start
    coroutines.
 5. The real setup rollback NUnit test is isolated from user scene memory. It
-   creates only test-owned additive guard/target scenes, temporarily changes the
-   active scene, injects failure after W6 wiring, and restores the original
-   active scene in `finally`. The empty guard is first saved into a unique
-   temporary `Assets` folder, then made dirty with its sentinel; the target may
-   therefore remain the sole untitled scene. It never opens, reloads, replaces,
-   closes, or saves a pre-existing scene. The target starts with an existing Controller,
-   so rollback must both remove the newly added Host/Sampler and restore that
-   Controller's original null references. It also asserts every original scene
-   remains loaded with the same dirty flag and object-value signature, the
-   dirty guard sentinel remains unchanged after target cleanup, heartbeat
-   PlayerPrefs are byte-for-byte equivalent through the string seam, and the
-   on-disk InteractionLab SHA-256 remains unchanged. Both test-owned scenes are
-   closed independently and the temporary guard scene asset/folder are deleted.
+   copies the already-required canonical InteractionLab scene asset to two unique
+   temporary asset paths, then opens those test-owned guard/target copies
+   additively. It makes no `NewScene` or `SaveScene` call, so an untitled scene
+   already owned by the Test Runner can remain loaded and dirty. Both copied
+   scenes have all canonical roots removed
+   immediately. The guard receives only its dirty sentinel; the target receives
+   only the minimal W6 hierarchy. The test temporarily changes the active scene,
+   injects failure after W6 wiring, and restores the original active scene in
+   `finally`. It never opens, reloads, replaces, closes, or saves a pre-existing
+   scene. The target starts with an existing Controller, so rollback must both
+   remove the newly added Host/Sampler and restore that Controller's original
+   null references. It also asserts every original scene remains loaded with the
+   same dirty flag and object-value signature, the dirty guard sentinel remains
+   unchanged after target cleanup, heartbeat PlayerPrefs are byte-for-byte
+   equivalent through the string seam, and canonical InteractionLab retains its
+   original SHA-256. Both test-owned scenes are closed
+   independently; both copied scene assets, their metadata, and their temporary
+   folder are deleted.
 
 The final-review items were closed as follows:
 
@@ -161,6 +166,16 @@ The final-review items were closed as follows:
    repeats both unload assertions after asset/PlayerPrefs cleanup. A primary
    assertion remains primary, while all later scene, asset, and PlayerPrefs
    cleanup actions are still attempted and attached as diagnostics.
+5. The two delayed-initialization PlayMode fixtures now complete component
+   initialization before injecting state: inactive AddComponents are followed by
+   a real activation for `Awake`/ordinary `OnEnable`, then a real deactivation.
+   They require W1 PreStart, an inactive heartbeat loop, and zero active Host
+   requests before proceeding. While inactive they install deterministic Host
+   ownership, Controller state, and the non-PlayMode arm; a second activation
+   traverses real `OnEnable`, followed by real disable/destroy. This prevents a
+   deferred Controller `Awake` from overwriting the Running fixture and prevents
+   ordinary Host ownership from colliding with deterministic ownership. No
+   product reset seam or lifecycle bypass was added.
 
 The final Standards follow-up was closed as follows:
 
@@ -409,6 +424,17 @@ The final cleanup-return pass modified only
 `W6InteractionCaptureHostTests.cs` and this report. No runtime, PlayMode test,
 `.meta`, scene/settings asset, or user setting changed.
 
+The saved-scene isolation pass also modified only those two files. It did not
+create or edit a scene asset in this worktree; the guard and target copies exist
+only inside a unique test-owned folder during an eventual Unity execution.
+
+The PlayMode ownership-order pass additionally modified only
+`W6InteractionRunControllerTestDriver.cs` and this report. Product Host/
+Controller lifecycle code and public seams remain unchanged.
+
+The final Awake-order correction touched the same two files only. It added a
+real warm-up activation/deactivation and assertions; no production seam changed.
+
 ## 3. Commands/tests executed and exact results
 
 No Git command was run. Unity Editor was not started.
@@ -593,7 +619,9 @@ After the change, the same gate reported:
 - `EXECUTE_ALWAYS_REFERENCES=0`
 
 Unity execution was prohibited in this worktree, so the new 54+8 split and the
-saved-dirty guard-scene transaction remain explicit Orchestrator rerun gates.
+then-current saved-dirty guard-scene transaction were explicit Orchestrator
+rerun gates. The later root-side `53/54` result and current saved-copy correction
+are recorded below.
 
 ### Final standalone compilation gate
 
@@ -632,7 +660,8 @@ fix, the same gate reported:
 - `BOUNDARY_GREEN_INDEPENDENT_UNLOAD_CHECKS=3`
 - `BOUNDARY_GREEN_FINAL_UNLOAD_ASSERTS=2`
 
-Current EditMode and PlayMode test sources were then recompiled without Unity at:
+EditMode and PlayMode test sources at that cleanup-return boundary were compiled
+without Unity at:
 
 `C:\Users\woshica\AppData\Local\Temp\signvr-w6-cleanup-bool-static-10f9e87b98534b559b9814a33d0e88f7`
 
@@ -642,7 +671,79 @@ Exact results:
 - `CURRENT_PLAYMODE_STATIC_EXIT=0`
 
 The other five source targets were unchanged from the seven-target zero-exit
-gate above. No post-fix Unity Test Runner execution occurred in this worktree.
+gate above.
+
+The Orchestrator subsequently ran the split EditMode suite in Unity job
+`96350528` and reported the authoritative RED result `53/54`. The sole failure,
+`SetupUndoGroupRollsBackOnFailure`, stopped at its first
+`EditorSceneManager.NewScene(Additive)`: the Test Runner kept an existing
+untitled unsaved scene loaded, so Unity rejected creation of another untitled
+scene. That also proved a second `NewScene` could not be made reliable by merely
+saving the first one.
+
+Before the saved-copy fix, the source gate reported:
+
+- `SCENE_SOURCE_RED_NEWSCENE_TOKENS=2`
+- `SCENE_SOURCE_RED_OPENSCENE_TOKENS=0`
+- `SCENE_SOURCE_RED_COPYASSET_TOKENS=0`
+
+After the fix, it reported:
+
+- `SCENE_SOURCE_GREEN_NEWSCENE_CALLS=0`
+- `SCENE_SOURCE_GREEN_NEWSCENE_TOKENS=0`
+- `SCENE_SOURCE_GREEN_OPENSCENE_CALLS=2`
+- `SCENE_SOURCE_GREEN_COPYASSET_CALLS=2`
+- `SCENE_SOURCE_GREEN_SAVESCENE_CALLS=0`
+- `SCENE_SOURCE_GREEN_ROOT_CLEAR_CALLS=2`
+- `TEMPLATE_GREEN_OPTIONAL_TMP_REFERENCES=0`
+- `TEMPLATE_GREEN_CANONICAL_COPY_SOURCE_ARGUMENTS=2`
+
+The resulting current EditMode and PlayMode test sources were compiled without
+Unity at:
+
+`C:\Users\woshica\AppData\Local\Temp\signvr-w6-canonical-scene-final-efdf41c883e744b99c93fcf6fccb0272`
+
+Exact current results:
+
+- `FINAL_CURRENT_EDITMODE_STATIC_EXIT=0`
+- `FINAL_CURRENT_PLAYMODE_STATIC_EXIT=0`
+
+This worktree did not run Unity after the saved-copy change; `53/54` remains the
+latest real Unity result and is not relabeled green.
+
+The Orchestrator also completed the split PlayMode suite and reported `6/8`.
+The six other lifecycle wrappers passed through real callbacks. The two RED
+paths were:
+
+- `W6InteractionRunControllerTestDriver.DisableOwnsLateInitializationThroughController`
+  -> `InteractionHostClient.PrepareLifecycleOwnershipForTests` ->
+  `InvalidOperationException: Deterministic Host heartbeat ownership is already active`;
+- `W6InteractionRunControllerTestDriver.DestroyDoesNotDuplicateDetachedTerminalization`
+  -> `InteractionHostClient.PrepareLifecycleOwnershipForTests` -> the same exact
+  `InvalidOperationException` message.
+
+Both fixtures activated their owner before deterministic ownership was installed,
+so real PlayMode `OnEnable` started the ordinary heartbeat loop first. The source
+order gate initially reported activation position `22` before prepare/install/arm
+positions `47/48/55-56` in both fixtures. Moving that single activation after
+injection removed the heartbeat collision, but root review found it was still
+insufficient: an inactive AddComponent may defer Controller `Awake`, so the first
+activation could overwrite the injected Running state. The new source RED gate
+reported one activation and one deactivation in each fixture, with no explicit
+warm-up ownership check.
+
+The final gate requires two activation/deactivation phases and reported:
+
+- `AWAKE_ORDER_GREEN=DisableOwnsLateInitializationThroughController|active=22,65|inactive=17,23|ownershipCheck=28|prepare=56|install=57|arm=64|green=True`
+- `AWAKE_ORDER_GREEN=DestroyDoesNotDuplicateDetachedTerminalization|active=22,65|inactive=17,23|ownershipCheck=28|prepare=56|install=57|arm=64|green=True`
+
+All 21 current CaptureHost sources, including the changed driver, were compiled
+with `UNITY_EDITOR` at:
+
+`C:\Users\woshica\AppData\Local\Temp\signvr-w6-awake-order-final-50c294d335504e2b8f805f2591827a93`
+
+Exact result: `FINAL_CURRENT_EDITOR_RUNTIME_STATIC_EXIT=0`. Unity was not rerun
+after this ordering correction, so `6/8` remains the latest real PlayMode result.
 
 ### Deterministic scenario execution
 
@@ -718,9 +819,9 @@ EditMode contains the 51 deterministic scenarios plus
 `CompletedSealRejectsAbortThroughController`,
 `CaptureSamplerEnforcesTwentyHertzCadence`, and
 `SetupUndoGroupRollsBackOnFailure` (`54` total). PlayMode contains exactly the
-eight lifecycle wrappers (`8` total). All 62 compiled here; only the old all-
-EditMode layout has an authoritative Unity result (`53/62`, with the eight
-lifecycle wrappers and setup rollback failing as described above):
+eight lifecycle wrappers (`8` total). All 62 compiled here. The historical
+all-EditMode result was `53/62`; the later split EditMode result was `53/54`,
+with only setup isolation failing before the saved-copy correction:
 
 - `CompletedSealRejectsAbortThroughController` exercises public
   `TryAbortRun` after the production Completed seal is queued, then verifies W1
@@ -756,9 +857,10 @@ lifecycle wrappers and setup rollback failing as described above):
 - `CaptureSamplerEnforcesTwentyHertzCadence` drives the real sampler cadence seam
   at 72 Hz, 90 Hz, across a long frame, and across disable/re-enable;
 - `SetupUndoGroupRollsBackOnFailure` exercises the actual Undo transaction in
-  one temporary saved-but-dirty guard scene and one untitled target scene. Its
-  outermost `finally` independently restores the active scene and PlayerPrefs,
-  closes both scenes, and deletes the temporary scene asset and folder.
+  one temporary saved-but-dirty guard copy and one saved target copy, both opened
+  additively after their copied canonical roots are removed. Its outermost `finally`
+  independently restores the active scene and PlayerPrefs, closes both scenes,
+  and deletes both assets, their metadata, and the temporary folder.
 
 ### Strict W3-compatible fixture rerun
 
@@ -836,6 +938,9 @@ Orchestrator integration step.
 - `NUNIT_IGNORE_OR_EXPLICIT=0`
 - `EDITMODE_LIFECYCLE_WRAPPERS=0`
 - `PLAYMODE_LIFECYCLE_WRAPPERS=8`
+- delayed-initialization fixture ordering: `AWAKE_WARMUP_ACTIVATE=2/2`,
+  `WARMUP_DEACTIVATE=2/2`, `PRESTART_AND_HOST_EMPTY_ASSERT=2/2`,
+  `PREPARE_INSTALL_ARM_BEFORE_SECOND_ACTIVATE=2/2`
 - cleanup bool/unload audit: `UNCHECKED_SET_ACTIVE=0`,
   `UNCHECKED_CLOSE_SCENE=0`, `INDEPENDENT_UNLOAD_CHECKS=3`,
   `FINAL_UNLOAD_ASSERTS=2`
@@ -852,10 +957,15 @@ Orchestrator integration step.
 - `SETUP_PLAYERPREFS_CALLS=0`
 - `SETUP_RUNTIME_SAVE_OR_OPEN_CALLS=0`
 - `TEST_UNSAFE_SCENE_CALLS=0`
-- `TEST_ADDITIVE_SCENE_CALLS=2`
-- `GUARD_SAVE_BEFORE_TARGET=1`
-- test cleanup asset calls: `CREATE_FOLDER=1`, `SAVE_SCENE=1`,
-  `DELETE_ASSET=2`
+- `TEST_NEW_SCENE_TOKENS=0`
+- `TEST_OPEN_SCENE_ADDITIVE_CALLS=2`
+- `TEST_COPY_ASSET_CALLS=2`
+- `TEST_OPTIONAL_TMP_TEMPLATE_REFERENCES=0`
+- `TEST_CANONICAL_INTERACTIONLAB_COPY_SOURCES=2`
+- `TEST_SAVE_SCENE_CALLS=0`
+- `TEST_CLEAR_TEMPLATE_ROOT_CALLS=2`
+- test cleanup asset calls: `CREATE_FOLDER=1`; target scene, guard scene, and
+  folder each pass through the checked delete helper
 - `LEFTOVER_W6_TEMP_ASSET_FOLDERS=0`
 - `LEFTOVER_W6_TEMP_SCENE_ASSETS=0`
 - outer restoration calls: `TEST_PREFS_SET=1`, `TEST_PREFS_DELETE=1`,
@@ -898,11 +1008,18 @@ merge markers.
 
 ### Risks and unfinished validation
 
-1. The Orchestrator ran the pre-fix all-EditMode fixture and reported `53/62`.
-   This worktree did not start Unity, so neither the new PlayMode eight nor the
-   repaired saved-dirty guard-scene EditMode test has a post-fix Unity result.
-   Android/IL2CPP and Quest execution also remain unrun. Static compilation and
-   source gates cannot replace that rerun.
+1. The Orchestrator's historical all-EditMode result was `53/62`. After the
+   PlayMode split and cleanup-bool fix, Unity job `96350528` produced `53/54` in
+   EditMode; only `SetupUndoGroupRollsBackOnFailure` failed at its first additive
+   `NewScene` because an untitled Test Runner scene remained loaded. The current
+   saved-copy implementation has no `NewScene` token but has not been rerun in
+   Unity. The split PlayMode suite produced `6/8`: six real lifecycle cases
+   passed, while the delayed-initialization disable/destroy cases failed because
+   ordinary `OnEnable` claimed Host heartbeat ownership before deterministic
+   setup. Root review then found the first inactive-owner correction could defer
+   Controller `Awake`; the current warm-up activate/deactivate ordering fix has
+   not been rerun. Android/IL2CPP and Quest execution also remain unrun. Static
+   compilation and source gates cannot replace those runs.
 2. Live W8a heartbeat ACK/readiness TTL, W3 POST/409/GET/PUT/ACK, browser camera,
    and participant admission were not available inside this worktree. Field
    names are centralized for a small integration adaptation if necessary.
