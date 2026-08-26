@@ -221,6 +221,17 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
             );
         }
 
+#if UNITY_EDITOR
+        [UnityTest]
+        public IEnumerator SavedInteractionLabStartButtonConsumesOneRunAndStaysActive()
+        {
+            yield return InvokeDriverCoroutine(
+                StandaloneDriverTypeName,
+                "SavedInteractionLabStartButtonConsumesOneRun"
+            );
+        }
+#endif
+
         [UnityTest]
         public IEnumerator FixedStudyPlayerRootResistsGravityAndVerticalDisturbanceAcrossFrames()
         {

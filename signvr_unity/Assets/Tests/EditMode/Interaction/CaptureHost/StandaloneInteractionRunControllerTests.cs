@@ -48,6 +48,12 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void PreStartHeadsetRemountRestoresLocalLifecycle()
+        {
+            Invoke(nameof(PreStartHeadsetRemountRestoresLocalLifecycle));
+        }
+
+        [Test]
         public void StartupRecoveryFailureBlocksStartAndPreservesEvidence()
         {
             Invoke(nameof(StartupRecoveryFailureBlocksStartAndPreservesEvidence));

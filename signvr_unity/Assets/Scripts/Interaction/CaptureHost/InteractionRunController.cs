@@ -1961,6 +1961,7 @@ namespace SignVR.Interaction.CaptureHost
             Disabled,
             ApplicationPaused,
             HeadsetUnmounted,
+            HeadsetMounted,
             ApplicationQuit,
             Destroyed
         }
@@ -1977,6 +1978,9 @@ namespace SignVR.Interaction.CaptureHost
                     return;
                 case ControllerLifecycleSignal.HeadsetUnmounted:
                     BeginLifecycleShutdown("headset_unmounted");
+                    return;
+                case ControllerLifecycleSignal.HeadsetMounted:
+                    TryRestorePreStartLifecycle();
                     return;
                 case ControllerLifecycleSignal.ApplicationQuit:
                     BeginLifecycleShutdown("application_quit");
@@ -2042,6 +2046,7 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return;
             }
+            OVRManager.HMDMounted += HandleHeadsetMounted;
             OVRManager.HMDUnmounted += HandleHeadsetUnmounted;
             headsetLifecycleSubscribed = true;
         }
@@ -2052,6 +2057,7 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return;
             }
+            OVRManager.HMDMounted -= HandleHeadsetMounted;
             OVRManager.HMDUnmounted -= HandleHeadsetUnmounted;
             headsetLifecycleSubscribed = false;
         }
@@ -2063,6 +2069,15 @@ namespace SignVR.Interaction.CaptureHost
                 return;
             }
             ProcessLifecycleSignal(ControllerLifecycleSignal.HeadsetUnmounted);
+        }
+
+        private void HandleHeadsetMounted()
+        {
+            if (!ShouldProcessUnityLifecycle())
+            {
+                return;
+            }
+            ProcessLifecycleSignal(ControllerLifecycleSignal.HeadsetMounted);
         }
 
         private bool ShouldProcessUnityLifecycle()

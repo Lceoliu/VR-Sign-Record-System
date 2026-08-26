@@ -39,6 +39,22 @@ namespace SignVR.Interaction.CaptureHost
             BeginStandaloneStartupRecovery(storageRoot);
         }
 
+        internal void RedirectStandaloneStorageRootForTests(
+            string persistentDataPath,
+            bool debugBuild)
+        {
+            if (State != RunState.PreStart || StartupRecoveryStatus !=
+                InteractionStandaloneLocalRunRecoveryStatus.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    "Storage redirection requires a recovered PreStart Controller."
+                );
+            }
+            storageRoot = System.IO.Path.GetFullPath(persistentDataPath);
+            debugBuildOverrideForTests = debugBuild;
+            RefreshPendingRuns();
+        }
+
         internal bool CompleteStandaloneStartupRecoveryForTests(
             TimeSpan timeout)
         {
@@ -186,6 +202,9 @@ namespace SignVR.Interaction.CaptureHost
         internal InteractionTerminalSealArbitrationState
             TerminalSealStateForTests => terminalSealArbiter.State;
 
+        internal bool LifecycleShutdownInitiatedForTests =>
+            lifecycleShutdown.IsShutdownInitiated;
+
         internal void ProcessApplicationPauseForTests()
         {
             ProcessLifecycleSignal(ControllerLifecycleSignal.ApplicationPaused);
@@ -194,6 +213,11 @@ namespace SignVR.Interaction.CaptureHost
         internal void ProcessHeadsetUnmountForTests()
         {
             ProcessLifecycleSignal(ControllerLifecycleSignal.HeadsetUnmounted);
+        }
+
+        internal void ProcessHeadsetMountForTests()
+        {
+            ProcessLifecycleSignal(ControllerLifecycleSignal.HeadsetMounted);
         }
     }
 }

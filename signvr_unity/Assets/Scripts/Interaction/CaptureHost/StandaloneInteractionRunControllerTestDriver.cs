@@ -368,6 +368,55 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
+        public static void PreStartHeadsetRemountRestoresLocalLifecycle()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            GameObject owner = null;
+            try
+            {
+                owner = new GameObject("Standalone PreStart Headset Remount");
+                owner.SetActive(false);
+                InteractionRunController controller =
+                    owner.AddComponent<InteractionRunController>();
+                InstallPreStart(controller, root);
+                controller.BeginStandaloneStartupRecoveryForTests();
+                Require(
+                    controller.CompleteStandaloneStartupRecoveryForTests(
+                        TimeSpan.FromSeconds(5)
+                    ) && controller.CanStart(out string initialReason) &&
+                    string.IsNullOrEmpty(initialReason),
+                    "PreStart headset fixture was not initially ready."
+                );
+
+                controller.ProcessHeadsetUnmountForTests();
+                Require(
+                    controller.LifecycleShutdownInitiatedForTests &&
+                    !controller.CanStart(out string unmountedReason) &&
+                    unmountedReason.IndexOf(
+                        "lifecycle",
+                        StringComparison.OrdinalIgnoreCase
+                    ) >= 0,
+                    "PreStart headset unmount did not close the local lifecycle."
+                );
+
+                controller.ProcessHeadsetMountForTests();
+                Require(
+                    !controller.LifecycleShutdownInitiatedForTests &&
+                    controller.CanStart(out string remountedReason) &&
+                    string.IsNullOrEmpty(remountedReason),
+                    "Headset remount left PreStart blocked by lifecycle shutdown."
+                );
+            }
+            finally
+            {
+                if (owner != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(owner);
+                }
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
         public static void StartupRecoveryFailureBlocksStartAndPreservesEvidence()
         {
             string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();

@@ -407,6 +407,9 @@ namespace SignVR.Interaction.CaptureHost
             );
             long validRows = 0L;
             bool invalidTail = false;
+            long lastSequence = 0L;
+            double lastMonotonic = -1d;
+            int lastFrame = -1;
             try
             {
                 using (var stream = new FileStream(
@@ -441,7 +444,17 @@ namespace SignVR.Interaction.CaptureHost
                                 {
                                     IDictionary<string, object> value =
                                         InteractionJson.ParseObject(line);
-                                    ValidateIdentity(value, runId);
+                                    ValidateIdentityStreamRow(
+                                        value,
+                                        runId,
+                                        fileName,
+                                        lastSequence,
+                                        lastMonotonic,
+                                        lastFrame,
+                                        out long sequence,
+                                        out double monotonic,
+                                        out int rowFrame
+                                    );
                                     if (invalidTail)
                                     {
                                         throw new IOException(
@@ -450,6 +463,9 @@ namespace SignVR.Interaction.CaptureHost
                                     }
                                     writer.WriteLine(line);
                                     validRows++;
+                                    lastSequence = sequence;
+                                    lastMonotonic = monotonic;
+                                    lastFrame = rowFrame;
                                 }
                                 catch (Exception exception) when (
                                     exception is FormatException ||
@@ -475,6 +491,187 @@ namespace SignVR.Interaction.CaptureHost
             finally
             {
                 DeleteIfExists(temporary);
+            }
+        }
+
+        private static void ValidateIdentityStreamRow(
+            IDictionary<string, object> value,
+            string runId,
+            string fileName,
+            long previousSequence,
+            double previousMonotonic,
+            int previousFrame,
+            out long sequence,
+            out double monotonic,
+            out int frame)
+        {
+            ValidateIdentity(value, runId);
+            ValidatePhase(value);
+            string sequenceName;
+            if (string.Equals(
+                    fileName,
+                    InteractionStoragePaths.PosesFileName,
+                    StringComparison.Ordinal))
+            {
+                sequenceName = "pose_seq";
+                ValidatePosePayload(value);
+            }
+            else if (string.Equals(
+                fileName,
+                InteractionStoragePaths.ObjectsFileName,
+                StringComparison.Ordinal))
+            {
+                sequenceName = "object_seq";
+                ValidateObjectPayload(value);
+            }
+            else
+            {
+                throw new ArgumentException(
+                    "Unknown identity stream file name.",
+                    nameof(fileName)
+                );
+            }
+
+            sequence = InteractionJson.RequireInt64(value, sequenceName);
+            monotonic = RequireNumber(value, "monotonic_time_s");
+            frame = InteractionJson.RequireInt32(value, "frame");
+            ValidateUtc(value);
+            if (sequence < 1L || sequence <= previousSequence ||
+                monotonic < previousMonotonic ||
+                frame < 0 || frame < previousFrame)
+            {
+                throw new FormatException(
+                    "Partial capture stream ordering is invalid."
+                );
+            }
+        }
+
+        private static void ValidatePhase(IDictionary<string, object> value)
+        {
+            if (!value.TryGetValue("phase_id", out object raw) ||
+                (raw != null && !(raw is long)))
+            {
+                throw new FormatException(
+                    "Capture phase_id must be null or an integer."
+                );
+            }
+            if (raw is long phase && (phase < 1L || phase > 6L))
+            {
+                throw new FormatException("Capture phase_id is invalid.");
+            }
+        }
+
+        private static void ValidateUtc(IDictionary<string, object> value)
+        {
+            if (!DateTimeOffset.TryParse(
+                    InteractionJson.RequireString(value, "utc_time"),
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal |
+                        DateTimeStyles.AdjustToUniversal,
+                    out _))
+            {
+                throw new FormatException("Capture UTC is invalid.");
+            }
+        }
+
+        private static void ValidatePosePayload(
+            IDictionary<string, object> value)
+        {
+            IDictionary<string, object> hmd = InteractionJson.RequireObject(
+                value,
+                "hmd"
+            );
+            RequireBoolean(hmd, "valid");
+            RequireFiniteArray(hmd, "position", 3);
+            RequireFiniteArray(hmd, "rotation", 4);
+            ValidateHandPayload(InteractionJson.RequireObject(
+                value,
+                "left_hand"
+            ));
+            ValidateHandPayload(InteractionJson.RequireObject(
+                value,
+                "right_hand"
+            ));
+        }
+
+        private static void ValidateHandPayload(
+            IDictionary<string, object> hand)
+        {
+            RequireBoolean(hand, "tracked");
+            RequireBoolean(hand, "data_valid");
+            RequireBoolean(hand, "high_confidence");
+            RequireBoolean(hand, "pose_source_inferred");
+            IList<object> joints = InteractionJson.RequireArray(hand, "joints");
+            for (int index = 0; index < joints.Count; index++)
+            {
+                if (!(joints[index] is IDictionary<string, object> joint))
+                {
+                    throw new FormatException(
+                        "Capture hand joints must contain objects."
+                    );
+                }
+                InteractionJson.RequireString(joint, "joint_id");
+                RequireBoolean(joint, "valid");
+                RequireFiniteArray(joint, "position", 3);
+                RequireFiniteArray(joint, "rotation", 4);
+            }
+        }
+
+        private static void ValidateObjectPayload(
+            IDictionary<string, object> value)
+        {
+            InteractionJson.RequireString(value, "object_id");
+            InteractionJson.RequireObject(value, "state");
+        }
+
+        private static void RequireBoolean(
+            IDictionary<string, object> value,
+            string propertyName)
+        {
+            bool? result = InteractionJson.OptionalBoolean(
+                value,
+                propertyName
+            );
+            if (!result.HasValue)
+            {
+                throw new FormatException(
+                    "JSON property '" + propertyName +
+                    "' must be a boolean."
+                );
+            }
+        }
+
+        private static void RequireFiniteArray(
+            IDictionary<string, object> value,
+            string propertyName,
+            int expectedCount)
+        {
+            IList<object> items = InteractionJson.RequireArray(
+                value,
+                propertyName
+            );
+            if (items.Count != expectedCount)
+            {
+                throw new FormatException(
+                    "JSON property '" + propertyName + "' must contain " +
+                    expectedCount.ToString(CultureInfo.InvariantCulture) +
+                    " numbers."
+                );
+            }
+            for (int index = 0; index < items.Count; index++)
+            {
+                double number = items[index] is long integer
+                    ? integer
+                    : items[index] is double real
+                        ? real
+                        : double.NaN;
+                if (double.IsNaN(number) || double.IsInfinity(number))
+                {
+                    throw new FormatException(
+                        "JSON property '" + propertyName +
+                        "' must contain only finite numbers."
+                    );
+                }
             }
         }
 

@@ -170,6 +170,7 @@ namespace SignVR.Interaction.CaptureHost
                                 "match its directory at " + manifest + "."
                             );
                         }
+                        DeleteInterruptedStreamRecoveryTemporaries(runDirectory);
 
                         string summaryPath = Path.Combine(
                             runDirectory,
@@ -232,6 +233,33 @@ namespace SignVR.Interaction.CaptureHost
                 if (File.Exists(partial))
                 {
                     File.Delete(partial);
+                }
+            }
+        }
+
+        private static void DeleteInterruptedStreamRecoveryTemporaries(
+            string runDirectory)
+        {
+            string[] streamFileNames =
+            {
+                InteractionStoragePaths.EventsFileName,
+                InteractionStoragePaths.PosesFileName,
+                InteractionStoragePaths.ObjectsFileName
+            };
+            for (int index = 0; index < streamFileNames.Length; index++)
+            {
+                string pattern = "." + streamFileNames[index] +
+                    ".partial-recovery.*.tmp";
+                string[] stale = Directory.GetFiles(
+                    runDirectory,
+                    pattern,
+                    SearchOption.TopDirectoryOnly
+                );
+                for (int staleIndex = 0;
+                    staleIndex < stale.Length;
+                    staleIndex++)
+                {
+                    File.Delete(stale[staleIndex]);
                 }
             }
         }

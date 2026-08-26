@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using SignVR.Interaction.Core;
 
@@ -142,6 +143,72 @@ namespace SignVR.Interaction.CaptureHost
                     "Recovery summary did not seal the Run as Aborted."
                 );
                 RequireFiveSealedFiles(recovered.DirectoryPath);
+            }
+            finally
+            {
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
+        public static void MalformedPoseEnvelopeIsDiscardedAndMarkedIncomplete()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            try
+            {
+                PartialFixture partial = CreatePartialRun(root, 715, "P715");
+                File.WriteAllText(
+                    partial.PosesPartial,
+                    IdentityOnlyRow(partial.RunId) + Environment.NewLine
+                );
+
+                InteractionStandaloneLocalRunRecoveryCoordinator coordinator =
+                    Recover(root);
+                Require(
+                    coordinator.RecoveredRunCount == 1,
+                    "Malformed-pose recovery did not seal exactly one Run."
+                );
+                InteractionPendingRun recovered = InteractionPendingRunDiscovery
+                    .DiscoverQuestLocal(root)
+                    .Single();
+                RequireLocallyComplete(recovered, "Malformed-pose recovered");
+                RequireMalformedStreamWasRejected(
+                    recovered,
+                    InteractionLocalArtifactTypes.Poses,
+                    InteractionLocalArtifactTypes.Objects
+                );
+            }
+            finally
+            {
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
+        public static void MalformedObjectEnvelopeIsDiscardedAndMarkedIncomplete()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            try
+            {
+                PartialFixture partial = CreatePartialRun(root, 716, "P716");
+                File.WriteAllText(
+                    partial.ObjectsPartial,
+                    IdentityOnlyRow(partial.RunId) + Environment.NewLine
+                );
+
+                InteractionStandaloneLocalRunRecoveryCoordinator coordinator =
+                    Recover(root);
+                Require(
+                    coordinator.RecoveredRunCount == 1,
+                    "Malformed-object recovery did not seal exactly one Run."
+                );
+                InteractionPendingRun recovered = InteractionPendingRunDiscovery
+                    .DiscoverQuestLocal(root)
+                    .Single();
+                RequireLocallyComplete(recovered, "Malformed-object recovered");
+                RequireMalformedStreamWasRejected(
+                    recovered,
+                    InteractionLocalArtifactTypes.Objects,
+                    InteractionLocalArtifactTypes.Poses
+                );
             }
             finally
             {
@@ -348,6 +415,159 @@ namespace SignVR.Interaction.CaptureHost
                     InteractionJson.RequireString(summary, "status") == "aborted",
                     "Idempotent residue cleanup changed the terminal Run status."
                 );
+                RequireFiveSealedFiles(runDirectory);
+            }
+            finally
+            {
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
+        public static void SealedRunCleansInterruptedStreamRecoveryTemporaries()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            try
+            {
+                string runDirectory = CreateAbortedRun(root, 712, "P712");
+                IDictionary<string, byte[]> sealedEvidence = SnapshotFiles(
+                    runDirectory
+                );
+                string[] residue = CreateStreamRecoveryTemporaryResidue(
+                    runDirectory,
+                    Path.Combine(
+                        runDirectory,
+                        InteractionStoragePaths.EventsFileName
+                    ),
+                    Path.Combine(
+                        runDirectory,
+                        InteractionStoragePaths.ObjectsFileName
+                    )
+                );
+                Require(
+                    residue.Length == 3 && residue.All(File.Exists),
+                    "The sealed recovery-temp fixture was not created."
+                );
+
+                InteractionStandaloneLocalRunRecoveryCoordinator coordinator =
+                    Recover(root);
+
+                Require(
+                    coordinator.RecoveredRunCount == 0,
+                    "Internal residue cleanup re-terminalized a sealed Run."
+                );
+                InteractionPendingRun recovered = InteractionPendingRunDiscovery
+                    .DiscoverQuestLocal(root)
+                    .Single();
+                RequireLocallyComplete(recovered, "Recovery-temp-cleaned Aborted");
+                RequireEvidenceUnchanged(runDirectory, sealedEvidence);
+                Require(
+                    residue.All(path => !File.Exists(path)),
+                    "A sealed Run retained an interrupted stream-recovery temp."
+                );
+                RequireAbortedSummary(recovered);
+                RequireFiveSealedFiles(runDirectory);
+            }
+            finally
+            {
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
+        public static void UnsealedRunCleansStreamRecoveryTempsBeforeReseal()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            try
+            {
+                PartialFixture partial = CreatePartialRun(root, 713, "P713");
+                string[] residue = CreateStreamRecoveryTemporaryResidue(
+                    partial.DirectoryPath,
+                    partial.EventsPartial,
+                    partial.ObjectsPartial
+                );
+                Require(
+                    residue.Length == 3 && residue.All(File.Exists),
+                    "The unsealed recovery-temp fixture was not created."
+                );
+
+                InteractionStandaloneLocalRunRecoveryCoordinator coordinator =
+                    Recover(root);
+
+                Require(
+                    coordinator.RecoveredRunCount == 1,
+                    "Startup recovery did not reseal the interrupted partial Run."
+                );
+                InteractionPendingRun recovered = InteractionPendingRunDiscovery
+                    .DiscoverQuestLocal(root)
+                    .Single();
+                RequireLocallyComplete(recovered, "Interrupted recovery resealed");
+                Require(
+                    residue.All(path => !File.Exists(path)),
+                    "Resealing retained an interrupted stream-recovery temp."
+                );
+                RequireAbortedSummary(recovered);
+                RequireFiveSealedFiles(partial.DirectoryPath);
+            }
+            finally
+            {
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
+        public static void SummaryAtomicTempPublishesAndCleansStreamRecoveryTemps()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            try
+            {
+                string runDirectory = CreateAbortedRun(root, 714, "P714");
+                string summaryPath = Path.Combine(
+                    runDirectory,
+                    InteractionStoragePaths.SummaryFileName
+                );
+                byte[] expectedSummary = File.ReadAllBytes(summaryPath);
+                string summaryAtomic = Path.Combine(
+                    runDirectory,
+                    "." + InteractionStoragePaths.SummaryFileName +
+                        ".atomic.44444444444444444444444444444444.tmp"
+                );
+                File.Move(summaryPath, summaryAtomic);
+                string[] residue = CreateStreamRecoveryTemporaryResidue(
+                    runDirectory,
+                    Path.Combine(
+                        runDirectory,
+                        InteractionStoragePaths.EventsFileName
+                    ),
+                    Path.Combine(
+                        runDirectory,
+                        InteractionStoragePaths.ObjectsFileName
+                    )
+                );
+                Require(
+                    !File.Exists(summaryPath) && File.Exists(summaryAtomic) &&
+                    residue.All(File.Exists),
+                    "The summary atomic crash fixture was not created."
+                );
+
+                InteractionStandaloneLocalRunRecoveryCoordinator coordinator =
+                    Recover(root);
+
+                Require(
+                    coordinator.RecoveredRunCount == 0,
+                    "Publishing a terminal summary re-terminalized the Run."
+                );
+                InteractionPendingRun recovered = InteractionPendingRunDiscovery
+                    .DiscoverQuestLocal(root)
+                    .Single();
+                RequireLocallyComplete(recovered, "Atomic-summary recovered");
+                Require(
+                    !File.Exists(summaryAtomic) &&
+                    BytesEqual(expectedSummary, File.ReadAllBytes(summaryPath)),
+                    "Recovery did not publish the exact terminal summary bytes."
+                );
+                Require(
+                    residue.All(path => !File.Exists(path)),
+                    "Atomic summary publication retained stream-recovery residue."
+                );
+                RequireAbortedSummary(recovered);
                 RequireFiveSealedFiles(runDirectory);
             }
             finally
@@ -736,6 +956,68 @@ namespace SignVR.Interaction.CaptureHost
             );
         }
 
+        private static void RequireMalformedStreamWasRejected(
+            InteractionPendingRun recovered,
+            string malformedArtifactType,
+            string validArtifactType)
+        {
+            Require(
+                ReadNonEmptyLines(
+                    recovered.ArtifactPath(malformedArtifactType)
+                ).Length == 0,
+                "Recovery retained an identity-only " +
+                    malformedArtifactType + " row."
+            );
+            Require(
+                ReadNonEmptyLines(
+                    recovered.ArtifactPath(validArtifactType)
+                ).Length > 0,
+                "Recovery discarded the valid " + validArtifactType +
+                    " stream while rejecting another stream."
+            );
+
+            IDictionary<string, object> summary = InteractionJson.ParseObject(
+                InteractionAtomicFile.ReadUtf8(recovered.ArtifactPath(
+                    InteractionLocalArtifactTypes.Summary
+                ))
+            );
+            IDictionary<string, object> completeness =
+                InteractionJson.RequireObject(summary, "data_completeness");
+            Require(
+                completeness.TryGetValue(
+                    malformedArtifactType,
+                    out object malformedComplete
+                ) && malformedComplete is bool && !(bool)malformedComplete,
+                "Summary falsely marked malformed " + malformedArtifactType +
+                    " evidence complete."
+            );
+            Require(
+                completeness.TryGetValue(
+                    validArtifactType,
+                    out object validComplete
+                ) && validComplete is bool && (bool)validComplete,
+                "Summary did not retain completeness for valid " +
+                    validArtifactType + " evidence."
+            );
+            Require(
+                completeness.TryGetValue(
+                    "quest_artifacts_complete",
+                    out object allComplete
+                ) && allComplete is bool && !(bool)allComplete,
+                "Summary falsely marked the recovered artifact set complete."
+            );
+            RequireFiveSealedFiles(recovered.DirectoryPath);
+        }
+
+        private static string IdentityOnlyRow(string runId)
+        {
+            var builder = new StringBuilder();
+            builder.Append("{\"schema_version\":1,\"run_id\":");
+            InteractionJson.AppendQuoted(builder, runId);
+            builder.Append('}');
+            return builder.ToString();
+        }
+
         private static void RequireFiveSealedFiles(string directory)
         {
             string[] names = InteractionLocalArtifactTypes.All
@@ -825,6 +1107,65 @@ namespace SignVR.Interaction.CaptureHost
                 directory,
                 "." + InteractionLocalArtifactTypes.FileNameFor(artifactType) +
                     ".partial"
+            );
+        }
+
+        private static string[] CreateStreamRecoveryTemporaryResidue(
+            string directory,
+            string eventsSource,
+            string objectsSource)
+        {
+            string eventsTemporary = StreamRecoveryTemporaryPath(
+                directory,
+                InteractionLocalArtifactTypes.Events,
+                "11111111111111111111111111111111"
+            );
+            string posesTemporary = StreamRecoveryTemporaryPath(
+                directory,
+                InteractionLocalArtifactTypes.Poses,
+                "22222222222222222222222222222222"
+            );
+            string objectsTemporary = StreamRecoveryTemporaryPath(
+                directory,
+                InteractionLocalArtifactTypes.Objects,
+                "33333333333333333333333333333333"
+            );
+
+            // A completed event temp, a truncated pose temp, and a completed
+            // object temp model process death at different write points.
+            File.Copy(eventsSource, eventsTemporary);
+            File.WriteAllBytes(posesTemporary, new byte[] { (byte)'{' });
+            File.Copy(objectsSource, objectsTemporary);
+            return new[]
+            {
+                eventsTemporary,
+                posesTemporary,
+                objectsTemporary
+            };
+        }
+
+        private static string StreamRecoveryTemporaryPath(
+            string directory,
+            string artifactType,
+            string id)
+        {
+            return Path.Combine(
+                directory,
+                "." + InteractionLocalArtifactTypes.FileNameFor(artifactType) +
+                    ".partial-recovery." + id + ".tmp"
+            );
+        }
+
+        private static void RequireAbortedSummary(InteractionPendingRun run)
+        {
+            IDictionary<string, object> summary = InteractionJson.ParseObject(
+                InteractionAtomicFile.ReadUtf8(run.ArtifactPath(
+                    InteractionLocalArtifactTypes.Summary
+                ))
+            );
+            Require(
+                InteractionJson.RequireString(summary, "status") == "aborted",
+                "Recovered terminal summary is not Aborted."
             );
         }
 

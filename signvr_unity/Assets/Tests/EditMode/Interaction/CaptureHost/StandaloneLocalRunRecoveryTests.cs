@@ -30,6 +30,18 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void MalformedPoseEnvelopeIsDiscardedAndMarkedIncomplete()
+        {
+            Invoke(nameof(MalformedPoseEnvelopeIsDiscardedAndMarkedIncomplete));
+        }
+
+        [Test]
+        public void MalformedObjectEnvelopeIsDiscardedAndMarkedIncomplete()
+        {
+            Invoke(nameof(MalformedObjectEnvelopeIsDiscardedAndMarkedIncomplete));
+        }
+
+        [Test]
         public void StartupRecoveryIsIdempotent()
         {
             Invoke(nameof(StartupRecoveryIsIdempotent));
@@ -51,6 +63,24 @@ namespace SignVR.Interaction.Editor.Tests
         public void SealedAbortedRunCleansKnownPartialResidueIdempotently()
         {
             Invoke(nameof(SealedAbortedRunCleansKnownPartialResidueIdempotently));
+        }
+
+        [Test]
+        public void SealedRunCleansInterruptedStreamRecoveryTemporaries()
+        {
+            Invoke(nameof(SealedRunCleansInterruptedStreamRecoveryTemporaries));
+        }
+
+        [Test]
+        public void UnsealedRunCleansStreamRecoveryTempsBeforeReseal()
+        {
+            Invoke(nameof(UnsealedRunCleansStreamRecoveryTempsBeforeReseal));
+        }
+
+        [Test]
+        public void SummaryAtomicTempPublishesAndCleansStreamRecoveryTemps()
+        {
+            Invoke(nameof(SummaryAtomicTempPublishesAndCleansStreamRecoveryTemps));
         }
 
         [Test]
