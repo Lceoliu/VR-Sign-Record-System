@@ -766,9 +766,29 @@ namespace SignVR.Interaction.Orchestration
                 Assert.That(participant.text, Is.EqualTo("P004"));
                 Assert.That(participant.interactable, Is.True);
 
-                ui.SetActive(false);
+                if (Application.isPlaying)
+                {
+                    ui.SetActive(false);
+                }
+                else
+                {
+                    typeof(InteractionStudyFlowControls).GetMethod(
+                        "OnDisable",
+                        BindingFlags.Instance | BindingFlags.NonPublic
+                    ).Invoke(controls, null);
+                }
                 Assert.That(instruction.HasLiveCommandSink, Is.False);
-                ui.SetActive(true);
+                if (Application.isPlaying)
+                {
+                    ui.SetActive(true);
+                }
+                else
+                {
+                    typeof(InteractionStudyFlowControls).GetMethod(
+                        "OnEnable",
+                        BindingFlags.Instance | BindingFlags.NonPublic
+                    ).Invoke(controls, null);
+                }
                 Assert.That(
                     instruction.OwnsCommandSink(controls),
                     Is.True

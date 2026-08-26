@@ -417,17 +417,48 @@ namespace SignVR.Editor.Interaction
             Action operation)
         {
             bool wasDirty = scene.isDirty;
+            Dictionary<TMP_Text, bool> richTextBefore =
+                CaptureExistingW8RichTextState(scene);
             try
             {
                 ExecuteUndoGroupForAutomation(operationName, operation);
             }
             catch
             {
+                RestoreExistingW8RichTextState(richTextBefore);
                 if (!wasDirty && scene.IsValid() && scene.isLoaded)
                 {
                     TryRestoreCleanSceneState(scene);
                 }
                 throw;
+            }
+        }
+
+        private static Dictionary<TMP_Text, bool>
+            CaptureExistingW8RichTextState(Scene scene)
+        {
+            Transform uiAnchor = TryFindTransform(scene, UiAnchorPath);
+            Transform surface = uiAnchor == null
+                ? null
+                : FindDirectChild(uiAnchor, StartSurfaceName);
+            return surface == null
+                ? new Dictionary<TMP_Text, bool>()
+                : surface.GetComponentsInChildren<TMP_Text>(true)
+                    .Where(value => value != null)
+                    .ToDictionary(value => value, value => value.richText);
+        }
+
+        private static void RestoreExistingW8RichTextState(
+            IReadOnlyDictionary<TMP_Text, bool> snapshot)
+        {
+            foreach (KeyValuePair<TMP_Text, bool> pair in snapshot)
+            {
+                if (pair.Key == null || pair.Key.richText == pair.Value)
+                {
+                    continue;
+                }
+                pair.Key.richText = pair.Value;
+                EditorUtility.SetDirty(pair.Key);
             }
         }
 
@@ -1083,13 +1114,32 @@ namespace SignVR.Editor.Interaction
             rect.localRotation = Quaternion.identity;
             rect.localScale = Vector3.one * 0.001f;
 
-            Canvas canvas = GetOrAdd<Canvas>(root);
-            CanvasScaler scaler = GetOrAdd<CanvasScaler>(root);
-            CanvasGroup group = GetOrAdd<CanvasGroup>(root);
+            GetOrAdd<Canvas>(root);
+            GetOrAdd<CanvasScaler>(root);
             GetOrAdd<GraphicRaycaster>(root);
-            WorldSpacePokeCanvas poke = GetOrAdd<WorldSpacePokeCanvas>(root);
+            GetOrAdd<WorldSpacePokeCanvas>(root);
+
+            // Adding a RequireComponent user through Undo may cause Unity to
+            // replace a just-created required-component wrapper. Re-resolve
+            // every reference after the component set is complete so setup
+            // never records or configures a stale marshalled object.
+            Canvas canvas = root.GetComponent<Canvas>();
+            CanvasScaler scaler = root.GetComponent<CanvasScaler>();
+            WorldSpacePokeCanvas poke = root.GetComponent<WorldSpacePokeCanvas>();
+            if (canvas == null || scaler == null || poke == null)
+            {
+                throw new InvalidOperationException(
+                    "W8 Start surface could not create its required Canvas " +
+                    "component set. Missing: " + string.Join(", ", new[]
+                    {
+                        canvas == null ? nameof(Canvas) : null,
+                        scaler == null ? nameof(CanvasScaler) : null,
+                        poke == null ? nameof(WorldSpacePokeCanvas) : null
+                    }.Where(value => value != null)) + "."
+                );
+            }
             Undo.RecordObjects(
-                new UnityEngine.Object[] { canvas, scaler, group, poke },
+                new UnityEngine.Object[] { canvas, scaler, poke },
                 "Configure W8 Start canvas"
             );
             canvas.renderMode = RenderMode.WorldSpace;
@@ -1098,9 +1148,6 @@ namespace SignVR.Editor.Interaction
             canvas.worldCamera = hmd.GetComponent<Camera>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
             scaler.dynamicPixelsPerUnit = 100f;
-            group.alpha = 1f;
-            group.interactable = true;
-            group.blocksRaycasts = true;
             poke.Configure(canvas);
 
             Image background = EnsurePanel(root.transform, "Background");
@@ -1166,7 +1213,12 @@ namespace SignVR.Editor.Interaction
                 font,
                 23f
             );
-            status.textWrappingMode = TextWrappingModes.Normal;
+            if (status.textWrappingMode != TextWrappingModes.Normal)
+            {
+                Undo.RecordObject(status, "Configure W8 status wrapping");
+                status.textWrappingMode = TextWrappingModes.Normal;
+                EditorUtility.SetDirty(status);
+            }
             SetRect(status.rectTransform, new Vector2(0f, -235f),
                 new Vector2(700f, 100f));
 
@@ -1198,11 +1250,27 @@ namespace SignVR.Editor.Interaction
                 new UnityEngine.Object[] { background, input },
                 "Configure W8 identity input"
             );
-            background.color = new Color(0.92f, 0.94f, 0.97f, 1f);
-            input.targetGraphic = background;
-            input.lineType = TMP_InputField.LineType.SingleLine;
-            input.contentType = TMP_InputField.ContentType.Standard;
-            input.characterLimit = characterLimit;
+            Color backgroundColor = new Color(0.92f, 0.94f, 0.97f, 1f);
+            if (background.color != backgroundColor)
+            {
+                background.color = backgroundColor;
+            }
+            if (input.targetGraphic != background)
+            {
+                input.targetGraphic = background;
+            }
+            if (input.lineType != TMP_InputField.LineType.SingleLine)
+            {
+                input.lineType = TMP_InputField.LineType.SingleLine;
+            }
+            if (input.contentType != TMP_InputField.ContentType.Standard)
+            {
+                input.contentType = TMP_InputField.ContentType.Standard;
+            }
+            if (input.characterLimit != characterLimit)
+            {
+                input.characterLimit = characterLimit;
+            }
 
             GameObject viewportObject = EnsureNamedUiObject(
                 root.transform,
@@ -1216,23 +1284,40 @@ namespace SignVR.Editor.Interaction
                 "Placeholder",
                 placeholderText,
                 font,
-                22f
+                22f,
+                new Color(0.25f, 0.28f, 0.32f, 0.72f)
             );
-            placeholder.fontStyle = FontStyles.Italic;
-            placeholder.color = new Color(0.25f, 0.28f, 0.32f, 0.72f);
+            if (placeholder.fontStyle != FontStyles.Italic)
+            {
+                Undo.RecordObject(
+                    placeholder,
+                    "Configure W8 placeholder style"
+                );
+                placeholder.fontStyle = FontStyles.Italic;
+                EditorUtility.SetDirty(placeholder);
+            }
             Stretch(placeholder.rectTransform, 0f);
             TMP_Text text = EnsureText(
                 viewport,
                 "Text",
                 string.Empty,
                 font,
-                24f
+                24f,
+                new Color(0.04f, 0.05f, 0.07f, 1f)
             );
-            text.color = new Color(0.04f, 0.05f, 0.07f, 1f);
             Stretch(text.rectTransform, 0f);
-            input.textViewport = viewport;
-            input.textComponent = (TextMeshProUGUI)text;
-            input.placeholder = placeholder;
+            if (input.textViewport != viewport)
+            {
+                input.textViewport = viewport;
+            }
+            if (input.textComponent != text)
+            {
+                input.textComponent = (TextMeshProUGUI)text;
+            }
+            if (input.placeholder != placeholder)
+            {
+                input.placeholder = placeholder;
+            }
             EditorUtility.SetDirty(input);
             return input;
         }
@@ -1261,7 +1346,6 @@ namespace SignVR.Editor.Interaction
                 25f
             );
             Stretch(text.rectTransform, 8f);
-            text.raycastTarget = false;
             EditorUtility.SetDirty(button);
             return button;
         }
@@ -1271,20 +1355,94 @@ namespace SignVR.Editor.Interaction
             string name,
             string value,
             TMP_FontAsset font,
-            float fontSize)
+            float fontSize,
+            Color? color = null)
         {
             GameObject root = EnsureNamedUiObject(parent, name);
             TextMeshProUGUI text = GetOrAdd<TextMeshProUGUI>(root);
-            Undo.RecordObject(text, "Configure W8 UI text");
-            text.text = value;
-            text.font = font;
-            text.fontSize = fontSize;
-            text.alignment = TextAlignmentOptions.Center;
-            text.color = Color.white;
-            text.richText = false;
-            text.raycastTarget = false;
-            EditorUtility.SetDirty(text);
+            bool needsBasicChange =
+                !string.Equals(text.text, value, StringComparison.Ordinal) ||
+                text.font != font ||
+                !Mathf.Approximately(text.fontSize, fontSize) ||
+                text.alignment != TextAlignmentOptions.Center ||
+                text.richText ||
+                text.raycastTarget;
+            if (needsBasicChange)
+            {
+                Undo.RecordObject(text, "Configure W8 UI text");
+            }
+            if (!string.Equals(text.text, value, StringComparison.Ordinal))
+            {
+                text.text = value;
+            }
+            if (text.font != font)
+            {
+                text.font = font;
+            }
+            if (!Mathf.Approximately(text.fontSize, fontSize))
+            {
+                text.fontSize = fontSize;
+            }
+            if (text.alignment != TextAlignmentOptions.Center)
+            {
+                text.alignment = TextAlignmentOptions.Center;
+            }
+            if (text.richText)
+            {
+                text.richText = false;
+            }
+            if (text.raycastTarget)
+            {
+                text.raycastTarget = false;
+            }
+            bool colorChanged = SetTextColor(text, color ?? Color.white);
+            if (needsBasicChange || colorChanged)
+            {
+                EditorUtility.SetDirty(text);
+            }
             return text;
+        }
+
+        private static bool SetTextColor(TMP_Text text, Color value)
+        {
+            if (text == null)
+            {
+                throw new ArgumentNullException(nameof(text));
+            }
+            var serialized = new SerializedObject(text);
+            serialized.Update();
+            var colorProperties = new List<SerializedProperty>();
+            foreach (string propertyName in new[]
+                     {
+                         "m_fontColor",
+                         "m_fontColor32"
+                     })
+            {
+                SerializedProperty property = serialized.FindProperty(
+                    propertyName
+                );
+                if (property != null &&
+                    property.propertyType == SerializedPropertyType.Color)
+                {
+                    colorProperties.Add(property);
+                }
+            }
+            bool requiresChange = text.color != value ||
+                colorProperties.Any(property => property.colorValue != value);
+            if (!requiresChange)
+            {
+                return false;
+            }
+
+            Undo.RecordObject(text, "Configure W8 UI text color");
+            text.color = value;
+            foreach (SerializedProperty property in colorProperties)
+            {
+                property.colorValue = value;
+            }
+            serialized.ApplyModifiedProperties();
+            EditorUtility.SetDirty(text);
+            return true;
         }
 
         private static Image EnsurePanel(Transform parent, string name)

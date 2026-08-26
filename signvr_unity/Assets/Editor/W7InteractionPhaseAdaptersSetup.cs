@@ -1431,24 +1431,9 @@ namespace SignVR.Editor.Interaction
                 .Where(item => item != null)
                 .Distinct()
                 .ToArray();
-            bool hasLeft = roots.Any(item =>
-                item.name.IndexOf("left", StringComparison.OrdinalIgnoreCase) >= 0
-            );
-            bool hasRight = roots.Any(item =>
-                item.name.IndexOf("right", StringComparison.OrdinalIgnoreCase) >= 0
-            );
-            bool allHandOnly = roots.All(item =>
-                item.name.IndexOf("hand", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                item.name.IndexOf(
-                    "interactor",
-                    StringComparison.OrdinalIgnoreCase
-                ) >= 0 &&
-                item.name.IndexOf(
-                    "controller",
-                    StringComparison.OrdinalIgnoreCase
-                ) < 0
-            );
-            return roots.Length == 2 && hasLeft && hasRight && allHandOnly;
+            return roots.Length == 2 &&
+                roots.Count(item => IsBareHandInteractorRoot(item, "left")) == 1 &&
+                roots.Count(item => IsBareHandInteractorRoot(item, "right")) == 1;
         }
 
         private static void ValidateRelay(
@@ -1683,15 +1668,7 @@ namespace SignVR.Editor.Interaction
             string side)
         {
             Transform[] matches = transforms.Where(item =>
-            {
-                string normalized = new string(item.name
-                    .Where(char.IsLetterOrDigit)
-                    .Select(char.ToLowerInvariant)
-                    .ToArray());
-                return normalized.Contains("handinteractors") &&
-                    normalized.Contains(side) &&
-                    !normalized.Contains("controller");
-            }).ToArray();
+                IsBareHandInteractorRoot(item, side)).ToArray();
             if (matches.Length != 1)
             {
                 throw new InvalidOperationException(
@@ -1701,6 +1678,49 @@ namespace SignVR.Editor.Interaction
                 );
             }
             return matches[0];
+        }
+
+        private static bool IsBareHandInteractorRoot(
+            Transform item,
+            string side)
+        {
+            if (item == null || string.IsNullOrWhiteSpace(side))
+            {
+                return false;
+            }
+            string normalized = new string(item.name
+                .Where(char.IsLetterOrDigit)
+                .Select(char.ToLowerInvariant)
+                .ToArray());
+            bool legacyNamedRoot =
+                normalized.Contains("handinteractors") &&
+                normalized.Contains(side) &&
+                !normalized.Contains("controller");
+
+            // Meta's Comprehensive Interaction Rig names the actual
+            // controller-free subtree "Hand and No Controller" and puts the
+            // side on its ComprehensiveInteractorsLeft/Right grandparent.
+            // Bind that narrow subtree, never ActiveStatesTrackers or the
+            // comprehensive parent that also contains controller interactors.
+            string normalizedParent = item.parent == null
+                ? string.Empty
+                : new string(item.parent.name
+                    .Where(char.IsLetterOrDigit)
+                    .Select(char.ToLowerInvariant)
+                    .ToArray());
+            string normalizedGrandparent = item.parent?.parent == null
+                ? string.Empty
+                : new string(item.parent.parent.name
+                    .Where(char.IsLetterOrDigit)
+                    .Select(char.ToLowerInvariant)
+                    .ToArray());
+            bool comprehensiveHandOnlyRoot =
+                normalized == "handandnocontroller" &&
+                normalizedParent == "interactors" &&
+                normalizedGrandparent.Contains(
+                    "comprehensiveinteractors" + side
+                );
+            return legacyNamedRoot || comprehensiveHandOnlyRoot;
         }
 
         private static Transform FindTarget(Scene scene, string path)

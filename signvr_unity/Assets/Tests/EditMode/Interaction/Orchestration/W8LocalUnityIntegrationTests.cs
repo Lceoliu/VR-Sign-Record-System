@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -262,6 +263,7 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                     false
                 );
                 AssertConfiguredScene(copy);
+                string[] configuredEntries = CaptureW8Entries(copy);
                 string configured = CaptureW8Signature(copy);
 
                 Assert.That(
@@ -284,8 +286,8 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                 );
                 AssertConfiguredScene(copy);
                 Assert.That(
-                    CaptureW8Signature(copy),
-                    Is.EqualTo(configured),
+                    CaptureW8Entries(copy),
+                    Is.EqualTo(configuredEntries),
                     "The saved and reopened test-owned scene must preserve " +
                         "all W8 wiring, skeletons, and probes."
                 );
@@ -302,8 +304,8 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                     false
                 );
                 Assert.That(
-                    CaptureW8Signature(copy),
-                    Is.EqualTo(configured),
+                    CaptureW8Entries(copy),
+                    Is.EqualTo(configuredEntries),
                     "A successful W8 rerun must be structurally idempotent."
                 );
 
@@ -440,6 +442,7 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
             string expectedSignature,
             bool? expectedDirty = null)
         {
+            string[] expectedEntries = CaptureW8Entries(scene);
             var failure = new InvalidOperationException(
                 "forced_w8_after_wiring_failure"
             );
@@ -452,11 +455,45 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                     afterWiring
                 ));
             Assert.That(thrown.InnerException, Is.SameAs(failure));
+            string[] actualEntries = CaptureW8Entries(scene);
+            int firstDifference = -1;
+            int compared = Math.Min(
+                expectedEntries.Length,
+                actualEntries.Length
+            );
+            for (int index = 0; index < compared; index++)
+            {
+                if (!string.Equals(
+                        expectedEntries[index],
+                        actualEntries[index],
+                        StringComparison.Ordinal))
+                {
+                    firstDifference = index;
+                    break;
+                }
+            }
+            if (firstDifference < 0 &&
+                expectedEntries.Length != actualEntries.Length)
+            {
+                firstDifference = compared;
+            }
+            string differenceIdentity = firstDifference >= 0 &&
+                firstDifference < expectedEntries.Length
+                ? string.Join(
+                    " | ",
+                    expectedEntries[firstDifference].Split('|').Take(2)
+                )
+                : "signature length";
+            Assert.That(
+                actualEntries,
+                Is.EqualTo(expectedEntries),
+                "Actual W8 setup additions, references, and UI mutations " +
+                    "must all roll back. First differing entry: " +
+                    differenceIdentity
+            );
             Assert.That(
                 CaptureW8Signature(scene),
-                Is.EqualTo(expectedSignature),
-                "Actual W8 setup additions, references, and UI mutations " +
-                    "must all roll back."
+                Is.EqualTo(expectedSignature)
             );
             if (expectedDirty.HasValue)
             {
@@ -734,6 +771,14 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
 
         private static string CaptureW8Signature(Scene scene)
         {
+            return HashBytes(Encoding.UTF8.GetBytes(string.Join(
+                "\n",
+                CaptureW8Entries(scene)
+            )));
+        }
+
+        private static string[] CaptureW8Entries(Scene scene)
+        {
             var relevantTypes = new HashSet<string>(StringComparer.Ordinal)
             {
                 "OVRHand",
@@ -760,9 +805,22 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                 {
                     continue;
                 }
+                string serialized = EditorJsonUtility.ToJson(
+                    component,
+                    false
+                );
+                // Unity's editor JSON represents object references with
+                // process-local instance IDs. Those necessarily change after
+                // close/reopen even when the serialized scene wiring is
+                // identical, so exclude only that volatile transport value.
+                serialized = Regex.Replace(
+                    serialized,
+                    "\\\"instanceID\\\":-?[0-9]+",
+                    "\\\"instanceID\\\":0"
+                ).Replace("\u200B", string.Empty);
                 entries.Add(
                     HierarchyPath(component.transform) + "|" + fullName +
-                    "|" + EditorJsonUtility.ToJson(component, false)
+                    "|" + serialized
                 );
             }
             if (surface != null)
@@ -778,7 +836,7 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                 }
             }
             entries.Sort(StringComparer.Ordinal);
-            return HashBytes(Encoding.UTF8.GetBytes(string.Join("\n", entries)));
+            return entries.ToArray();
         }
 
         private static IEnumerable<Component> AllComponents(Scene scene)
