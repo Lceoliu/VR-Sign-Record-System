@@ -739,32 +739,47 @@ namespace SignVR.Interaction.Orchestration
 
             const string ScenePath = "Assets/Scenes/InteractionLab.unity";
             string temporaryRoot = CreateShortTemporaryRoot();
+            HashSet<ulong> preexistingSceneHandles =
+                CaptureLoadedSceneHandles();
             Scene loadedScene = default;
             bool ownsLoadedScene = false;
+            bool cleanupTerminalizationSucceeded = true;
             AsyncOperation unload = null;
             InteractionRunController runController = null;
             try
             {
-                loadedScene = FindLoadedSceneByPath(ScenePath);
-                if (!loadedScene.IsValid() || !loadedScene.isLoaded)
+                // Always load a test-owned scene instance. Reusing the scene
+                // that entered Play Mode would leave its mode, Run, and storage
+                // root mutated after this integration test.
+                loadedScene = EditorSceneManager.LoadSceneInPlayMode(
+                    ScenePath,
+                    new LoadSceneParameters(LoadSceneMode.Additive)
+                );
+                ownsLoadedScene = true;
+                double loadDeadline =
+                    Time.realtimeSinceStartupAsDouble + 10d;
+                while ((!loadedScene.IsValid() || !loadedScene.isLoaded ||
+                        preexistingSceneHandles.Contains(
+                            loadedScene.handle.GetRawData()
+                        )) &&
+                    Time.realtimeSinceStartupAsDouble < loadDeadline)
                 {
-                    loadedScene = EditorSceneManager.LoadSceneInPlayMode(
+                    yield return null;
+                    Scene discovered = FindNewLoadedSceneByPath(
                         ScenePath,
-                        new LoadSceneParameters(LoadSceneMode.Additive)
+                        preexistingSceneHandles
                     );
-                    ownsLoadedScene = true;
-                    double loadDeadline =
-                        Time.realtimeSinceStartupAsDouble + 10d;
-                    while ((!loadedScene.IsValid() || !loadedScene.isLoaded) &&
-                        Time.realtimeSinceStartupAsDouble < loadDeadline)
+                    if (discovered.IsValid())
                     {
-                        yield return null;
-                        loadedScene = FindLoadedSceneByPath(ScenePath);
+                        loadedScene = discovered;
                     }
                 }
                 Require(
-                    loadedScene.IsValid() && loadedScene.isLoaded,
-                    "Unity did not load the saved InteractionLab scene."
+                    loadedScene.IsValid() && loadedScene.isLoaded &&
+                        !preexistingSceneHandles.Contains(
+                            loadedScene.handle.GetRawData()
+                        ),
+                    "Unity did not load a test-owned InteractionLab scene."
                 );
                 yield return null;
 
@@ -792,6 +807,43 @@ namespace SignVR.Interaction.Orchestration
                     startButton != null &&
                         startButton.gameObject.scene == loadedScene,
                     "Saved InteractionLab has no scene-owned Start button."
+                );
+
+                string editorStorageRoot = Path.GetFullPath(
+                    runController.StorageRootForTests
+                );
+                string realPersistentRoot = Path.GetFullPath(
+                    Application.persistentDataPath
+                );
+                string tempParent = Path.GetFullPath(Path.GetTempPath())
+                    .TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar
+                    );
+                string editorStorageParent =
+                    Directory.GetParent(editorStorageRoot)?.FullName;
+                string editorStorageName = Path.GetFileName(editorStorageRoot);
+                StringComparison pathComparison =
+                    Path.DirectorySeparatorChar == '\\'
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal;
+                Require(
+                    !string.Equals(
+                        editorStorageRoot,
+                        realPersistentRoot,
+                        pathComparison
+                    ) &&
+                        string.Equals(
+                            editorStorageParent,
+                            tempParent,
+                            pathComparison
+                        ) &&
+                        editorStorageName.StartsWith(
+                            "svr-ed-",
+                            StringComparison.Ordinal
+                        ),
+                    "Editor Play Mode startup recovery was not isolated from " +
+                        "the real persistent experiment root."
                 );
 
                 double preparationDeadline =
@@ -823,7 +875,7 @@ namespace SignVR.Interaction.Orchestration
 
                 // Preserve the saved UI/Flow/Controller wiring. Only replace
                 // the device-owned XR gate and write root with the existing
-                // EngineeringLocal test boundary. The real completed startup
+                // EngineeringLocal test boundary. The completed sandbox startup
                 // recovery and manifest catalog stay installed.
                 runController.RedirectStandaloneStorageRootForTests(
                     temporaryRoot,
@@ -931,7 +983,8 @@ namespace SignVR.Interaction.Orchestration
                     runController.State != RunState.Faulted)
                 {
                     runController.ProcessApplicationPauseForTests();
-                    runController.WaitForLifecycleTerminalizationForTests(
+                    cleanupTerminalizationSucceeded =
+                        runController.WaitForLifecycleTerminalizationForTests(
                         TimeSpan.FromSeconds(10)
                     );
                 }
@@ -940,23 +993,46 @@ namespace SignVR.Interaction.Orchestration
                 {
                     unload = SceneManager.UnloadSceneAsync(loadedScene);
                 }
-                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(
-                    temporaryRoot
-                );
             }
 
             if (unload != null)
             {
                 yield return unload;
             }
+            Require(
+                cleanupTerminalizationSucceeded,
+                "Saved-scene test cleanup did not finish terminalization; " +
+                    "the owned fixture was retained at " + temporaryRoot + "."
+            );
+            W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(
+                temporaryRoot
+            );
         }
 
-        private static Scene FindLoadedSceneByPath(string scenePath)
+        private static HashSet<ulong> CaptureLoadedSceneHandles()
+        {
+            var handles = new HashSet<ulong>();
+            for (int index = 0; index < SceneManager.sceneCount; index++)
+            {
+                handles.Add(
+                    SceneManager.GetSceneAt(index).handle.GetRawData()
+                );
+            }
+            return handles;
+        }
+
+        private static Scene FindNewLoadedSceneByPath(
+            string scenePath,
+            ISet<ulong> excludedHandles)
         {
             for (int index = 0; index < SceneManager.sceneCount; index++)
             {
                 Scene candidate = SceneManager.GetSceneAt(index);
-                if (candidate.isLoaded && string.Equals(
+                if (candidate.isLoaded &&
+                    !excludedHandles.Contains(
+                        candidate.handle.GetRawData()
+                    ) &&
+                    string.Equals(
                         candidate.path,
                         scenePath,
                         StringComparison.Ordinal))
@@ -969,16 +1045,8 @@ namespace SignVR.Interaction.Orchestration
 
         private static string CreateShortTemporaryRoot()
         {
-            // Real auto IDs make a complete Run path intentionally long. Keep
-            // this PC-only fixture below legacy Windows MAX_PATH while Quest
-            // continues to use Application.persistentDataPath.
-            string root = Path.Combine(
-                Path.GetTempPath(),
-                "signvr-w6-tests-" +
-                    Guid.NewGuid().ToString("N").Substring(0, 4)
-            );
-            Directory.CreateDirectory(root);
-            return root;
+            return W6InteractionCaptureHostTestDriver
+                .CreateOwnedShortTemporaryRoot();
         }
 #endif
 

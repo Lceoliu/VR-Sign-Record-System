@@ -16,6 +16,12 @@ namespace SignVR.Interaction.CaptureHost
     /// </summary>
     public static class W6InteractionCaptureHostTestDriver
     {
+        private const string StandardTemporaryRootPrefix =
+            "signvr-w6-tests-";
+        private const string ShortTemporaryRootPrefix = "svr-w6-";
+        private const string ShortTemporaryRootOwnerFile =
+            ".signvr-test-root-owner";
+
         internal static readonly DateTimeOffset FixedUtc =
             new DateTimeOffset(2026, 8, 26, 10, 15, 30, TimeSpan.Zero);
 
@@ -1791,10 +1797,56 @@ namespace SignVR.Interaction.CaptureHost
         {
             string root = Path.Combine(
                 Path.GetTempPath(),
-                "signvr-w6-tests-" + Guid.NewGuid().ToString("N")
+                StandardTemporaryRootPrefix + Guid.NewGuid().ToString("N")
             );
             Directory.CreateDirectory(root);
             return root;
+        }
+
+        internal static string CreateOwnedShortTemporaryRoot()
+        {
+            // Keep the component at 19 characters so the real auto-generated
+            // Run paths fit below legacy Windows MAX_PATH. The fixed owner file
+            // makes CreateDirectory effectively exclusive even under a race.
+            for (int attempt = 0; attempt < 32; attempt++)
+            {
+                string token = Guid.NewGuid().ToString("N").Substring(0, 12);
+                string root = Path.Combine(
+                    Path.GetTempPath(),
+                    ShortTemporaryRootPrefix + token
+                );
+                if (Directory.Exists(root))
+                {
+                    continue;
+                }
+                Directory.CreateDirectory(root);
+                try
+                {
+                    string ownerPath = Path.Combine(
+                        root,
+                        ShortTemporaryRootOwnerFile
+                    );
+                    using (var owner = new FileStream(
+                               ownerPath,
+                               FileMode.CreateNew,
+                               FileAccess.Write,
+                               FileShare.None))
+                    {
+                        byte[] ownership = Encoding.ASCII.GetBytes(token);
+                        owner.Write(ownership, 0, ownership.Length);
+                        owner.Flush(true);
+                    }
+                    return root;
+                }
+                catch (IOException)
+                {
+                    // Another process won ownership of this candidate. Never
+                    // delete a directory that this process does not own.
+                }
+            }
+            throw new IOException(
+                "Could not allocate an exclusive short W6 temporary root."
+            );
         }
 
         internal static void DeleteTemporaryRoot(string root)
@@ -1807,22 +1859,78 @@ namespace SignVR.Interaction.CaptureHost
             string temp = Path.GetFullPath(Path.GetTempPath()).TrimEnd(
                 Path.DirectorySeparatorChar,
                 Path.AltDirectorySeparatorChar
-            ) + Path.DirectorySeparatorChar;
-            if (!canonical.StartsWith(
-                    temp,
-                    Path.DirectorySeparatorChar == '\\'
-                        ? StringComparison.OrdinalIgnoreCase
-                        : StringComparison.Ordinal) ||
-                Path.GetFileName(canonical).IndexOf(
-                    "signvr-w6-tests-",
-                    StringComparison.Ordinal
-                ) != 0)
+            );
+            StringComparison pathComparison =
+                Path.DirectorySeparatorChar == '\\'
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal;
+            string parent = Directory.GetParent(canonical)?.FullName;
+            string name = Path.GetFileName(canonical);
+            bool standardOwned = HasHexSuffix(
+                name,
+                StandardTemporaryRootPrefix,
+                32
+            );
+            bool shortOwned = HasHexSuffix(
+                name,
+                ShortTemporaryRootPrefix,
+                12
+            ) && ShortRootOwnerMatches(canonical, name);
+            if (!string.Equals(parent, temp, pathComparison) ||
+                (!standardOwned && !shortOwned))
             {
                 throw new InvalidOperationException(
                     "Refusing to remove a non-W6 temporary directory."
                 );
             }
             Directory.Delete(canonical, true);
+        }
+
+        private static bool HasHexSuffix(
+            string value,
+            string prefix,
+            int expectedLength)
+        {
+            if (string.IsNullOrEmpty(value) ||
+                !value.StartsWith(prefix, StringComparison.Ordinal) ||
+                value.Length != prefix.Length + expectedLength)
+            {
+                return false;
+            }
+            for (int index = prefix.Length; index < value.Length; index++)
+            {
+                char character = value[index];
+                bool isHex = character >= '0' && character <= '9' ||
+                    character >= 'a' && character <= 'f' ||
+                    character >= 'A' && character <= 'F';
+                if (!isHex)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static bool ShortRootOwnerMatches(string root, string name)
+        {
+            string token = name.Substring(ShortTemporaryRootPrefix.Length);
+            string ownerPath = Path.Combine(root, ShortTemporaryRootOwnerFile);
+            try
+            {
+                return File.Exists(ownerPath) && string.Equals(
+                    File.ReadAllText(ownerPath, Encoding.ASCII),
+                    token,
+                    StringComparison.Ordinal
+                );
+            }
+            catch (IOException)
+            {
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return false;
+            }
         }
 
         internal static void AssertCanOpenExclusively(string path)

@@ -6,6 +6,8 @@ namespace SignVR.Interaction.CaptureHost
 {
     public sealed partial class InteractionRunController
     {
+        internal string StorageRootForTests => storageRoot;
+
         internal void InstallStandalonePreStartForTests(
             InteractionRunStateMachine machine,
             InstructionContentCatalog catalog,

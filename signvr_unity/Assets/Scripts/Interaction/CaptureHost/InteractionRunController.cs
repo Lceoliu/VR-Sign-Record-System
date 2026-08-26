@@ -141,8 +141,42 @@ namespace SignVR.Interaction.CaptureHost
                 new RunPlanGenerator()
             );
             appSessionId = "app_" + Guid.NewGuid().ToString("N");
-            storageRoot = Application.persistentDataPath;
+            storageRoot = ResolveRuntimeStorageRoot();
             BeginStandaloneStartupRecovery(storageRoot);
+        }
+
+        private static string ResolveRuntimeStorageRoot()
+        {
+#if UNITY_EDITOR
+            // Never let Editor Play Mode recover or terminalize the developer's
+            // real LocalLow study data. A deterministic, project-specific root
+            // keeps crash-recovery testable across Play sessions while its short
+            // path remains compatible with legacy Windows MAX_PATH behavior.
+            string projectRoot = Path.GetFullPath(
+                Path.Combine(Application.dataPath, "..")
+            );
+            byte[] projectHash;
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                projectHash = sha256.ComputeHash(
+                    Encoding.UTF8.GetBytes(projectRoot)
+                );
+            }
+            var token = new StringBuilder(12);
+            for (int index = 0; index < 6; index++)
+            {
+                token.Append(projectHash[index].ToString(
+                    "x2",
+                    CultureInfo.InvariantCulture
+                ));
+            }
+            return Path.Combine(
+                Path.GetTempPath(),
+                "svr-ed-" + token
+            );
+#else
+            return Application.persistentDataPath;
+#endif
         }
 
         public void ConfigureCaptureSampler(InteractionCaptureSampler value)
@@ -350,7 +384,7 @@ namespace SignVR.Interaction.CaptureHost
                     summaryTracker = new InteractionSummaryTracker(plan.RunId);
                     captureInitialization =
                         InteractionCaptureWriter.BeginCreateNew(
-                        storageRoot ?? Application.persistentDataPath,
+                        storageRoot ?? ResolveRuntimeStorageRoot(),
                         plan,
                         bytes,
                         captureQueueCapacity,
@@ -1076,7 +1110,7 @@ namespace SignVR.Interaction.CaptureHost
             {
                 pendingRuns.AddRange(
                     InteractionPendingRunDiscovery.DiscoverQuestLocal(
-                        storageRoot ?? Application.persistentDataPath
+                        storageRoot ?? ResolveRuntimeStorageRoot()
                     )
                 );
                 pendingRunDiscoveryFailure = string.Empty;
