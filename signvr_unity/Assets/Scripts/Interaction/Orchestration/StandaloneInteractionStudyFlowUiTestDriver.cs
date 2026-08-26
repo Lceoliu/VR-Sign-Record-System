@@ -1,0 +1,919 @@
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+using System;
+using System.Collections.Generic;
+using SignVR.Interaction.CaptureHost;
+using SignVR.Interaction.Core;
+using SignVR.Interaction.Presentation;
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace SignVR.Interaction.Orchestration
+{
+    public static class StandaloneInteractionStudyFlowUiTestDriver
+    {
+        private static readonly DateTimeOffset SessionTime =
+            new DateTimeOffset(
+                2026,
+                8,
+                27,
+                8,
+                0,
+                0,
+                TimeSpan.Zero
+            );
+
+        public static void ParticipantSessionIsCreatedOncePerApplicationLaunch()
+        {
+            GameObject owner = NewInactiveOwner("Standalone Session Once");
+            try
+            {
+                var controller =
+                    owner.AddComponent<InteractionStudyFlowController>();
+                int factoryCalls = 0;
+                ParticipantSession first =
+                    controller.EnsureParticipantSessionForTests(() =>
+                    {
+                        factoryCalls++;
+                        return NewSession(
+                            "11111111-2222-3333-4444-555555555555"
+                        );
+                    });
+                ParticipantSession second =
+                    controller.EnsureParticipantSessionForTests(() =>
+                    {
+                        factoryCalls++;
+                        return NewSession(
+                            "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+                        );
+                    });
+
+                Require(factoryCalls == 1, "Session factory ran more than once.");
+                Require(
+                    ReferenceEquals(first, second),
+                    "Composition replaced the application Participant Session."
+                );
+                Require(
+                    string.Equals(
+                        first.ParticipantId,
+                        controller.ParticipantSessionId,
+                        StringComparison.Ordinal
+                    ),
+                    "Controller did not expose the application identity."
+                );
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
+        }
+
+        public static void AutomaticSessionIdentityIsAppliedToRunController()
+        {
+            GameObject owner = NewInactiveOwner("Standalone Automatic Identity");
+            try
+            {
+                var run = owner.AddComponent<InteractionRunController>();
+                var presentation =
+                    owner.AddComponent<InstructionPresentationController>();
+                var tasks = owner.AddComponent<
+                    SignVR.Interaction.PhaseAdapters
+                        .InteractionPhaseCoordinator>();
+                var capture =
+                    owner.AddComponent<InteractionStudyCaptureBinding>();
+                var controller =
+                    owner.AddComponent<InteractionStudyFlowController>();
+                controller.Configure(run, presentation, tasks, capture);
+                ParticipantSession session = NewSession(
+                    "11111111-2222-3333-4444-555555555555"
+                );
+
+                controller.ApplyAutomaticIdentityForTests(() => session);
+
+                Require(controller.IdentityArmed, "Automatic identity was not ready.");
+                Require(
+                    string.Equals(
+                        run.ParticipantId,
+                        session.ParticipantId,
+                        StringComparison.Ordinal
+                    ),
+                    "RunController did not receive the Participant Session ID."
+                );
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
+        }
+
+        public static void SuccessiveRunsKeepTheApplicationParticipantIdentity()
+        {
+            var fixture = new FlowFixture();
+            GameObject owner = NewInactiveOwner("Standalone Repeated Runs");
+            try
+            {
+                var controller =
+                    owner.AddComponent<InteractionStudyFlowController>();
+                ParticipantSession session = NewSession(
+                    "11111111-2222-3333-4444-555555555555"
+                );
+                controller.InstallStandaloneStateForTests(
+                    fixture.Flow,
+                    manifestIsReady: true,
+                    recoveryIsComplete: true,
+                    session: session
+                );
+
+                string firstIdentity = controller.ParticipantSessionId;
+                Require(controller.TryStart().Succeeded, "First Start failed.");
+                fixture.Run.MarkCompleted();
+                fixture.Flow.Tick();
+                Require(controller.TryStart().Succeeded, "Second Start failed.");
+
+                Require(
+                    string.Equals(
+                        firstIdentity,
+                        controller.ParticipantSessionId,
+                        StringComparison.Ordinal
+                    ),
+                    "A second Run replaced the application participant_id."
+                );
+                Require(
+                    controller.IdentityArmed,
+                    "Automatic identity was consumed after Start."
+                );
+                Require(fixture.Run.StartCount == 2, "Expected two Runs.");
+            }
+            finally
+            {
+                fixture.Flow.Dispose();
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
+        }
+
+        public static void SuccessiveRunsUseIndependentRunIds()
+        {
+            var fixture = new FlowFixture();
+            Require(fixture.Flow.TryStart().Succeeded, "First Start failed.");
+            string firstRunId = fixture.Run.Plan.RunId;
+            fixture.Run.MarkCompleted();
+            fixture.Flow.Tick();
+            Require(fixture.Flow.TryStart().Succeeded, "Second Start failed.");
+            string secondRunId = fixture.Run.Plan.RunId;
+
+            Require(
+                !string.Equals(
+                    firstRunId,
+                    secondRunId,
+                    StringComparison.Ordinal
+                ),
+                "Successive Runs reused run_id."
+            );
+            fixture.Flow.Dispose();
+        }
+
+        public static void SuccessfulStartDoesNotReturnImmediatelyToPreStart()
+        {
+            var fixture = new FlowFixture();
+            GameObject owner = NewInactiveOwner("Standalone Start State");
+            try
+            {
+                var controller =
+                    owner.AddComponent<InteractionStudyFlowController>();
+                controller.InstallStandaloneStateForTests(
+                    fixture.Flow,
+                    manifestIsReady: true,
+                    recoveryIsComplete: true,
+                    session: NewSession(
+                        "11111111-2222-3333-4444-555555555555"
+                    )
+                );
+
+                Require(controller.TryStart().Succeeded, "Start was rejected.");
+                Require(
+                    controller.Snapshot.RunState == RunState.Scheduled,
+                    "Accepted Start flashed back to PreStart."
+                );
+                Require(fixture.Run.StartCount == 1, "Start was not one action.");
+            }
+            finally
+            {
+                fixture.Flow.Dispose();
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
+        }
+
+        public static void TerminalCleanupRestoresPreStartExactlyOnce()
+        {
+            var fixture = new FlowFixture();
+            Require(fixture.Flow.TryStart().Succeeded, "Start was rejected.");
+            fixture.Run.MarkCompleted();
+
+            fixture.Flow.Tick();
+            fixture.Flow.Tick();
+
+            Require(
+                fixture.Run.State == RunState.PreStart,
+                "Terminal cleanup did not restore PreStart."
+            );
+            Require(
+                fixture.Run.ResetCount == 1,
+                "Terminal cleanup restored PreStart more than once."
+            );
+            fixture.Flow.Dispose();
+        }
+
+        public static void StartupRecoveryBlocksStartUntilItCompletes()
+        {
+            var fixture = new FlowFixture();
+            GameObject owner = NewInactiveOwner("Standalone Recovery Gate");
+            try
+            {
+                var controller =
+                    owner.AddComponent<InteractionStudyFlowController>();
+                controller.InstallStandaloneStateForTests(
+                    fixture.Flow,
+                    manifestIsReady: true,
+                    recoveryIsComplete: false,
+                    session: NewSession(
+                        "11111111-2222-3333-4444-555555555555"
+                    )
+                );
+
+                Require(
+                    !controller.TryStart().Succeeded,
+                    "Start bypassed startup recovery."
+                );
+                Require(fixture.Run.StartCount == 0, "Blocked Start consumed a Run.");
+                controller.SetRecoveryStateForTests(
+                    complete: true,
+                    failure: null
+                );
+                Require(
+                    controller.TryStart().Succeeded,
+                    "Start remained blocked after successful recovery."
+                );
+            }
+            finally
+            {
+                fixture.Flow.Dispose();
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
+        }
+
+        public static void LegacyIdentityWidgetsAreAlwaysHidden()
+        {
+            var fixture = new FlowFixture();
+            GameObject root = NewInactiveOwner("Standalone Hidden Identity UI");
+            try
+            {
+                InteractionStudyFlowController controller =
+                    NewReadyController(root.transform, fixture.Flow);
+                InteractionStudyFlowControls controls =
+                    root.AddComponent<InteractionStudyFlowControls>();
+                var instruction =
+                    root.AddComponent<InteractionInstructionControls>();
+                GameObject surface = NewChild(root.transform, "Surface");
+                Button start = NewUiComponent<Button>(root.transform, "Start");
+                TMP_InputField participant = NewUiComponent<TMP_InputField>(
+                    root.transform,
+                    "Participant"
+                );
+                TMP_InputField build = NewUiComponent<TMP_InputField>(
+                    root.transform,
+                    "Build"
+                );
+                Button apply = NewUiComponent<Button>(root.transform, "Apply");
+                TMP_Text status = NewUiComponent<TextMeshProUGUI>(
+                    root.transform,
+                    "Status"
+                );
+                TMP_Text progress = NewUiComponent<TextMeshProUGUI>(
+                    root.transform,
+                    "Progress"
+                );
+
+                controls.Configure(
+                    controller,
+                    instruction,
+                    surface,
+                    start,
+                    participant,
+                    build,
+                    apply,
+                    status,
+                    progress
+                );
+
+                Require(!participant.gameObject.activeSelf, "Participant input is visible.");
+                Require(!build.gameObject.activeSelf, "Build input is visible.");
+                Require(!apply.gameObject.activeSelf, "Identity action is visible.");
+                Require(!participant.interactable, "Participant input is interactive.");
+                Require(!build.interactable, "Build input is interactive.");
+                Require(!apply.interactable, "Identity action is interactive.");
+            }
+            finally
+            {
+                fixture.Flow.Dispose();
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        public static void IdentityWidgetsMayBeOmittedFromComposition()
+        {
+            var fixture = new FlowFixture();
+            GameObject root = NewInactiveOwner("Standalone No Identity UI");
+            try
+            {
+                InteractionStudyFlowController controller =
+                    NewReadyController(root.transform, fixture.Flow);
+                InteractionStudyFlowControls controls =
+                    root.AddComponent<InteractionStudyFlowControls>();
+                var instruction =
+                    root.AddComponent<InteractionInstructionControls>();
+
+                controls.Configure(
+                    controller,
+                    instruction,
+                    NewChild(root.transform, "Surface"),
+                    NewUiComponent<Button>(root.transform, "Start"),
+                    participantInput: null,
+                    buildInput: null,
+                    applyIdentity: null,
+                    status: NewUiComponent<TextMeshProUGUI>(
+                        root.transform,
+                        "Status"
+                    ),
+                    progress: NewUiComponent<TextMeshProUGUI>(
+                        root.transform,
+                        "Progress"
+                    )
+                );
+            }
+            finally
+            {
+                fixture.Flow.Dispose();
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        public static void StartButtonIsTheOnlyParticipantAction()
+        {
+            var fixture = new FlowFixture();
+            GameObject root = NewInactiveOwner("Standalone One Action UI");
+            try
+            {
+                InteractionStudyFlowController controller =
+                    NewReadyController(root.transform, fixture.Flow);
+                InteractionStudyFlowControls controls =
+                    root.AddComponent<InteractionStudyFlowControls>();
+                var instruction =
+                    root.AddComponent<InteractionInstructionControls>();
+                GameObject surface = NewChild(root.transform, "Surface");
+                Button start = NewUiComponent<Button>(root.transform, "Start");
+                controls.Configure(
+                    controller,
+                    instruction,
+                    surface,
+                    start,
+                    participantInput: null,
+                    buildInput: null,
+                    applyIdentity: null,
+                    status: NewUiComponent<TextMeshProUGUI>(
+                        root.transform,
+                        "Status"
+                    ),
+                    progress: NewUiComponent<TextMeshProUGUI>(
+                        root.transform,
+                        "Progress"
+                    )
+                );
+                root.SetActive(true);
+
+                Require(start.interactable, "Ready Start button is disabled.");
+                start.onClick.Invoke();
+
+                Require(fixture.Run.StartCount == 1, "Start was not one action.");
+                Require(!surface.activeSelf, "Start panel flashed back to PreStart.");
+            }
+            finally
+            {
+                fixture.Flow.Dispose();
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        public static void RecoveringMessageIsStable()
+        {
+            Require(
+                InteractionStudyParticipantText.ForPreStart(
+                    recoveryComplete: false,
+                    recoveryFailed: false,
+                    manifestReady: true,
+                    identityReady: true,
+                    canStart: true,
+                    initializationStatus: string.Empty,
+                    flowStatus: string.Empty,
+                    commandFeedback: string.Empty,
+                    pauseNotice: string.Empty
+                ) ==
+                    "正在整理上一次未完整结束的实验，请稍候…",
+                "Recovering participant message changed."
+            );
+        }
+
+        public static void RecoveryFailureMessageIsStable()
+        {
+            Require(
+                InteractionStudyParticipantText.ForPreStart(
+                    recoveryComplete: false,
+                    recoveryFailed: true,
+                    manifestReady: true,
+                    identityReady: true,
+                    canStart: true,
+                    initializationStatus: string.Empty,
+                    flowStatus: string.Empty,
+                    commandFeedback: string.Empty,
+                    pauseNotice: string.Empty
+                ) ==
+                    "上一次实验数据整理失败，请联系工作人员。",
+                "Recovery failure participant message changed."
+            );
+        }
+
+        public static void ReadyMessageIsStable()
+        {
+            Require(
+                InteractionStudyParticipantText.ForPreStart(
+                    recoveryComplete: true,
+                    recoveryFailed: false,
+                    manifestReady: true,
+                    identityReady: true,
+                    canStart: true,
+                    initializationStatus: string.Empty,
+                    flowStatus: string.Empty,
+                    commandFeedback: string.Empty,
+                    pauseNotice: string.Empty
+                ) ==
+                    "准备就绪，请点击“开始体验”。",
+                "Ready participant message changed."
+            );
+        }
+
+        public static void PauseAbortedMessageIsStableAndConsumedOnce()
+        {
+            var fixture = new FlowFixture();
+            GameObject owner = NewInactiveOwner("Standalone Pause Notice");
+            try
+            {
+                var controller =
+                    owner.AddComponent<InteractionStudyFlowController>();
+                controller.InstallStandaloneStateForTests(
+                    fixture.Flow,
+                    manifestIsReady: true,
+                    recoveryIsComplete: true,
+                    session: NewSession(
+                        "11111111-2222-3333-4444-555555555555"
+                    )
+                );
+                Require(controller.TryStart().Succeeded, "Start was rejected.");
+
+                controller.HandleApplicationPauseForTests(true);
+                controller.HandleApplicationPauseForTests(false);
+
+                Require(fixture.Run.AbortCount == 1, "Pause did not locally abort.");
+                Require(
+                    controller.TryConsumePauseAbortNotice(),
+                    "Resume did not publish its non-blocking notice."
+                );
+                Require(
+                    !controller.TryConsumePauseAbortNotice(),
+                    "Pause notice was published more than once."
+                );
+                Require(
+                    InteractionStudyParticipantText.ForPreStart(
+                        recoveryComplete: true,
+                        recoveryFailed: false,
+                        manifestReady: true,
+                        identityReady: true,
+                        canStart: true,
+                        initializationStatus: string.Empty,
+                        flowStatus: string.Empty,
+                        commandFeedback: string.Empty,
+                        pauseNotice:
+                            InteractionStudyParticipantText.PauseAborted
+                    ) ==
+                        "上一次体验因头盔暂停已安全结束，可以开始新的体验。",
+                    "Pause-aborted participant message changed."
+                );
+            }
+            finally
+            {
+                fixture.Flow.Dispose();
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
+        }
+
+        public static void ParticipantMessagesDoNotExposeRemovedServices()
+        {
+            string[] messages =
+            {
+                InteractionStudyParticipantText.Recovering,
+                InteractionStudyParticipantText.RecoveryFailed,
+                InteractionStudyParticipantText.Ready,
+                InteractionStudyParticipantText.PauseAborted,
+                InteractionStudyParticipantText.ForFailure(
+                    "Host camera upload readiness ACK sync failure"
+                ),
+                InteractionStudyParticipantText.ForRunState(
+                    RunState.Scheduled,
+                    "Host registration pending"
+                ),
+                InteractionStudyParticipantText.ForRunState(
+                    RunState.Completing,
+                    "upload pending"
+                )
+            };
+            string[] forbidden =
+            {
+                "Host",
+                "camera",
+                "upload",
+                "ACK",
+                "readiness",
+                "摄像头",
+                "上传",
+                "同步"
+            };
+            foreach (string message in messages)
+            {
+                foreach (string token in forbidden)
+                {
+                    Require(
+                        message.IndexOf(token, StringComparison.OrdinalIgnoreCase) < 0,
+                        "Participant text exposed removed service token: " + token
+                    );
+                }
+            }
+        }
+
+        public static void StandaloneStudyRequiresStrictXrGate()
+        {
+            Require(
+                InteractionStudyRunModePolicy.RequiresStrictXrGate(
+                    InteractionRunMode.StandaloneStudy
+                ),
+                "StandaloneStudy bypassed strict XR capture readiness."
+            );
+        }
+
+        public static void EngineeringLocalBypassesStrictXrGate()
+        {
+            Require(
+                !InteractionStudyRunModePolicy.RequiresStrictXrGate(
+                    InteractionRunMode.EngineeringLocal
+                ),
+                "EngineeringLocal cannot run PC automation without a HMD."
+            );
+        }
+
+        private static InteractionStudyFlowController NewReadyController(
+            Transform parent,
+            InteractionStudyFlow flow)
+        {
+            GameObject owner = NewChild(parent, "Controller");
+            owner.SetActive(false);
+            var controller =
+                owner.AddComponent<InteractionStudyFlowController>();
+            controller.InstallStandaloneStateForTests(
+                flow,
+                manifestIsReady: true,
+                recoveryIsComplete: true,
+                session: NewSession(
+                    "11111111-2222-3333-4444-555555555555"
+                )
+            );
+            return controller;
+        }
+
+        private static ParticipantSession NewSession(string guid)
+        {
+            return new ParticipantSession(
+                () => SessionTime,
+                () => Guid.Parse(guid)
+            );
+        }
+
+        private static GameObject NewInactiveOwner(string name)
+        {
+            var owner = new GameObject(name);
+            owner.SetActive(false);
+            return owner;
+        }
+
+        private static GameObject NewChild(Transform parent, string name)
+        {
+            var child = new GameObject(name, typeof(RectTransform));
+            child.transform.SetParent(parent, false);
+            return child;
+        }
+
+        private static T NewUiComponent<T>(
+            Transform parent,
+            string name) where T : Component
+        {
+            GameObject item = NewChild(parent, name);
+            return item.AddComponent<T>();
+        }
+
+        private static void Require(bool condition, string message)
+        {
+            if (!condition)
+            {
+                throw new InvalidOperationException(message);
+            }
+        }
+
+        private sealed class FlowFixture
+        {
+            public FlowFixture()
+            {
+                Run = new FakeRunPort();
+                Presentation = new FakePresentationPort();
+                Tasks = new FakeTaskPort();
+                Flow = new InteractionStudyFlow(Run, Presentation, Tasks);
+            }
+
+            public FakeRunPort Run { get; }
+            public FakePresentationPort Presentation { get; }
+            public FakeTaskPort Tasks { get; }
+            public InteractionStudyFlow Flow { get; }
+        }
+
+        private sealed class FakeRunPort : IInteractionStudyRunPort
+        {
+            private Action<InteractionStudyPresentationRequest> subscriber;
+            private readonly RunPlanGenerator generator;
+            private readonly AssistanceBlockAllocator allocator =
+                new AssistanceBlockAllocator(71);
+            private int guidSequence;
+
+            public FakeRunPort()
+            {
+                generator = new RunPlanGenerator(NextRunGuid, () => SessionTime);
+            }
+
+            public RunState State { get; private set; } = RunState.PreStart;
+            public RunPlan Plan { get; private set; }
+            public PhaseExecutionSnapshot CurrentPhase => null;
+            public string LastError { get; private set; } = string.Empty;
+            public int StartCount { get; private set; }
+            public int AbortCount { get; private set; }
+            public int ResetCount { get; private set; }
+
+            public IDisposable Subscribe(
+                Action<InteractionStudyPresentationRequest> callback)
+            {
+                subscriber += callback;
+                return new CallbackDisposable(() => subscriber -= callback);
+            }
+
+            public bool CanStart(out string reason)
+            {
+                reason = State == RunState.PreStart ? null : "Run is active.";
+                return State == RunState.PreStart;
+            }
+
+            public bool TryStart(out string error)
+            {
+                if (!CanStart(out error))
+                {
+                    return false;
+                }
+                Plan = generator.Generate(
+                    new RunPlanGenerationRequest(
+                        "pilot-20260827",
+                        "P-SESSION",
+                        "standalone_flow_test",
+                        "1.0.0",
+                        "abcdef0123456789",
+                        20260827,
+                        CreateCatalog()
+                    ),
+                    allocator.AllocateNext()
+                );
+                State = RunState.Scheduled;
+                StartCount++;
+                return true;
+            }
+
+            public bool TryRequestReplay(out string error)
+            {
+                error = "Replay is unavailable.";
+                return false;
+            }
+
+            public bool TryAcknowledgePresentationStarted(
+                InteractionStudyPresentationRequest request,
+                out string error)
+            {
+                error = null;
+                return true;
+            }
+
+            public bool TryNotifyPlaybackCompleted(
+                InteractionPresentationPlaybackKind playbackKind,
+                out string error)
+            {
+                error = null;
+                return true;
+            }
+
+            public bool TryRecordValidationResult(
+                ValidationResult result,
+                out string error)
+            {
+                error = null;
+                return true;
+            }
+
+            public bool TryRecordPresentationObservation(
+                InteractionStudyPresentationObservation observation,
+                out string error)
+            {
+                error = null;
+                return true;
+            }
+
+            public bool TryFinishPhase(bool stuck, out string error)
+            {
+                error = null;
+                return true;
+            }
+
+            public bool TryAbort(string reason, out string error)
+            {
+                if (State != RunState.Scheduled &&
+                    State != RunState.Running &&
+                    State != RunState.Completing &&
+                    State != RunState.AwaitingHost)
+                {
+                    error = "Run is not active.";
+                    return false;
+                }
+                State = RunState.Aborting;
+                AbortCount++;
+                error = null;
+                return true;
+            }
+
+            public bool TryResetToPreStart()
+            {
+                if (State != RunState.Completed &&
+                    State != RunState.Aborted &&
+                    State != RunState.Faulted)
+                {
+                    return false;
+                }
+                State = RunState.PreStart;
+                Plan = null;
+                ResetCount++;
+                return true;
+            }
+
+            public void MarkCompleted()
+            {
+                State = RunState.Completed;
+            }
+
+            private Guid NextRunGuid()
+            {
+                guidSequence++;
+                return guidSequence == 1
+                    ? Guid.Parse(
+                        "99999999-8888-7777-6666-555555555555"
+                    )
+                    : Guid.Parse(
+                        "88888888-7777-6666-5555-444444444444"
+                    );
+            }
+        }
+
+        private sealed class FakePresentationPort :
+            IInteractionStudyPresentationPort
+        {
+            public bool PhaseActive => false;
+            public bool ReplayAvailable => false;
+            public bool GiveUpAvailable => false;
+
+            public IDisposable Subscribe(
+                Action<InteractionPresentationPlaybackKind> firstFramePresented,
+                Action<InteractionPresentationPlaybackKind> playbackCompleted,
+                Action<InteractionStudyPresentationObservation>
+                    presentationObserved,
+                Action<string> presentationFaulted)
+            {
+                return new CallbackDisposable(() => { });
+            }
+
+            public bool TryBeginPhase(
+                RunPhasePlan phasePlan,
+                AssistanceCondition condition,
+                out string error)
+            {
+                error = null;
+                return true;
+            }
+
+            public bool TryBeginReplay(out string error)
+            {
+                error = "Replay is unavailable.";
+                return false;
+            }
+
+            public void EndPhase()
+            {
+            }
+        }
+
+        private sealed class FakeTaskPort : IInteractionStudyTaskPort
+        {
+            public RunPlan Plan { get; private set; }
+            public ValidationResult LastResult => null;
+
+            public IDisposable Subscribe(Action<ValidationResult> resultProduced)
+            {
+                return new CallbackDisposable(() => { });
+            }
+
+            public void Configure(RunPlan plan)
+            {
+                Plan = plan;
+            }
+
+            public void Enable()
+            {
+            }
+
+            public void Disable()
+            {
+            }
+
+            public void Synchronize(PhaseExecutionSnapshot snapshot)
+            {
+            }
+
+            public ValidationResult GiveUp(PhaseExecutionSnapshot snapshot)
+            {
+                return null;
+            }
+
+            public void Reset()
+            {
+                Plan = null;
+            }
+
+            public void Abort()
+            {
+                Plan = null;
+            }
+        }
+
+        private sealed class CallbackDisposable : IDisposable
+        {
+            private Action callback;
+
+            public CallbackDisposable(Action callback)
+            {
+                this.callback = callback;
+            }
+
+            public void Dispose()
+            {
+                Action current = callback;
+                callback = null;
+                current?.Invoke();
+            }
+        }
+
+        private static InstructionContentCatalog CreateCatalog()
+        {
+            var values = new List<InstructionContentReference>();
+            foreach (string sentenceId in PhaseSentenceRanges.AllSentenceIds)
+            {
+                values.Add(new InstructionContentReference(
+                    PhaseSentenceRanges.GetPhaseId(sentenceId),
+                    sentenceId,
+                    InteractionContractV1.PilotSignerId,
+                    "take_001",
+                    SessionTime,
+                    1,
+                    "wang/sentence_" + sentenceId + "/take_001.pose.jsonl",
+                    new string('a', 64)
+                ));
+            }
+            return new InstructionContentCatalog(values);
+        }
+    }
+}
+#endif
