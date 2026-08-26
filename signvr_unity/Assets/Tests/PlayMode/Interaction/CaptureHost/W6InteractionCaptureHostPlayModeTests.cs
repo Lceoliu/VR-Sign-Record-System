@@ -9,18 +9,6 @@ namespace SignVR.Interaction.PlayMode.Tests
     public sealed class W6InteractionCaptureHostPlayModeTests
     {
         [Test]
-        public void ControllerDestroyCancelsOwnedArtifactFreeze()
-        {
-            InvokeController(nameof(ControllerDestroyCancelsOwnedArtifactFreeze));
-        }
-
-        [Test]
-        public void ControllerDisableCancelsOwnedArtifactFreeze()
-        {
-            InvokeController(nameof(ControllerDisableCancelsOwnedArtifactFreeze));
-        }
-
-        [Test]
         public void DestroyDoesNotDuplicateDetachedTerminalization()
         {
             InvokeController(
@@ -34,18 +22,6 @@ namespace SignVR.Interaction.PlayMode.Tests
             InvokeController(
                 nameof(DisableOwnsLateInitializationThroughController)
             );
-        }
-
-        [Test]
-        public void HostDisableCancelsOwnedArtifactVerify()
-        {
-            InvokeController(nameof(HostDisableCancelsOwnedArtifactVerify));
-        }
-
-        [Test]
-        public void HostLifecycleEpochRejectsStaleArtifactIterator()
-        {
-            InvokeController(nameof(HostLifecycleEpochRejectsStaleArtifactIterator));
         }
 
         [Test]

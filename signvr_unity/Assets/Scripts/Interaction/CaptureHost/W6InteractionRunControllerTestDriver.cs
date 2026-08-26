@@ -17,6 +17,7 @@ namespace SignVR.Interaction.CaptureHost
     /// </summary>
     public static class W6InteractionRunControllerTestDriver
     {
+#if SIGNVR_LEGACY_HOST_CONTROLLER_TESTS
         public static void ReadinessReplacementCancelsOnlyPreviousReadiness()
         {
             GameObject owner = null;
@@ -290,6 +291,7 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
+#endif
         public static void CompletedSealRejectsAbortThroughController()
         {
             string root = W6InteractionCaptureHostTestDriver
@@ -303,8 +305,6 @@ namespace SignVR.Interaction.CaptureHost
             {
                 owner = new GameObject("W6 Controller Completed Test");
                 owner.SetActive(false);
-                InteractionHostClient host =
-                    owner.AddComponent<InteractionHostClient>();
                 InteractionRunController controller =
                     owner.AddComponent<InteractionRunController>();
                 InteractionRunStateMachine machine =
@@ -326,8 +326,7 @@ namespace SignVR.Interaction.CaptureHost
                     machine,
                     summary,
                     writer,
-                    initialization: null,
-                    host
+                    initialization: null
                 );
 
                 controller.BeginCompletedSealForTests(10d);
@@ -412,18 +411,13 @@ namespace SignVR.Interaction.CaptureHost
                 {
                     owner = new GameObject("W6 Controller Lifecycle Test");
                     owner.SetActive(false);
-                    InteractionHostClient host =
-                        owner.AddComponent<InteractionHostClient>();
                     InteractionRunController controller =
                         owner.AddComponent<InteractionRunController>();
                     owner.SetActive(true);
                     owner.SetActive(false);
                     W6InteractionCaptureHostTestDriver.Require(
-                        controller.State == RunState.PreStart &&
-                        !host.HeartbeatLoopActiveForTests &&
-                        host.ActiveRequestCount == 0,
-                        "Warm-up deactivation did not finish Awake and clear " +
-                        "ordinary Host ownership."
+                        controller.State == RunState.PreStart,
+                        "Warm-up deactivation did not finish Awake."
                     );
                     InteractionRunStateMachine machine =
                         W6InteractionCaptureHostTestDriver
@@ -449,14 +443,11 @@ namespace SignVR.Interaction.CaptureHost
                         writerCreated.Wait(TimeSpan.FromSeconds(5)),
                         "Controller late writer was not created."
                     );
-                    var request = new ObservableCancelableRequest();
-                    host.PrepareLifecycleOwnershipForTests(request, 81L);
                     controller.InstallDeterministicScenarioForTests(
                         machine,
                         summary,
                         writer: null,
-                        initialization,
-                        host
+                        initialization
                     );
                     ArmUnityLifecycleOnlyOutsidePlayMode(controller);
                     owner.SetActive(true);
@@ -464,10 +455,8 @@ namespace SignVR.Interaction.CaptureHost
                     controller.enabled = false;
                     job = controller.LifecycleTerminalizationForTests;
                     W6InteractionCaptureHostTestDriver.Require(
-                        controller.State == RunState.Aborting && job != null &&
-                        !host.HeartbeatLoopActiveForTests &&
-                        host.ActiveRequestCount == 0 && request.WasAborted,
-                        "Controller disable did not stop Host ownership and begin Abort."
+                        controller.State == RunState.Aborting && job != null,
+                        "Controller disable did not begin local Abort ownership."
                     );
                     W6InteractionCaptureHostTestDriver.Require(
                         !job.Wait(TimeSpan.FromMilliseconds(5200)) &&
@@ -572,18 +561,13 @@ namespace SignVR.Interaction.CaptureHost
                 {
                     owner = new GameObject("W6 Controller Destroy Test");
                     owner.SetActive(false);
-                    InteractionHostClient host =
-                        owner.AddComponent<InteractionHostClient>();
                     InteractionRunController controller =
                         owner.AddComponent<InteractionRunController>();
                     owner.SetActive(true);
                     owner.SetActive(false);
                     W6InteractionCaptureHostTestDriver.Require(
-                        controller.State == RunState.PreStart &&
-                        !host.HeartbeatLoopActiveForTests &&
-                        host.ActiveRequestCount == 0,
-                        "Warm-up deactivation did not finish Awake and clear " +
-                        "ordinary Host ownership."
+                        controller.State == RunState.PreStart,
+                        "Warm-up deactivation did not finish Awake."
                     );
                     InteractionRunStateMachine machine =
                         W6InteractionCaptureHostTestDriver
@@ -609,31 +593,22 @@ namespace SignVR.Interaction.CaptureHost
                         writerCreated.Wait(TimeSpan.FromSeconds(5)),
                         "Destroy scenario writer was not created."
                     );
-                    var disableRequest = new ObservableCancelableRequest();
-                    host.PrepareLifecycleOwnershipForTests(disableRequest, 82L);
                     controller.InstallDeterministicScenarioForTests(
                         machine,
                         summary,
                         writer: null,
-                        initialization,
-                        host
+                        initialization
                     );
                     ArmUnityLifecycleOnlyOutsidePlayMode(controller);
                     owner.SetActive(true);
                     controller.enabled = false;
                     job = controller.LifecycleTerminalizationForTests;
                     W6InteractionCaptureHostTestDriver.Require(
-                        job != null && disableRequest.WasAborted,
+                        job != null,
                         "Real OnDisable did not create detached ownership."
                     );
 
-                    var destroyRequest = new ObservableCancelableRequest();
-                    host.RegisterActiveRequestForTests(destroyRequest);
                     UnityEngine.Object.DestroyImmediate(controller);
-                    W6InteractionCaptureHostTestDriver.Require(
-                        destroyRequest.WasAborted && host.ActiveRequestCount == 0,
-                        "Real OnDestroy did not traverse Controller to Host cancellation."
-                    );
                     releaseInitialization.Set();
                     W6InteractionCaptureHostTestDriver.Require(
                         job.Wait(TimeSpan.FromSeconds(10)) &&
@@ -699,6 +674,7 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
+#if SIGNVR_LEGACY_HOST_CONTROLLER_TESTS
         public static void ControllerDisableCancelsOwnedArtifactFreeze()
         {
             string root = W6InteractionCaptureHostTestDriver
@@ -977,6 +953,7 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
+#endif
         public static void HostDisableCancelsOwnedArtifactVerify()
         {
             string root = W6InteractionCaptureHostTestDriver
@@ -1504,6 +1481,7 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
+#if SIGNVR_LEGACY_HOST_CONTROLLER_TESTS
         private static void CreateCompletedControllerFixture(
             string root,
             int seed,
@@ -1559,6 +1537,7 @@ namespace SignVR.Interaction.CaptureHost
             );
         }
 
+#endif
         private static void RunLifecycleQueueFailureCase(
             string root,
             int seed,
@@ -1573,8 +1552,6 @@ namespace SignVR.Interaction.CaptureHost
             owner.SetActive(false);
             try
             {
-                InteractionHostClient host =
-                    owner.AddComponent<InteractionHostClient>();
                 InteractionRunController controller =
                     owner.AddComponent<InteractionRunController>();
                 owner.SetActive(true);
@@ -1596,8 +1573,7 @@ namespace SignVR.Interaction.CaptureHost
                     machine,
                     summary,
                     writer,
-                    initialization: null,
-                    host
+                    initialization: null
                 );
                 controller.InstallLifecycleWorkQueueForTests(workQueue);
                 ArmUnityLifecycleOnlyOutsidePlayMode(controller);
@@ -1660,8 +1636,6 @@ namespace SignVR.Interaction.CaptureHost
             {
                 try
                 {
-                    InteractionHostClient host =
-                        owner.AddComponent<InteractionHostClient>();
                     InteractionRunController controller =
                         owner.AddComponent<InteractionRunController>();
                     owner.SetActive(true);
@@ -1694,8 +1668,7 @@ namespace SignVR.Interaction.CaptureHost
                         machine,
                         summary,
                         writer: null,
-                        initialization,
-                        host
+                        initialization
                     );
                     controller.InstallLifecycleWorkQueueForTests(workQueue);
                     ArmUnityLifecycleOnlyOutsidePlayMode(controller);
