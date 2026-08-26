@@ -379,7 +379,62 @@ namespace SignVR.Editor.Interaction
                 );
             }
 
+            changed |= EnsureFixedStudyWorldFrame(scene);
+
             return changed;
+        }
+
+        private static bool EnsureFixedStudyWorldFrame(Scene scene)
+        {
+            Component[] playerRigs = EnumerateGameObjects(scene)
+                .SelectMany(gameObject => gameObject.GetComponents<Component>())
+                .Where(
+                    component => component != null &&
+                                 string.Equals(
+                                     component.GetType().Name,
+                                     "VRPlayerRig",
+                                     StringComparison.Ordinal
+                                 )
+                )
+                .ToArray();
+            if (playerRigs.Length != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Expected exactly one VRPlayerRig while configuring " +
+                    $"the fixed InteractionLab world frame; found " +
+                    $"{playerRigs.Length}."
+                );
+            }
+
+            var serializedPlayer = new SerializedObject(playerRigs[0]);
+            SerializedProperty recordingMode =
+                serializedPlayer.FindProperty("recordingMode");
+            SerializedProperty preserveRuntimeTrackingOrigin =
+                serializedPlayer.FindProperty("preserveRuntimeTrackingOrigin");
+            if (recordingMode == null || preserveRuntimeTrackingOrigin == null)
+            {
+                throw new InvalidOperationException(
+                    "VRPlayerRig no longer exposes its serialized " +
+                    "fixed-study world-frame contract."
+                );
+            }
+            bool changed = false;
+            if (!recordingMode.boolValue)
+            {
+                recordingMode.boolValue = true;
+                changed = true;
+            }
+            if (!preserveRuntimeTrackingOrigin.boolValue)
+            {
+                preserveRuntimeTrackingOrigin.boolValue = true;
+                changed = true;
+            }
+            if (!changed)
+            {
+                return false;
+            }
+            serializedPlayer.ApplyModifiedPropertiesWithoutUndo();
+            return true;
         }
 
         private static Transform EnsureDirectChild(

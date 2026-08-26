@@ -19484,7 +19484,8 @@ MonoBehaviour:
   bodyRadius: 0.23
   bodyHeight: 1.75
   skinWidth: 0.03
-  recordingMode: 0
+  recordingMode: 1
+  preserveRuntimeTrackingOrigin: 1
 --- !u!143 &1763276398
 CharacterController:
   m_ObjectHideFlags: 0

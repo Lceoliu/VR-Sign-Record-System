@@ -1199,17 +1199,17 @@ namespace SignVR.Editor.Interaction
             Button start = EnsureButton(
                 root.transform,
                 "Start",
-                "开始六阶段（无教学）",
+                "开始体验",
                 font,
                 new Color(0.12f, 0.56f, 0.30f, 1f)
             );
             SetRect(start.GetComponent<RectTransform>(),
-                new Vector2(0f, -125f), new Vector2(430f, 82f));
+                new Vector2(0f, 65f), new Vector2(520f, 110f));
 
             TMP_Text status = EnsureText(
                 root.transform,
                 "Status",
-                "等待 Study readiness 与身份确认",
+                "正在自动准备实验，请稍候…",
                 font,
                 23f
             );
@@ -1219,8 +1219,12 @@ namespace SignVR.Editor.Interaction
                 status.textWrappingMode = TextWrappingModes.Normal;
                 EditorUtility.SetDirty(status);
             }
-            SetRect(status.rectTransform, new Vector2(0f, -235f),
-                new Vector2(700f, 100f));
+            SetRect(status.rectTransform, new Vector2(0f, -85f),
+                new Vector2(700f, 150f));
+
+            participant.gameObject.SetActive(false);
+            build.gameObject.SetActive(false);
+            apply.gameObject.SetActive(false);
 
             TMP_Text progress = EnsureText(
                 root.transform,

@@ -152,6 +152,27 @@ export function isValidParticipantId(participantId: string): boolean {
   return !WINDOWS_RESERVED_NAMES.has(participantId.split('.', 1)[0].toUpperCase())
 }
 
+export function createAutomaticParticipantId(
+  now: Date = new Date(),
+  entropy: number = globalThis.crypto.getRandomValues(new Uint32Array(1))[0],
+): string {
+  if (!Number.isInteger(entropy) || entropy < 0 || entropy > 0xffffffff) {
+    throw new Error('participant identity entropy must be an unsigned 32-bit integer')
+  }
+  const digits = (value: number, length: number) => value.toString().padStart(length, '0')
+  const date = [
+    digits(now.getUTCFullYear(), 4),
+    digits(now.getUTCMonth() + 1, 2),
+    digits(now.getUTCDate(), 2),
+  ].join('')
+  const time = [
+    digits(now.getUTCHours(), 2),
+    digits(now.getUTCMinutes(), 2),
+    digits(now.getUTCSeconds(), 2),
+  ].join('')
+  return `P-${date}-${time}-${entropy.toString(16).padStart(8, '0')}`
+}
+
 export function createCameraReadinessHeartbeat(
   cameraReady: boolean,
   participantId: string,

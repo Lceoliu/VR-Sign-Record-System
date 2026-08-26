@@ -102,6 +102,7 @@ namespace SignVR.Interaction.Presentation
         {
             participantHmd = hmd;
             ResolveCamera();
+            AttachToParticipantHmd();
         }
 
         public bool RequireCommandSink => requireCommandSink;
@@ -180,11 +181,14 @@ namespace SignVR.Interaction.Presentation
         {
             EnsureVisuals();
             ResolveCamera();
+            AttachToParticipantHmd();
         }
 
         private void OnEnable()
         {
             EnsureVisuals();
+            ResolveCamera();
+            AttachToParticipantHmd();
             Bind();
             Refresh();
         }
@@ -192,23 +196,47 @@ namespace SignVR.Interaction.Presentation
         private void LateUpdate()
         {
             ResolveCamera();
-            if (participantHmd == null)
+            AttachToParticipantHmd();
+        }
+
+        private void AttachToParticipantHmd()
+        {
+            if (participantHmd == null || participantHmd == transform ||
+                participantHmd.IsChildOf(transform))
             {
                 return;
             }
 
-            transform.position = participantHmd.position +
-                participantHmd.forward * viewDistance +
-                participantHmd.right * viewOffset.x +
-                participantHmd.up * viewOffset.y;
-            Vector3 awayFromViewer = transform.position -
-                participantHmd.position;
-            if (awayFromViewer.sqrMagnitude > 0.000001f)
+            if (transform.parent != participantHmd)
             {
-                transform.rotation = Quaternion.LookRotation(
-                    awayFromViewer.normalized,
-                    participantHmd.up
-                );
+                // A direct hierarchy relationship lets Meta/OpenXR's final
+                // before-render HMD pose propagate to the UI automatically.
+                // Copying the HMD's earlier world pose in LateUpdate leaves a
+                // head-locked panel one tracking update behind and produces
+                // visible micro-jitter on device.
+                transform.SetParent(participantHmd, worldPositionStays: false);
+            }
+
+            Vector3 localViewPosition = new(
+                viewOffset.x,
+                viewOffset.y,
+                viewDistance
+            );
+            if (transform.localPosition != localViewPosition)
+            {
+                transform.localPosition = localViewPosition;
+            }
+            if (localViewPosition.sqrMagnitude <= 0.000001f)
+            {
+                return;
+            }
+            Quaternion localViewRotation = Quaternion.LookRotation(
+                localViewPosition.normalized,
+                Vector3.up
+            );
+            if (transform.localRotation != localViewRotation)
+            {
+                transform.localRotation = localViewRotation;
             }
         }
 

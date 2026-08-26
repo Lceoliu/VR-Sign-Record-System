@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.IO;
+using System.Linq;
 using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
 using SignVR.Interaction.PhaseAdapters;
@@ -48,7 +49,7 @@ namespace SignVR.Interaction.Orchestration
         private string initializationStatus =
             "Instruction manifest has not loaded.";
         private string identityStatus =
-            "Confirm participant and integrated build identity.";
+            "正在等待主机自动分配匿名实验编号。";
         private string lastPublishedFingerprint = string.Empty;
 
         public event Action StateChanged;
@@ -220,7 +221,10 @@ namespace SignVR.Interaction.Orchestration
                 identityStatus = "Identity armed for participant " +
                     safeParticipant + " with build " + safeBuild + ".";
                 readinessPollGate.Invalidate();
-                RefreshHostReadinessIfDue();
+                // Automatic identity adoption runs from inside a completed
+                // readiness callback. Let Update start the replacement poll
+                // on the next frame, after the Host client has released the
+                // completed request's readiness slot.
                 PublishStateIfChanged(force: true);
                 return InteractionStudyFlowCommandResult.Success();
             }
@@ -517,7 +521,7 @@ namespace SignVR.Interaction.Orchestration
         {
             if (!manifestReady || runController == null ||
                 runController.State != RunState.PreStart ||
-                runController.HostClient == null || !identityArmed)
+                runController.HostClient == null)
             {
                 return;
             }
@@ -534,6 +538,10 @@ namespace SignVR.Interaction.Orchestration
                             token,
                             Time.realtimeSinceStartupAsDouble))
                     {
+                        TryAdoptAutomaticIdentity(
+                            runController.LastHostReadiness,
+                            ResolveAutomaticBuildIdentity()
+                        );
                         PublishStateIfChanged(force: true);
                     }
                 });
@@ -549,6 +557,82 @@ namespace SignVR.Interaction.Orchestration
                     exception.Message;
                 PublishStateIfChanged(force: true);
             }
+        }
+
+        private bool TryAdoptAutomaticIdentity(
+            InteractionHostReadiness readiness,
+            string buildIdentity)
+        {
+            if (runController == null ||
+                runController.State != RunState.PreStart ||
+                readiness == null ||
+                !readiness.ParticipantReady ||
+                !readiness.ParticipantFresh ||
+                string.IsNullOrWhiteSpace(readiness.ParticipantId))
+            {
+                return false;
+            }
+
+            string participant = readiness.ParticipantId.Trim();
+            string build = buildIdentity?.Trim() ?? string.Empty;
+            if (identityArmed &&
+                string.Equals(
+                    ConfiguredParticipantId,
+                    participant,
+                    StringComparison.Ordinal
+                ) &&
+                string.Equals(
+                    ConfiguredBuildIdentity,
+                    build,
+                    StringComparison.Ordinal
+                ))
+            {
+                return false;
+            }
+
+            if (identityArmed)
+            {
+                DisarmIdentityInternal(
+                    "主机已为下一轮分配新的匿名实验编号。",
+                    invalidateReadiness: true
+                );
+            }
+
+            InteractionStudyFlowCommandResult result = TryConfigureIdentity(
+                participant,
+                build
+            );
+            if (!result.Succeeded)
+            {
+                return false;
+            }
+
+            identityStatus = "匿名实验编号已自动准备：" + participant;
+            PublishStateIfChanged(force: true);
+            return true;
+        }
+
+        private static string ResolveAutomaticBuildIdentity()
+        {
+            string buildGuid = Application.buildGUID?.Trim();
+            if (!string.IsNullOrWhiteSpace(buildGuid) &&
+                buildGuid.Trim('0', '-').Length > 0)
+            {
+                return buildGuid;
+            }
+
+            string version = Application.version ?? string.Empty;
+            char[] safe = version.Select(character =>
+                (character >= 'A' && character <= 'Z') ||
+                (character >= 'a' && character <= 'z') ||
+                (character >= '0' && character <= '9') ||
+                character == '.' || character == '_' || character == '-'
+                    ? character
+                    : '-'
+            ).ToArray();
+            string suffix = new string(safe).Trim('-', '.');
+            return "version-" +
+                (string.IsNullOrWhiteSpace(suffix) ? "unversioned" : suffix);
         }
 
         internal bool TryConfigureManifestBytes(
@@ -631,7 +715,7 @@ namespace SignVR.Interaction.Orchestration
             armedParticipantId = string.Empty;
             armedBuildIdentity = string.Empty;
             identityStatus = string.IsNullOrWhiteSpace(reason)
-                ? "Confirm participant and integrated build identity."
+                ? "正在等待主机自动分配匿名实验编号。"
                 : reason;
             readinessPollGate.Invalidate();
             if (invalidateReadiness && runController != null)

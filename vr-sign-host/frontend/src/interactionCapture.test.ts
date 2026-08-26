@@ -4,6 +4,7 @@ import {
   cameraReadinessForCurrentStream,
   bindCameraPresenceRetirement,
   createCameraReadinessHeartbeat,
+  createAutomaticParticipantId,
   createHeartbeatGenerationAllocator,
   captureDirective,
   nextPageSessionHeartbeatGeneration,
@@ -66,6 +67,18 @@ describe('participantIdsMatch', () => {
     expect(participantIdsMatch(' P001 ', 'P001')).toBe(true)
     expect(participantIdsMatch('', 'P001')).toBe(false)
     expect(participantIdsMatch('P001', 'P002')).toBe(false)
+  })
+})
+
+describe('automatic participant identity', () => {
+  it('creates a safe anonymous ID without asking the VR participant to type', () => {
+    const generated = createAutomaticParticipantId(
+      new Date('2026-08-26T12:34:56Z'),
+      0x1a2b3c4d,
+    )
+
+    expect(generated).toBe('P-20260826-123456-1a2b3c4d')
+    expect(generated).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/)
   })
 })
 

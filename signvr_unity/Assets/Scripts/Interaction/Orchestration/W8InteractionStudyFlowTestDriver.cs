@@ -1728,6 +1728,330 @@ namespace SignVR.Interaction.Orchestration
             }
         }
 
+        public static void FixedStudyModeLeavesRuntimeTrackingOriginOwnedByXrRuntime()
+        {
+            GameObject root = new GameObject("Fixed Study Player");
+            root.SetActive(false);
+            try
+            {
+                Transform origin = new GameObject("XR Origin").transform;
+                origin.SetParent(root.transform, false);
+                Transform head = new GameObject("Tracked Head").transform;
+                head.SetParent(origin, false);
+                head.localPosition = Vector3.up * 1.6f;
+
+                var rig = root.AddComponent<VRPlayerRig>();
+                rig.ConfigureSceneReferences(origin, head);
+                rig.CaptureSpawnPose();
+                rig.SetRecordingMode(true);
+
+                FieldInfo preserveOrigin = typeof(VRPlayerRig).GetField(
+                    "preserveRuntimeTrackingOrigin",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                );
+                Assert.That(
+                    preserveOrigin,
+                    Is.Not.Null,
+                    "Stationary Study mode must be able to leave the " +
+                    "runtime-owned tracking origin untouched."
+                );
+                preserveOrigin.SetValue(rig, true);
+                typeof(VRPlayerRig).GetField(
+                    "hasFixedRecordingOriginPose",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).SetValue(rig, true);
+                typeof(VRPlayerRig).GetField(
+                    "fixedRecordingOriginLocalPosition",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).SetValue(rig, origin.localPosition);
+                typeof(VRPlayerRig).GetField(
+                    "fixedRecordingOriginLocalRotation",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).SetValue(rig, origin.localRotation);
+
+                Vector3 expectedRoot = rig.SpawnPosition;
+                Vector3 runtimeOwnedOrigin = new Vector3(0f, 0.037f, 0f);
+                root.transform.position += new Vector3(1f, 2f, 3f);
+                origin.localPosition = runtimeOwnedOrigin;
+
+                rig.ReassertFixedWorldFrame();
+
+                Assert.That(root.transform.position, Is.EqualTo(expectedRoot));
+                Assert.That(
+                    origin.localPosition,
+                    Is.EqualTo(runtimeOwnedOrigin),
+                    "LateUpdate must not fight Meta/OpenXR floor tracking."
+                );
+                Assert.That(rig.RecordingOriginCorrectionCount, Is.Zero);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        public static void HeadLockedStudyUiInheritsHmdPoseWithoutLateWorldCopy()
+        {
+            GameObject root = new GameObject("Head Locked Study UI Driver");
+            try
+            {
+                GameObject hmd = new GameObject("HMD");
+                hmd.transform.SetParent(root.transform, false);
+                hmd.transform.SetPositionAndRotation(
+                    new Vector3(1f, 1.6f, -2f),
+                    Quaternion.Euler(4f, 37f, -2f)
+                );
+                GameObject anchor = new GameObject("Interaction UI Anchor");
+                anchor.transform.SetParent(root.transform, false);
+                var controls =
+                    anchor.AddComponent<InteractionInstructionControls>();
+                typeof(InteractionInstructionControls).GetField(
+                    "participantHmd",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).SetValue(controls, hmd.transform);
+
+                typeof(InteractionInstructionControls).GetMethod(
+                    "LateUpdate",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).Invoke(controls, null);
+
+                Assert.That(
+                    anchor.transform.parent,
+                    Is.SameAs(hmd.transform),
+                    "Head-locked Study UI must inherit the HMD's final XR " +
+                    "pose. Copying an earlier HMD world pose in LateUpdate " +
+                    "leaves the panel one tracking update behind."
+                );
+                Assert.That(
+                    anchor.transform.localPosition,
+                    Is.EqualTo(new Vector3(0f, -0.22f, 0.72f))
+                );
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        public static void AutomaticHostIdentityIsAdoptedWithoutVrTextEntry()
+        {
+            GameObject owner = new GameObject("Automatic Identity Driver");
+            owner.SetActive(false);
+            try
+            {
+                var run = owner.AddComponent<InteractionRunController>();
+                var presentation =
+                    owner.AddComponent<InstructionPresentationController>();
+                var tasks = owner.AddComponent<
+                    SignVR.Interaction.PhaseAdapters
+                        .InteractionPhaseCoordinator>();
+                var capture =
+                    owner.AddComponent<InteractionStudyCaptureBinding>();
+                var controller =
+                    owner.AddComponent<InteractionStudyFlowController>();
+                controller.Configure(run, presentation, tasks, capture);
+
+                InteractionHostReadiness readiness =
+                    InteractionHostReadiness.Parse(
+                        "{\"schema_version\":1,\"ready\":true," +
+                        "\"backend_ready\":true,\"storage_ready\":true," +
+                        "\"quest_ready\":true,\"camera_ready\":true," +
+                        "\"quest_fresh\":true,\"camera_fresh\":true," +
+                        "\"participant_ready\":true," +
+                        "\"participant_fresh\":true," +
+                        "\"participant_id\":\"P-AUTO-001\"," +
+                        "\"quest_device_id\":\"quest_alpha\"}"
+                    );
+                MethodInfo adopt = typeof(InteractionStudyFlowController)
+                    .GetMethod(
+                        "TryAdoptAutomaticIdentity",
+                        BindingFlags.Instance | BindingFlags.NonPublic
+                    );
+                Assert.That(
+                    adopt,
+                    Is.Not.Null,
+                    "PreStart must adopt the Host-generated anonymous ID."
+                );
+
+                bool adopted = (bool)adopt.Invoke(
+                    controller,
+                    new object[]
+                    {
+                        readiness,
+                        "abcdef0123456789abcdef0123456789"
+                    }
+                );
+
+                Assert.That(adopted, Is.True);
+                Assert.That(controller.IdentityArmed, Is.True);
+                Assert.That(run.ParticipantId, Is.EqualTo("P-AUTO-001"));
+                Assert.That(
+                    run.GitCommit,
+                    Is.EqualTo("abcdef0123456789abcdef0123456789")
+                );
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
+        }
+
+        public static void AutomaticIdentityDefersReadinessRepollUntilNextUpdate()
+        {
+            GameObject owner = new GameObject("Automatic Identity Repoll Driver");
+            try
+            {
+                var host = owner.AddComponent<InteractionHostClient>();
+                var run = owner.AddComponent<InteractionRunController>();
+                var presentation =
+                    owner.AddComponent<InstructionPresentationController>();
+                var tasks = owner.AddComponent<
+                    SignVR.Interaction.PhaseAdapters
+                        .InteractionPhaseCoordinator>();
+                var capture =
+                    owner.AddComponent<InteractionStudyCaptureBinding>();
+                var controller =
+                    owner.AddComponent<InteractionStudyFlowController>();
+                run.ConfigureHostClient(host);
+                controller.Configure(run, presentation, tasks, capture);
+                typeof(InteractionStudyFlowController).GetField(
+                    "manifestReady",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).SetValue(controller, true);
+
+                InteractionHostReadiness readiness =
+                    InteractionHostReadiness.Parse(
+                        "{\"schema_version\":1,\"ready\":true," +
+                        "\"backend_ready\":true,\"storage_ready\":true," +
+                        "\"quest_ready\":true,\"camera_ready\":true," +
+                        "\"quest_fresh\":true,\"camera_fresh\":true," +
+                        "\"participant_ready\":true," +
+                        "\"participant_fresh\":true," +
+                        "\"participant_id\":\"P-AUTO-REPOLL\"," +
+                        "\"quest_device_id\":\"quest_alpha\"}"
+                    );
+                MethodInfo adopt = typeof(InteractionStudyFlowController)
+                    .GetMethod(
+                        "TryAdoptAutomaticIdentity",
+                        BindingFlags.Instance | BindingFlags.NonPublic
+                    );
+
+                bool adopted = (bool)adopt.Invoke(
+                    controller,
+                    new object[]
+                    {
+                        readiness,
+                        "abcdef0123456789abcdef0123456789"
+                    }
+                );
+
+                Assert.That(adopted, Is.True);
+                Assert.That(
+                    controller.ReadinessRefreshInFlight,
+                    Is.False,
+                    "Automatic identity is adopted inside a readiness " +
+                    "completion callback. Its replacement poll must be " +
+                    "deferred until the next Update instead of being started " +
+                    "reentrantly while the completed request still owns the " +
+                    "Host client's readiness slot."
+                );
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(owner);
+            }
+        }
+
+        public static void AutomaticIdentityHidesVrTextInputsAndStartIsSingleAction()
+        {
+            GameObject root = new GameObject("One Action Study UI");
+            GameObject controllerOwner = new GameObject("Controller");
+            controllerOwner.transform.SetParent(root.transform, false);
+            controllerOwner.SetActive(false);
+            try
+            {
+                var run =
+                    controllerOwner.AddComponent<InteractionRunController>();
+                var presentation = controllerOwner.AddComponent<
+                    InstructionPresentationController>();
+                var tasks = controllerOwner.AddComponent<
+                    SignVR.Interaction.PhaseAdapters
+                        .InteractionPhaseCoordinator>();
+                var capture = controllerOwner.AddComponent<
+                    InteractionStudyCaptureBinding>();
+                var controller = controllerOwner.AddComponent<
+                    InteractionStudyFlowController>();
+                controller.Configure(run, presentation, tasks, capture);
+                var authoritative = new FlowFixture();
+                typeof(InteractionStudyFlowController).GetField(
+                    "flow",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).SetValue(controller, authoritative.Flow);
+                typeof(InteractionStudyFlowController).GetField(
+                    "manifestReady",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).SetValue(controller, true);
+                Assert.That(controller.TryConfigureIdentity(
+                    "P-AUTO-001",
+                    "abcdef0123456789"
+                ).Succeeded, Is.True);
+
+                GameObject ui = new GameObject("UI");
+                ui.transform.SetParent(root.transform, false);
+                var instruction =
+                    ui.AddComponent<InteractionInstructionControls>();
+                instruction.Configure(presentation);
+                instruction.ConfigureCommandRouting(true);
+                var controls =
+                    ui.AddComponent<InteractionStudyFlowControls>();
+                GameObject surface = new GameObject("Start Surface");
+                surface.transform.SetParent(ui.transform, false);
+                Button start = NewUiComponent<Button>(ui.transform, "Start");
+                TMP_InputField participant = NewUiComponent<TMP_InputField>(
+                    ui.transform,
+                    "Participant"
+                );
+                TMP_InputField build = NewUiComponent<TMP_InputField>(
+                    ui.transform,
+                    "Build"
+                );
+                Button apply = NewUiComponent<Button>(ui.transform, "Apply");
+                TextMeshProUGUI status = NewUiComponent<TextMeshProUGUI>(
+                    ui.transform,
+                    "Status"
+                );
+                TextMeshProUGUI progress = NewUiComponent<TextMeshProUGUI>(
+                    ui.transform,
+                    "Progress"
+                );
+                controls.Configure(
+                    controller,
+                    instruction,
+                    surface,
+                    start,
+                    participant,
+                    build,
+                    apply,
+                    status,
+                    progress
+                );
+
+                Assert.That(participant.gameObject.activeSelf, Is.False);
+                Assert.That(build.gameObject.activeSelf, Is.False);
+                Assert.That(apply.gameObject.activeSelf, Is.False);
+                Assert.That(start.gameObject.activeSelf, Is.True);
+                Assert.That(start.interactable, Is.True);
+
+                start.onClick.Invoke();
+
+                Assert.That(authoritative.Run.StartCount, Is.EqualTo(1));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
         public static void ManifestFailureRetryAndDisableCancelAreSafe()
         {
             GameObject owner = new GameObject("W8 Manifest Driver");

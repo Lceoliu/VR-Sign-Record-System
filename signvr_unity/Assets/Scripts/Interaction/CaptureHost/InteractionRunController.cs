@@ -163,6 +163,7 @@ namespace SignVR.Interaction.CaptureHost
         public bool DebugOverridesActive => debugOverridesActive;
         public bool RequireHostForStart => requireHostForStart;
         public InteractionHostClient HostClient => hostClient;
+        public InteractionHostReadiness LastHostReadiness => lastReadiness;
         public InteractionCaptureSampler CaptureSampler => captureSampler;
         public InteractionPresentationRequest PendingPresentationRequest =>
             presentationHandshake?.PendingRequest;

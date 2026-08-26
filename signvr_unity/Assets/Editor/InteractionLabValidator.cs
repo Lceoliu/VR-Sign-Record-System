@@ -372,9 +372,47 @@ namespace SignVR.Editor.Interaction
             RequireUniqueRoot(scene, "PlayerSpawnPoint", failures);
             RequireUniqueRoot(scene, "VRFloorCollision", failures);
 
-            if (!HasComponentType(gameObjects, "VRPlayerRig"))
+            Component[] playerRigs = FindComponentsByTypeName(
+                gameObjects,
+                "VRPlayerRig"
+            );
+            if (playerRigs.Length == 0)
             {
                 failures.Add("Reusable VRPlayerRig is missing.");
+            }
+            else if (playerRigs.Length > 1)
+            {
+                failures.Add(
+                    $"Expected exactly one VRPlayerRig; found " +
+                    $"{playerRigs.Length}."
+                );
+            }
+            else
+            {
+                var serializedPlayer = new SerializedObject(playerRigs[0]);
+                SerializedProperty recordingMode =
+                    serializedPlayer.FindProperty("recordingMode");
+                SerializedProperty preserveRuntimeTrackingOrigin =
+                    serializedPlayer.FindProperty(
+                        "preserveRuntimeTrackingOrigin"
+                    );
+                if (recordingMode == null || !recordingMode.boolValue)
+                {
+                    failures.Add(
+                        "InteractionLab VRPlayerRig must start in fixed " +
+                        "recording mode so gravity cannot lower the study " +
+                        "viewpoint."
+                    );
+                }
+                if (preserveRuntimeTrackingOrigin == null ||
+                    !preserveRuntimeTrackingOrigin.boolValue)
+                {
+                    failures.Add(
+                        "InteractionLab VRPlayerRig must leave the live " +
+                        "Meta/OpenXR tracking origin runtime-owned so the " +
+                        "viewpoint does not alternate between two heights."
+                    );
+                }
             }
             if (!HasComponentType(gameObjects, "OVRCameraRig"))
             {
@@ -511,8 +549,16 @@ namespace SignVR.Editor.Interaction
             IEnumerable<GameObject> gameObjects,
             string typeName)
         {
-            return gameObjects.Sum(
-                gameObject => gameObject.GetComponents<Component>().Count(
+            return FindComponentsByTypeName(gameObjects, typeName).Length;
+        }
+
+        private static Component[] FindComponentsByTypeName(
+            IEnumerable<GameObject> gameObjects,
+            string typeName)
+        {
+            return gameObjects
+                .SelectMany(gameObject => gameObject.GetComponents<Component>())
+                .Where(
                     component => component != null &&
                                  string.Equals(
                                      component.GetType().Name,
@@ -520,7 +566,7 @@ namespace SignVR.Editor.Interaction
                                      StringComparison.Ordinal
                                  )
                 )
-            );
+                .ToArray();
         }
 
         private static void EnsureLoadedScenesAreSaved()

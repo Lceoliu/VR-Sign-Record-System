@@ -20,6 +20,7 @@ import {
   cameraReadinessForCurrentStream,
   captureDirective,
   createCameraReadinessHeartbeat,
+  createAutomaticParticipantId,
   isTerminalInteractionRun,
   isValidParticipantId,
   nextPageSessionHeartbeatGeneration,
@@ -90,12 +91,22 @@ function readinessTone(ready: boolean): 'ready' | 'blocked' {
   return ready ? 'ready' : 'blocked'
 }
 
+const PARTICIPANT_STORAGE_KEY = 'signvr-interaction-automatic-participant'
+
+function loadOrCreateParticipantId(): string {
+  const existing = window.localStorage.getItem(PARTICIPANT_STORAGE_KEY) ?? ''
+  if (isValidParticipantId(existing)) return existing
+  const generated = createAutomaticParticipantId()
+  window.localStorage.setItem(PARTICIPANT_STORAGE_KEY, generated)
+  return generated
+}
+
 export default function InteractionStudyApp() {
   const [readiness, setReadiness] = useState<InteractionReadiness | null>(null)
   const [backendOnline, setBackendOnline] = useState(false)
   const [currentRun, setCurrentRun] = useState<InteractionRunSnapshot | null>(null)
   const [expectedParticipantId, setExpectedParticipantId] = useState(
-    () => window.localStorage.getItem('signvr-interaction-participant') ?? '',
+    loadOrCreateParticipantId,
   )
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([])
   const [cameraId, setCameraId] = useState('')
@@ -130,6 +141,7 @@ export default function InteractionStudyApp() {
   const refreshIssuedSequenceRef = useRef(0)
   const refreshAcceptedSequenceRef = useRef(0)
   const webcamRecoveryRef = useRef<WebcamRecoveryState>(new Map())
+  const rotatedParticipantRunIdRef = useRef<string | null>(null)
 
   const applyCurrentRun = useCallback((run: InteractionRunSnapshot | null) => {
     currentRunRef.current = run
@@ -269,6 +281,22 @@ export default function InteractionStudyApp() {
       }
     })
   }, [applyCameraHeartbeatGate, heartbeatGeneration])
+
+  useEffect(() => {
+    if (
+      !currentRun
+      || !isTerminalInteractionRun(currentRun)
+      || rotatedParticipantRunIdRef.current === currentRun.run_id
+    ) return
+
+    rotatedParticipantRunIdRef.current = currentRun.run_id
+    const generated = createAutomaticParticipantId()
+    participantIdRef.current = generated
+    setExpectedParticipantId(generated)
+    window.localStorage.setItem(PARTICIPANT_STORAGE_KEY, generated)
+    applyCameraHeartbeatGate({ type: 'invalidate' })
+    reportCameraReadiness()
+  }, [applyCameraHeartbeatGate, currentRun, reportCameraReadiness])
 
   useEffect(() => bindCameraPresenceRetirement(
     window,
@@ -664,7 +692,7 @@ export default function InteractionStudyApp() {
             <p>
               {currentRun
                 ? `${currentRun.batch_id} / ${currentRun.participant_id}`
-                : '请先核对匿名参与者编号；condition、密码、句子与 Take 均由 Quest 冻结。'}
+                : '匿名实验编号由系统生成；condition、密码、句子与 Take 均由 Quest 冻结。'}
             </p>
           </div>
           <div className={`run-state state-${currentRun?.state.toLowerCase() ?? 'waiting'}`}>
@@ -686,19 +714,11 @@ export default function InteractionStudyApp() {
 
         <section className="interaction-controls">
           <label className="participant-control">
-            <span>匿名参与者编号（通过 Host heartbeat 核对，不写入 Run Plan）</span>
+            <span>系统生成的匿名实验编号</span>
             <input
               value={expectedParticipantId}
-              placeholder="例如 P001"
-              disabled={captureBusy}
-              onChange={(event) => {
-                const value = event.target.value
-                participantIdRef.current = value
-                setExpectedParticipantId(value)
-                applyCameraHeartbeatGate({ type: 'invalidate' })
-                window.localStorage.setItem('signvr-interaction-participant', value)
-                reportCameraReadiness()
-              }}
+              readOnly
+              aria-readonly="true"
             />
           </label>
           <label className="study-camera-control">

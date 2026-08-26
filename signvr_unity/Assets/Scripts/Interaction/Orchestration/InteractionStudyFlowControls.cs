@@ -46,6 +46,7 @@ namespace SignVR.Interaction.Orchestration
 
         private bool bound;
         private bool synchronizingIdentityInputs;
+        private string lastCommandFeedback = string.Empty;
 
         public event Action StateChanged;
 
@@ -257,7 +258,14 @@ namespace SignVR.Interaction.Orchestration
 
         private void HandleStart()
         {
-            flowController?.TryStart();
+            InteractionStudyFlowCommandResult result =
+                flowController?.TryStart() ??
+                InteractionStudyFlowCommandResult.Failure(
+                    "Study Flow controller is missing."
+                );
+            lastCommandFeedback = result.Succeeded
+                ? string.Empty
+                : ParticipantFacingFailure(result.Error);
             Refresh();
         }
 
@@ -345,6 +353,14 @@ namespace SignVR.Interaction.Orchestration
                     flowController != null && flowController.ManifestReady &&
                     identityArmed &&
                     snapshot?.CanStart == true;
+                TMP_Text startLabel = startButton.GetComponentInChildren<
+                    TMP_Text>(true);
+                if (startLabel != null)
+                {
+                    startLabel.text = startButton.interactable
+                        ? "开始体验"
+                        : "正在准备…";
+                }
             }
             bool canConfigureIdentity = preStart &&
                 flowController?.CanConfigureIdentity == true &&
@@ -352,10 +368,12 @@ namespace SignVR.Interaction.Orchestration
             if (participantIdInput != null)
             {
                 participantIdInput.interactable = canConfigureIdentity;
+                participantIdInput.gameObject.SetActive(false);
             }
             if (buildIdentityInput != null)
             {
                 buildIdentityInput.interactable = canConfigureIdentity;
+                buildIdentityInput.gameObject.SetActive(false);
             }
             if (applyIdentityButton != null)
             {
@@ -369,18 +387,40 @@ namespace SignVR.Interaction.Orchestration
                         ? "修改参与者与构建身份"
                         : "确认参与者与构建身份";
                 }
+                applyIdentityButton.gameObject.SetActive(false);
             }
+            ApplyParticipantOnlyLayout();
             if (statusLabel != null)
             {
                 string flowStatus = snapshot?.Status ?? "PreStart";
                 string initialization = flowController == null
                     ? "Study Flow controller is missing."
                     : flowController.InitializationStatus;
-                statusLabel.text = flowController?.ManifestReady == true
-                    ? identityArmed
-                        ? flowStatus
-                        : flowController.IdentityStatus
-                    : initialization;
+                if (!string.IsNullOrWhiteSpace(lastCommandFeedback))
+                {
+                    statusLabel.text = lastCommandFeedback;
+                }
+                else if (flowController?.ManifestReady != true)
+                {
+                    statusLabel.text = ParticipantFacingFailure(initialization);
+                }
+                else if (!identityArmed)
+                {
+                    statusLabel.text =
+                        "正在等待电脑端 Host 自动分配匿名实验编号…";
+                }
+                else if (preStart && snapshot?.CanStart != true)
+                {
+                    statusLabel.text = ParticipantFacingFailure(flowStatus);
+                }
+                else if (preStart)
+                {
+                    statusLabel.text = "准备就绪，请点击“开始体验”。";
+                }
+                else
+                {
+                    statusLabel.text = ParticipantFacingFailure(flowStatus);
+                }
             }
             if (progressLabel != null)
             {
@@ -390,6 +430,64 @@ namespace SignVR.Interaction.Orchestration
                     : string.Empty;
             }
             StateChanged?.Invoke();
+        }
+
+        private void ApplyParticipantOnlyLayout()
+        {
+            if (startButton?.transform is RectTransform startRect)
+            {
+                startRect.anchoredPosition = new Vector2(0f, 65f);
+                startRect.sizeDelta = new Vector2(520f, 110f);
+            }
+            if (statusLabel?.rectTransform != null)
+            {
+                statusLabel.rectTransform.anchoredPosition =
+                    new Vector2(0f, -85f);
+                statusLabel.rectTransform.sizeDelta =
+                    new Vector2(700f, 150f);
+            }
+        }
+
+        private static string ParticipantFacingFailure(string error)
+        {
+            if (string.IsNullOrWhiteSpace(error))
+            {
+                return "操作暂时无法完成，请稍候重试。";
+            }
+            if (error.IndexOf(
+                    "fresh Host readiness response",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "编号已自动准备；正在与电脑端 Host 同步，请稍候。";
+            }
+            if (error.IndexOf(
+                    "fresh Quest, camera, and participant readiness",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "编号已自动准备；正在等待电脑端 Host 与摄像头就绪。";
+            }
+            if (error.IndexOf(
+                    "consumed partial Interaction Run",
+                    StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "检测到上一次未完整结束的实验，请联系工作人员处理。";
+            }
+            if (error.IndexOf("Host", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                error.IndexOf("Curl", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                error.IndexOf("readiness", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "电脑端 Host 尚未连接或未就绪，请联系工作人员。";
+            }
+            if (error.IndexOf("manifest", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "实验内容仍在加载，请稍候。";
+            }
+            if (error.IndexOf("identity", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                error.IndexOf("participant", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return "匿名实验编号仍在自动准备，请稍候。";
+            }
+            return error;
         }
 
         private void OnDisable()

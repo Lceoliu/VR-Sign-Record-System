@@ -231,6 +231,41 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         }
 
         [Test]
+        public void FixedStudyModeLeavesRuntimeTrackingOriginOwnedByXrRuntime()
+        {
+            InvokeDriver(nameof(
+                FixedStudyModeLeavesRuntimeTrackingOriginOwnedByXrRuntime));
+        }
+
+        [Test]
+        public void HeadLockedStudyUiInheritsHmdPoseWithoutLateWorldCopy()
+        {
+            InvokeDriver(nameof(
+                HeadLockedStudyUiInheritsHmdPoseWithoutLateWorldCopy));
+        }
+
+        [Test]
+        public void AutomaticHostIdentityIsAdoptedWithoutVrTextEntry()
+        {
+            InvokeDriver(nameof(
+                AutomaticHostIdentityIsAdoptedWithoutVrTextEntry));
+        }
+
+        [Test]
+        public void AutomaticIdentityDefersReadinessRepollUntilNextUpdate()
+        {
+            InvokeDriver(nameof(
+                AutomaticIdentityDefersReadinessRepollUntilNextUpdate));
+        }
+
+        [Test]
+        public void AutomaticIdentityHidesVrTextInputsAndStartIsSingleAction()
+        {
+            InvokeDriver(nameof(
+                AutomaticIdentityHidesVrTextInputsAndStartIsSingleAction));
+        }
+
+        [Test]
         public void ManifestFailureRetryAndDisableCancelAreSafe()
         {
             InvokeDriver(nameof(

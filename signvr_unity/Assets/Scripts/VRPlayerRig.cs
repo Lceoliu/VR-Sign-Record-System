@@ -35,6 +35,13 @@ public sealed class VRPlayerRig : MonoBehaviour
 
     [Header("Recording")]
     [SerializeField] private bool recordingMode;
+    [SerializeField]
+    [Tooltip(
+        "Keep the Meta/OpenXR tracking origin runtime-owned while the player " +
+        "root remains fixed. Enable this for live Quest study scenes to avoid " +
+        "competing floor-height writes."
+    )]
+    private bool preserveRuntimeTrackingOrigin;
 
     private CharacterController characterController;
     private float verticalVelocity;
@@ -73,6 +80,8 @@ public sealed class VRPlayerRig : MonoBehaviour
     public Quaternion SpawnViewRotation => spawnViewRotation;
     public bool IsInitialized => initialized;
     public bool IsRecordingMode => recordingMode;
+    public bool PreservesRuntimeTrackingOrigin =>
+        preserveRuntimeTrackingOrigin;
     public bool IsSpawnAlignmentPending => spawnAlignmentPending;
     public bool LastSpawnAlignmentSucceeded { get; private set; }
     public float SpawnAlignmentPositionError { get; private set; } =
@@ -147,6 +156,8 @@ public sealed class VRPlayerRig : MonoBehaviour
             $"forward={eyeForward:F3}, visibleRenderers={visibleRenderers}, " +
             $"grounded={grounded}, " +
             $"recordingMode={recordingMode}, " +
+            $"preserveRuntimeTrackingOrigin=" +
+            $"{preserveRuntimeTrackingOrigin}, " +
             $"floorTop={floorTop:F3}, verticalVelocity={verticalVelocity:F3}."
         );
     }
@@ -317,6 +328,15 @@ public sealed class VRPlayerRig : MonoBehaviour
         }
 
         EnforceFixedRecordingRoot();
+
+        // Meta/OpenXR owns live tracking-space calibration. InteractionLab
+        // freezes locomotion at the player root, but must not overwrite the
+        // origin again in LateUpdate: the runtime updates it later in the XR
+        // frame and the two writers otherwise render alternating eye heights.
+        if (preserveRuntimeTrackingOrigin)
+        {
+            return;
+        }
 
         // The OVR runtime can rewrite the tracking-space origin when floor
         // calibration or recentering changes. Restore only the origin pose;
