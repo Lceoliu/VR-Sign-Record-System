@@ -1910,6 +1910,67 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
+        public static void AndroidFreeSpaceProbeKeepsPersistentDataPath()
+        {
+            const string persistentDataPath =
+                "/storage/emulated/0/Android/data/com.signvr.interaction/files";
+            string selected = InteractionDriveFreeSpaceProbe.SelectProbePath(
+                persistentDataPath,
+                pathAware: true
+            );
+            Require(
+                string.Equals(
+                    selected,
+                    persistentDataPath,
+                    StringComparison.Ordinal
+                ),
+                "Android StatFs must inspect the full persistent-data path " +
+                "instead of the read-only '/' filesystem."
+            );
+        }
+
+        public static void AndroidFreeSpaceProbeUsesExistingAncestorForFutureRun()
+        {
+            string root = CreateTemporaryRoot();
+            try
+            {
+                string futureRunDirectory = Path.Combine(
+                    root,
+                    "interaction-tests",
+                    "batch",
+                    "participant",
+                    "run"
+                );
+                var resolver = typeof(InteractionDriveFreeSpaceProbe).GetMethod(
+                    "ResolveExistingProbePath",
+                    System.Reflection.BindingFlags.Static |
+                    System.Reflection.BindingFlags.NonPublic
+                );
+                Require(
+                    resolver != null,
+                    "Android StatFs needs a resolver for capture directories " +
+                    "that have not been created yet."
+                );
+                string selected = (string)resolver.Invoke(
+                    null,
+                    new object[] { futureRunDirectory }
+                );
+                Require(
+                    string.Equals(
+                        selected,
+                        root,
+                        StringComparison.OrdinalIgnoreCase
+                    ),
+                    "Android StatFs must inspect the nearest existing parent " +
+                    "when the future Run directory does not exist."
+                );
+            }
+            finally
+            {
+                DeleteTemporaryRoot(root);
+            }
+        }
+
         public static void LowDiskSealRetainsPartial()
         {
             string root = CreateTemporaryRoot();

@@ -223,6 +223,18 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void AndroidFreeSpaceProbeKeepsPersistentDataPath()
+        {
+            Invoke(nameof(AndroidFreeSpaceProbeKeepsPersistentDataPath));
+        }
+
+        [Test]
+        public void AndroidFreeSpaceProbeUsesExistingAncestorForFutureRun()
+        {
+            Invoke(nameof(AndroidFreeSpaceProbeUsesExistingAncestorForFutureRun));
+        }
+
+        [Test]
         public void LowDiskSealRetainsPartial()
         {
             Invoke(nameof(LowDiskSealRetainsPartial));

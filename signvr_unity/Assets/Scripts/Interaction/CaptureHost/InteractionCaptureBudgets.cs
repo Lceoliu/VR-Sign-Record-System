@@ -164,13 +164,95 @@ namespace SignVR.Interaction.CaptureHost
             string fullPath = Path.GetFullPath(
                 path ?? throw new ArgumentNullException(nameof(path))
             );
-            string root = Path.GetPathRoot(fullPath);
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return GetAndroidAvailableBytes(
+                ResolveExistingProbePath(
+                    SelectProbePath(fullPath, pathAware: true)
+                )
+            );
+#else
+            string root = SelectProbePath(fullPath, pathAware: false);
             if (string.IsNullOrWhiteSpace(root))
             {
                 throw new IOException("Capture path has no storage root.");
             }
             return new DriveInfo(root).AvailableFreeSpace;
+#endif
         }
+
+        internal static string SelectProbePath(
+            string fullPath,
+            bool pathAware)
+        {
+            if (pathAware)
+            {
+                return fullPath;
+            }
+            return Path.GetPathRoot(fullPath);
+        }
+
+        internal static string ResolveExistingProbePath(string fullPath)
+        {
+            if (string.IsNullOrWhiteSpace(fullPath))
+            {
+                throw new ArgumentException(
+                    "Capture probe path is required.",
+                    nameof(fullPath)
+                );
+            }
+
+            string candidate = Path.GetFullPath(fullPath);
+            while (!Directory.Exists(candidate))
+            {
+                DirectoryInfo parent = Directory.GetParent(candidate);
+                if (parent == null || string.Equals(
+                        parent.FullName,
+                        candidate,
+                        StringComparison.Ordinal))
+                {
+                    throw new IOException(
+                        "Capture path has no existing storage ancestor."
+                    );
+                }
+                candidate = parent.FullName;
+            }
+            return candidate;
+        }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        private static long GetAndroidAvailableBytes(string fullPath)
+        {
+            int attachResult = UnityEngine.AndroidJNI.AttachCurrentThread();
+            if (attachResult < 0)
+            {
+                throw new IOException(
+                    "Could not attach the capture worker to Android's JVM."
+                );
+            }
+
+            try
+            {
+                using (var statFs = new UnityEngine.AndroidJavaObject(
+                    "android.os.StatFs",
+                    fullPath
+                ))
+                {
+                    return statFs.Call<long>("getAvailableBytes");
+                }
+            }
+            catch (UnityEngine.AndroidJavaException exception)
+            {
+                throw new IOException(
+                    "Android StatFs could not inspect the capture path.",
+                    exception
+                );
+            }
+            finally
+            {
+                UnityEngine.AndroidJNI.DetachCurrentThread();
+            }
+        }
+#endif
     }
 
     public sealed class InteractionDiskBudgetGuard
