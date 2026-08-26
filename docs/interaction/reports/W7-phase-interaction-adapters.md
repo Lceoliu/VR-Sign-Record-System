@@ -20,7 +20,7 @@ Completed:
 - Extended every `PlannedKeyReleaseBinding` authored snapshot with root local position/rotation and null-aligned per-Rigidbody local position/rotation plus linear/angular velocity. Lock/reset clears velocity only while a body is already dynamic and then locks it; an already-kinematic body is never made dynamic merely to clear velocity. This avoids the Unity 6 PhysX error caused by briefly making a legal kinematic/non-convex actor dynamic. Restoration returns authored-dynamic bodies to their recorded velocities after unlocking; authored-kinematic bodies remain locked and receive no invalid velocity write. The PlayMode regression now includes a real kinematic Rigidbody with a non-convex `MeshCollider`, uses `LogAssert.NoUnexpectedReceived`, and keeps the existing dynamic/kinematic/null-aligned pose-and-motion restoration coverage.
 - Fixed destroyed-publisher recovery in `InteractionPhaseAdapter`: `Unsubscribe` now clears local `resultSubscribed` ownership even when Unity's overloaded-null reports the destroyed coordinator as null, while still detaching normally from a live coordinator. The PlayMode counterexample subscribes to A, destroys A, configures B, and observes B's public `InputAccepted` chain exactly once before and after a second reconfigure. A read-only audit found the other Unity-publisher subscribers already clear their local flags outside publisher-null guards; the coordinator's remaining session subscription is pure C# and is not the same defect.
 - Closed the exact-path review: chest lid and final door use only `Collada visual scene group/ChestUpper_low` and `ce5f462b0dd34333a6588509140a7fb8.fbx/RootNode/Door`. Setup preflight requires both exact paths; creation has no name-token fallback; validation requires the configured `MovingPart` reference and its full relative hierarchy path to equal the frozen constant. Decoy `lid`/`left` hierarchy tests are included.
-- Closed the clean-checkout validator and dirty-scene isolation review. Each test creates a uniquely tokened temporary asset folder, copies the on-disk InteractionLab asset, opens only that copy `Additive`, and adds an exact test-ownership marker. Test-only setup/validation/strip/count/find APIs fail closed unless both the 32-hex path token and exactly one marker are present. Five negative cases cover a valid 32-hex path with no marker, duplicate markers, a malformed token, a malformed prefix, and a malformed scene suffix. The fixture strips W7 wiring from the copy, seeds exactly one production-compatible `TestLeftHandInteractors` and `TestRightHandInteractors` transform when absent, proves validation fails from zero W7 wiring, proves unsaved setup succeeds, removes `W7SafeSubmit` and proves validation fails, and never saves the copy. Unrelated additive sentinel scenes are now created through reflected `EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive)`, which is legal in EditMode; the rejected runtime-only `SceneManager.CreateScene` call is gone. A loaded/dirty canonical InteractionLab and an unrelated dirty unsaved scene both retain their in-memory sentinel, value, loaded/dirty state, and active-scene context. Active-scene restoration is attempted only when the captured scene remains valid and loaded, and is skipped if already active. No test uses `Single` or `Assert.Ignore`. Canonical InteractionLab bytes/SHA-256 are checked after every fixture even if close or temporary-asset deletion fails.
+- Closed the clean-checkout validator and dirty-scene isolation review. Each test creates a uniquely tokened temporary asset folder, copies the on-disk InteractionLab asset, opens only that copy `Additive`, and adds an exact test-ownership marker. Test-only setup/validation/strip/count/find APIs fail closed unless both the 32-hex path token and exactly one marker are present. Five negative cases cover a valid 32-hex path with no marker, duplicate markers, a malformed token, a malformed prefix, and a malformed scene suffix. The fixture strips W7 wiring from the copy, seeds exactly one production-compatible `TestLeftHandInteractors` and `TestRightHandInteractors` transform when absent, proves validation fails from zero W7 wiring, proves unsaved setup succeeds, removes `W7SafeSubmit` and proves validation fails, and never saves the copy. The outer clean and dirty sentinel fixtures now also copy the canonical scene to unique temporary assets and open those copies `Additive`; the clean fixture saves only its temporary copy after adding its hierarchy, while the dirty fixture mutates its already-saved copy in memory and calls `MarkSceneDirty`. No `EditorSceneManager.NewScene` or runtime `SceneManager.CreateScene` call remains, so an untitled dirty Test Runner scene cannot block fixture construction. A loaded/dirty canonical InteractionLab and an unrelated dirty unsaved scene both retain their in-memory sentinel, value, loaded/dirty state, and active-scene context. Active-scene restoration is attempted only when the captured scene remains valid and loaded, and is skipped if already active. No test uses `Single`, `Assert.Ignore`, or `Assert.Explicit`. Canonical InteractionLab bytes/SHA-256 are checked after every fixture even if close or temporary-asset deletion fails.
 - Closed the ownership/teardown review. Strip/count recognizes only exact generated roots/IDs or explicit `SignVR.Interaction.PhaseAdapters` components; arbitrary objects such as `W7Notes` and `W7UserContent` survive. Component-free generated IDs still make count nonzero. There is no Player/runtime teardown seam. Under `UNITY_EDITOR` only, nine external-state-owning W7 components implement an explicit `IInteractionOwnedStateTeardown` contract. Strip invokes it before `DestroyImmediate`, disables the component fail-closed, and releases target pose/scale, Rigidbody kinematic/gravity state, behaviours, colliders/trigger flags, hint/feedback outputs, and deterministic/key presentation state. `InteractionTriggerRelay.Configure` is now the sole owner of relay Collider `isTrigger` mutation: setup records the Collider for Undo but does not pre-write it, so Configure captures the real authored false value before enabling the trigger. Repeated Configure retains the first authored snapshot and repeated teardown remains idempotent. The sole remaining setup `isTrigger=true` write belongs to `InteractionPlacementBinding`, not a relay. The Player IL contains neither the Editor teardown interface nor any implementation method. Normal private `OnDestroy` restoration remains as an idempotent runtime safety path.
 - Closed the editor mutation-safety review: setup performs a complete read-only preflight before its Undo group, records existing-object changes through `Undo.RecordObject`, records created objects/components, validates before commit, and calls `Undo.RevertAllDownToGroup` on failure. One test poisons post-preflight validation and verifies rollback of an existing label. A second rollback test starts from an old adapter reference, forces a mid-setup validation failure, verifies Undo restores that reference, and publishes adapter A/B availability through public behavior while checking the `UNITY_INCLUDE_TESTS` invocation diagnostic and collider state. It has no dependency on private subscription flags or compiler-generated event backing fields.
 - Added a real PlayMode Unity Test Runner assembly with eleven `[UnityTest]` cases. They exercise the actual `Application.isPlaying` CLR chain for Coordinator, Adapter, Target/Digit/Backspace/Submit/Placement availability/reset subscribers, and Hint/Feedback/Deterministic-presentation RunConfigured/RunReset/ResultProduced subscribers across active configure, disable, disabled configure, re-enable, repeated reconfigure, live and destroyed publisher A-to-B replacement, invalid Configure rollback, distinct output A/B ownership, audio ownership, planned-key full authored restoration, destroy cleanup, and authority reconstruction. The added runtime lifecycle case advances authority while presentation is disabled, then proves re-enable reconstructs the completed chest lid, four buttons, and released key while a terminal snapshot keeps Coordinator/Adapter/Target input closed. Coordinator/Adapter use public event counters. The eight binding/presenter subscribers expose small read-only total and per-event counters only under `UNITY_INCLUDE_TESTS`; direct player compilation proves that diagnostic type/API is compiled out of Study Player code. Publisher A is asserted inert and publisher B exact-once for each subscribed event, including Target/Placement `ResetPerformed` and all three presenter event types.
@@ -29,7 +29,7 @@ Completed:
 - Made `InteractionPhaseAdapter.Enable` fail closed against configured authority, including Unity fake-null. A configured adapter can become available only when its coordinator is still a live Unity object, has a W1 snapshot selecting that exact phase, and has enabled authority; no snapshot, a future/non-current phase, completion/GiveUp/terminal lock, disabled coordinator, or destroyed coordinator all remain closed after a manual `Enable`. Only a true never-configured CLR null, detected with `object.ReferenceEquals`, receives the intentionally standalone exception. The destroyed-publisher PlayMode counterexample now observes adapter/binding/collider closure and rejected input between destroying A and configuring B, then retains B recovery and exact-once assertions.
 - Isolated the EditMode adapter-authority counterexample from the caller's scene. It now runs inside the existing test-owned additive InteractionLab-copy fixture, which makes the temporary scene active before either test object is created, explicitly destroys the test root, independently closes/deletes the temporary resources, restores the prior active scene, and verifies the canonical asset hash. The existing clean saved previous-active-scene regression exercises the same fixture and asserts loaded/active/clean state, root count, sentinel values, and hierarchy are unchanged.
 - Closed the additive-scene pollution risk. Both temporary-copy fixtures make the opened copy active and verify activation before any marker, hand-root, setup, or test-owned `GameObject` creation. Test-only mutation APIs fail closed unless their target scene is active; the ownership marker is born directly in that scene and is destroyed on an injected post-create failure, removing the create-then-move window. A saved, loaded, active, clean test-owned source scene now survives successful setup, an expected primary fixture failure, a guard rejection, and injected creation failure with its active/loaded/clean state, root count, sentinel values, and parent hierarchy unchanged. Canonical loaded/dirty and unrelated dirty-unsaved regressions remain.
-- Incorporated the Orchestrator's Unity 6000.5.6f1 evidence. On imported commit `8b37f25`, all eleven PlayMode leaves passed individually, including fake-null recovery, disabled/configure ownership, per-event A-to-B detachment, audio, hint, planned-key restoration, terminal snapshots, and the real runtime subscription chain. The same imported build's 24 EditMode leaves produced 15 pass / 9 fail, providing the stable RED evidence addressed by this follow-up. Because this follow-up strengthens the planned-key leaf with a kinematic/non-convex fixture and changes Editor fixtures/strip behavior, those changed sources still require root-side Unity rerun; this worker claims only post-fix static green.
+- Incorporated the Orchestrator's Unity 6000.5.6f1 evidence. All eleven PlayMode leaves passed individually, including fake-null recovery, disabled/configure ownership, per-event A-to-B detachment, audio, hint, planned-key restoration, terminal snapshots, and the real runtime subscription chain. After the preceding product/fixture fixes, the latest root-side EditMode rerun produced 21 pass / 3 fail. The remaining RED leaves were the two outer sentinel fixtures blocked by `NewScene(Additive)` in the Test Runner's untitled dirty scene and the strip test's NUnit `Has.Count` constraint on an `Array`. This follow-up removes that construction path and uses `Has.Length`; the three changed leaves still require root-side Unity rerun, and this worker claims only post-fix static green.
 - Made both `InteractionPlacementBinding.AcceptPlacement` overloads fully fail closed. A null coin binding, unconfigured adapter, disabled component, disabled adapter, disallowed coin, or null downstream result returns null without throwing or changing the coin parent, transform, kinematic/gravity flags, or velocities. PlayMode source tests invoke both overloads while unconfigured and while the component/adapter are independently disabled.
 - Added the W8 observability seam without adding an event or lifecycle behavior. Every `AcceptInput` result, including a gate failure, exposes nullable `InputKind`, `InputTargetId`, `InputSecondaryTargetId`, and `InputDigitValue` copied from the original `PhaseInput`. `TargetId` remains the independent feedback target. GiveUp/non-input results leave all four fields null, and W8 can continue to subscribe exactly once to `ResultProduced`.
 
@@ -42,10 +42,9 @@ Deliberately not completed:
 
 ## 2. Files created or changed
 
-This relay-ownership P2 follow-up changed exactly these existing files (no `.meta` or
+This final fixture follow-up changed exactly these existing files (no `.meta` or
 scene asset content changed):
 
-- `signvr_unity/Assets/Editor/W7InteractionPhaseAdaptersSetup.cs`
 - `signvr_unity/Assets/Tests/EditMode/Interaction/PhaseAdapters/W7InteractionPhaseAdaptersTests.cs`
 - `docs/interaction/reports/W7-phase-interaction-adapters.md`
 
@@ -92,7 +91,69 @@ Editor setup/validation and Unity-facing tests:
 
 No Git command and no Unity Editor process was run.
 
-Latest relay-ownership TDD/static gate:
+Latest temporary-scene-copy/NUnit-array TDD/static gate:
+
+```text
+ROOT_UNITY_VERSION=6000.5.6f1
+ROOT_UNITY_EDITMODE_BEFORE_FIX=21 passed, 3 failed, 24 total (real RED)
+ROOT_UNITY_PLAYMODE=11 passed, 0 failed, 11 total (real green)
+RED_LEAVES=CleanActiveSavedSceneSurvivesSuccessfulAndFailedFixtures; IsolatedSetupPreservesDirtyUnsavedUserScene; StripUsesExactOwnershipAndRestoresAuthoredRuntimeState
+RED_NEWSCENE_SEAM_TOKENS=5
+RED_ARRAY_COUNT_ASSERTIONS=2
+RED_PROCESS_EXIT=1
+
+GREEN_NEWSCENE_TOKENS=0
+GREEN_ARRAY_COUNT_ASSERTIONS=0
+GREEN_ARRAY_LENGTH_ASSERTIONS=2
+GREEN_OUTER_COPY_OPEN_FIXTURES=2
+GREEN_OUTER_CANONICAL_CHECKS=2
+
+PURE_PHASE_RULES passed=24 failed=0 total=24
+CORE_SDK=0 warnings, 0 errors
+PHASE_ADAPTERS_PLAYER_SDK=2 expected serialized-audio CS0649 warnings, 0 errors
+PHASE_ADAPTERS_UNITY_INCLUDE_TESTS_SDK=0 warnings, 0 errors
+PHASE_ADAPTERS_UNITY_EDITOR_SDK=2 expected serialized-audio CS0649 warnings, 0 errors
+PHASE_ADAPTERS_UNITY_EDITOR_AND_TEST_SDK=0 warnings, 0 errors
+W7_EDITOR_SDK=0 own-source errors (2 inherited serialized-audio warnings)
+W7_EDITOR_WITH_UNITY_TESTS_SDK=0 warnings, 0 errors
+UNITY_EDITMODE_TEST_SOURCE_SDK=0 warnings, 0 errors
+UNITY_PLAYMODE_TEST_SOURCE_SDK=0 warnings, 0 errors
+
+PLAYER_EDITOR_TEARDOWN_TYPES=0
+PLAYER_SUBSCRIPTION_DIAGNOSTIC_TYPES=0
+PLAYER_REFRESH_METHODS=0
+PLAYER_GLOBAL_SCAN_CALLS=0
+PLAYER_RELAY_CONFIGURE_SET_ISTRIGGER_CALLS=1
+
+CORE_TEST_METHODS=24
+UNITY_EDITMODE_TEST_METHODS=24
+UNITY_PLAYMODE_TEST_METHODS=11
+W7_IGNORE_EXPLICIT_ATTRIBUTES=0
+EDITOR_NEWSCENE_TOKENS=0
+RELEVANT_UNITY_ASSET_COUNT=24
+W7_MISSING_META_COUNT=0
+ALL_ASSETS_MISSING_META_EXCLUDING_TILDE_PATHS=0
+ALL_ASSET_GUID_RECORD_COUNT=476
+DUPLICATE_GUID_GROUPS=0
+LEFTOVER_TEST_TEMP_ASSET_FOLDERS=0
+INTERACTION_SCENE_BYTES=408990
+INTERACTION_SCENE_SHA256=A394EABE4D72739C625BA5A261F36DF86A87B15C201CCB02F53A134B1DF027B5
+NON_GIT_TEXT_FILES_CHECKED=37
+NON_GIT_TRAILING_WHITESPACE_MATCHES=0
+NON_GIT_MERGE_MARKER_MATCHES=0
+```
+
+The fresh static assemblies are under
+`%LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417`. The two scene
+fixtures copy `InteractionLab.unity` into unique temporary asset folders before
+opening them `Additive`; the dirty-user fixture modifies only its temporary
+loaded copy and deliberately leaves it dirty in memory. Cleanup independently
+closes the copy, restores the previous active scene, deletes the temporary
+folder (including its transient `.meta`), and verifies the canonical bytes and
+SHA-256 while preserving any primary test failure. The worker did not execute
+Unity; the three leaves above remain a root-side rerun gate.
+
+Immediately preceding relay-ownership TDD/static gate:
 
 ```text
 RED_TEST_FALSE_BASELINE=True
@@ -137,12 +198,12 @@ runs strip twice. Before the product edit the setup's five pre-writes made that
 scenario restore true; after deleting only those five writes it restores false.
 Unity execution of the enhanced leaf remains a root-side gate.
 
-Immediately preceding root-side Unity evidence and Unity-RED follow-up:
+Earlier root-side Unity evidence and its nine-leaf follow-up:
 
 ```text
 ROOT_UNITY_VERSION=6000.5.6f1
 ROOT_IMPORTED_COMMIT=8b37f25
-ROOT_UNITY_EDITMODE=15 passed, 9 failed, 24 total (stable RED)
+ROOT_UNITY_EDITMODE_EARLIER=15 passed, 9 failed, 24 total (historical RED)
 ROOT_UNITY_PLAYMODE=11 passed, 0 failed, 11 total
 ROOT_INTERACTIONLAB_AFTER_PLAYMODE=loaded, active, clean, 34 roots
 ROOT_INTERACTIONLAB_DISK_SHA_AFTER_EDITMODE=unchanged
@@ -151,7 +212,7 @@ RED_KINEMATIC_NONCONVEX_COUNTEREXAMPLE=True
 RED_STOP_AND_LOCK_FORCES_DYNAMIC=True
 RED_PROCESS_EXIT=1
 
-GREEN_EDIT_SCENE_HELPER_EDITOR_NEWSCENE=True
+GREEN_EDIT_SCENE_HELPER_EDITOR_NEWSCENE=historical intermediate; now removed
 GREEN_EDIT_SCENE_HELPER_RUNTIME_CREATESCENE=False
 GREEN_POISON_COLLIDER_BEFORE_RELAY=2/2
 GREEN_STOP_AND_LOCK_FORCES_DYNAMIC=False
@@ -196,7 +257,7 @@ NON_GIT_TRAILING_WHITESPACE_MATCHES=0
 NON_GIT_MERGE_MARKER_MATCHES=0
 ```
 
-The nine distinct failing EditMode leaves were
+The earlier nine distinct failing EditMode leaves were
 `CleanActiveSavedSceneSurvivesSuccessfulAndFailedFixtures`,
 `IsolatedSetupPreservesDirtyUnsavedUserScene`,
 `CleanInteractionLabSetupIsCompleteAndAssetIsUnchanged`,
@@ -209,28 +270,37 @@ The nine distinct failing EditMode leaves were
 the runtime-only scene API, unsafe kinematic-to-dynamic transition, unstable
 RequireComponent poison, missing explicit EditMode presentation baseline, and
 reliance on `OnDestroy` for Editor strip. All five causes now have deletion-
-sensitive source/test coverage, but these nine leaves remain pending root rerun.
+sensitive source/test coverage. Root subsequently reran the full EditMode suite:
+six of those nine turned green, leaving only
+`CleanActiveSavedSceneSurvivesSuccessfulAndFailedFixtures`,
+`IsolatedSetupPreservesDirtyUnsavedUserScene`, and
+`StripUsesExactOwnershipAndRestoresAuthoredRuntimeState` RED (21/24 overall).
+The first two were blocked before their assertions by `NewScene(Additive)` under
+the Test Runner's untitled dirty scene. The third reached its final ownership
+assertions but applied `Has.Count` to an `Array`. Current source uses temporary
+canonical asset copies plus `OpenScene(Additive)` and `Has.Length`; those three
+leaves await root rerun.
 
-The fresh static assemblies are under
+The earlier static assemblies are under
 `%LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132`. Mono.Cecil 0.11.1
 inspected their actual Player/test/Editor method bodies. Player contains neither
 the Editor teardown interface/methods nor the prior test diagnostics/global
 scan. The Unity 11/11 result above is real root evidence for imported `8b37f25`,
 not a claim that this worker ran Unity after the current changes.
 
-The current static commands were:
+The same static matrix was rerun for this final fixture change:
 
 ```text
 dotnet run --project C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-red2-20260826\Runner.csproj --no-restore
-dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\Core.csproj --no-restore --no-incremental -p:DefineConstants= -o %LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132\core -v:minimal
-dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PhaseAdapters.csproj --no-restore --no-incremental -p:DefineConstants= -o %LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132\player -v:minimal
-dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PhaseAdapters.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_INCLUDE_TESTS -o %LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132\test -v:minimal
-dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PhaseAdapters.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_EDITOR -o %LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132\editor-runtime -v:minimal
-dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\W7Editor.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_EDITOR -o %LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132\editor -v:minimal
-dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\UnityTests.csproj --no-restore --no-incremental -p:DefineConstants= -o %LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132\edit-tests -v:minimal
-dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PlayModeTests.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_INCLUDE_TESTS -o %LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132\play-tests -v:minimal
-dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PhaseAdapters.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_EDITOR%3BUNITY_INCLUDE_TESTS -o %LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132\editor-test-runtime -v:minimal
-dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\W7Editor.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_EDITOR%3BUNITY_INCLUDE_TESTS -o %LOCALAPPDATA%\Temp\signvr-w7-root-fix-20260826-072132\editor-with-tests -v:minimal
+dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\Core.csproj --no-restore --no-incremental -p:DefineConstants= -o %LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417\core -v:minimal
+dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PhaseAdapters.csproj --no-restore --no-incremental -p:DefineConstants= -o %LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417\player -v:minimal
+dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PhaseAdapters.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_INCLUDE_TESTS -o %LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417\test -v:minimal
+dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PhaseAdapters.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_EDITOR -o %LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417\editor-runtime -v:minimal
+dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\W7Editor.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_EDITOR -o %LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417\editor -v:minimal
+dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\UnityTests.csproj --no-restore --no-incremental -p:DefineConstants= -o %LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417\edit-tests -v:minimal
+dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PlayModeTests.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_INCLUDE_TESTS -o %LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417\play-tests -v:minimal
+dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\PhaseAdapters.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_EDITOR%3BUNITY_INCLUDE_TESTS -o %LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417\editor-test-runtime -v:minimal
+dotnet build C:\Users\woshica\AppData\Local\Temp\signvr-w7-review-green4-20260826\W7Editor.csproj --no-restore --no-incremental -p:DefineConstants=UNITY_EDITOR%3BUNITY_INCLUDE_TESTS -o %LOCALAPPDATA%\Temp\signvr-w7-fixture-copy-20260826-080417\editor-with-tests -v:minimal
 ```
 
 Final Player-fallback/adapter-authority P2 TDD slice:
@@ -565,7 +635,7 @@ Harness distinction: historical direct invocations included invalid `UnityEngine
 
 The 24 executed pure-C# tests cover all 31 `TaskVariant` routes, snapshot-required activation, playback/replay availability, snapshot drift, all six happy paths, unplanned targets, phase-1 backspace/full reset, phase-2 mismatch/malformed-plan defense, phase-4 full reset/planned-key release, phase-5 1/2/3-target subsets plus wrong/repeated reset to key-only progress, phase-6 ordered/full reset behavior, future/completed locks, snapshot-validated non-chainable GiveUp, phase-4 fallback, Abort/new-Run local reset, disable/re-enable, non-duplicated/self-locked completion, presentation snapshot retention, and original-input observability for Pair secondary target, Digit value, Backspace/Submit kind, gate failure, and null GiveUp metadata.
 
-Twenty-four Unity-facing EditMode NUnit methods and eleven PlayMode `[UnityTest]` methods source-compiled successfully. The EditMode suite additionally covers temporary-copy setup from zero W7 wiring with exact left/right test hand roots, the five strict marker/token/path negative cases, canonical loaded/dirty InteractionLab preservation, Editor-created additive dirty-scene preservation, clean saved previous-active-scene preservation across success/failure/guard paths, injected creation cleanup, zero public result forwarding in non-play completion/GiveUp, configured-adapter fail-closed behavior before a W1 snapshot/for a non-current phase/under disabled authority, the standalone-adapter exception, independent cleanup after a simulated close failure, exact generated ownership, component-free generated-state counting, and authored Behaviour/Collider/Rigidbody/pose restoration through the Editor-only pre-destroy contract. The exact PlayMode methods are `RuntimeSubscriptionChainDeliversOnceAcrossLifecycle`, `AvailabilitySubscribersStayClosedWhileDisabled`, `ConfigureFailureIsAtomicAndInputOwnershipMovesToB`, `ResultPresentersUseRealPlayModeSubscriptions`, `RuntimeReenableHonorsTerminalSnapshotAndRebuildsChest`, `HintPresenterRebuildsAuthorityAcrossLifecycle`, `PresenterConfigureIsAtomicAndTransfersOutputOwnership`, `FeedbackPresenterStopsOnlyItsOwnedAudioOutput`, `PlannedKeyReleaseRestoresAuthoredPoseAndMotion`, `AdapterRecoversAfterDestroyedCoordinatorReplacement`, and `EachSubscribedEventMovesFromPublisherAToBExactlyOnce`. Root Unity executed these eleven leaves on imported `8b37f25` and reported 11/11 green. Current source adds the non-convex/kinematic no-error assertions to the existing planned-key leaf; that strengthened leaf and the nine fixed EditMode leaves still await the root rerun. The tests use real `Application.isPlaying` CLR subscriptions, public event counters, test-only read-only per-event diagnostics, distinct A/B outputs, real runtime audio, dynamic/kinematic Rigidbody outcomes, and destroyed Unity-object replacement rather than private subscribed flags or event backing fields.
+Twenty-four Unity-facing EditMode NUnit methods and eleven PlayMode `[UnityTest]` methods source-compiled successfully. The EditMode suite additionally covers temporary-copy setup from zero W7 wiring with exact left/right test hand roots, the five strict marker/token/path negative cases, canonical loaded/dirty InteractionLab preservation, dirty in-memory and clean saved temporary-copy preservation, clean saved previous-active-scene preservation across success/failure/guard paths, injected creation cleanup, zero public result forwarding in non-play completion/GiveUp, configured-adapter fail-closed behavior before a W1 snapshot/for a non-current phase/under disabled authority, the standalone-adapter exception, independent cleanup after a simulated close failure, exact generated ownership, component-free generated-state counting, and authored Behaviour/Collider/Rigidbody/pose restoration through the Editor-only pre-destroy contract. The exact PlayMode methods are `RuntimeSubscriptionChainDeliversOnceAcrossLifecycle`, `AvailabilitySubscribersStayClosedWhileDisabled`, `ConfigureFailureIsAtomicAndInputOwnershipMovesToB`, `ResultPresentersUseRealPlayModeSubscriptions`, `RuntimeReenableHonorsTerminalSnapshotAndRebuildsChest`, `HintPresenterRebuildsAuthorityAcrossLifecycle`, `PresenterConfigureIsAtomicAndTransfersOutputOwnership`, `FeedbackPresenterStopsOnlyItsOwnedAudioOutput`, `PlannedKeyReleaseRestoresAuthoredPoseAndMotion`, `AdapterRecoversAfterDestroyedCoordinatorReplacement`, and `EachSubscribedEventMovesFromPublisherAToBExactlyOnce`. Root Unity executed these eleven leaves and reported 11/11 green. Its latest EditMode execution is the real 21/24 RED recorded above; only the three fixture/assertion leaves changed here remain pending root rerun. The tests use real `Application.isPlaying` CLR subscriptions, public event counters, test-only read-only per-event diagnostics, distinct A/B outputs, real runtime audio, dynamic/kinematic Rigidbody outcomes, and destroyed Unity-object replacement rather than private subscribed flags or event backing fields.
 
 Static audit result:
 
@@ -739,8 +809,8 @@ The two legitimate semantic `"left"` uses remaining in setup are exclusively for
 - W8 must subscribe only to the existing `ResultProduced` event and read `InputKind`, `InputTargetId`, `InputSecondaryTargetId`, and `InputDigitValue` for detail JSON. It must not reinterpret feedback `TargetId` as the attempted input and must not add parallel subscriptions for the same interaction.
 - Bare-hand root discovery uses semantically named left/right hand-interactor hierarchies and excludes controller names. Existing serialized roots can be reused, but the validator fails unless exactly two valid left/right hand-only roots are present.
 - The physical relay accepts a collider only when its transform is the configured root or a descendant. Actual Meta hand-collider ancestry, trigger timing, and multi-collider enter/exit order remain PlayMode/device risks.
-- Editor non-play setup/configuration intentionally creates no CLR subscriptions. The EditMode source verifies that invariant through zero calls on the public coordinator `ResultProduced` event plus public adapter/binding/collider behavior; the PlayMode assembly covers the real runtime subscribe/unsubscribe/reconfigure/publisher-replacement chain, including the fake-null interval after a destroyed Unity publisher, atomic failure behavior, distinct output/audio/key ownership, per-event A-to-B detachment, terminal-snapshot input closure, and authority reconstruction with exact observable call counts. Root Unity has supplied 11/11 green PlayMode evidence for imported `8b37f25`. The current strengthened `PlannedKeyReleaseRestoresAuthoredPoseAndMotion` leaf remains a root rerun because it newly exercises kinematic/non-convex no-error locking. `InteractionSubscriptionDiagnostic`, named event counters, the clip-configuration test seam, the direct target-binding refresh/global scan, and the Editor teardown contract are fully guarded by `UNITY_INCLUDE_TESTS` and/or `UNITY_EDITOR` and absent from Study Player compilation.
-- The EditMode fixture no longer depends on canonical InteractionLab load state. It works on a temporary asset copy with a strict path token/marker, makes that copy active before any creation, and leaves both an already loaded/dirty canonical scene and an unrelated active clean saved scene untouched. The adapter-authority counterexample now uses this fixture rather than creating in the caller's active scene. Test-only mutation APIs reject an inactive target scene. Unity Test Runner must still execute the fixture after integration to validate AssetDatabase copy/delete, active-scene switching, injected creation cleanup, authority-test cleanup, and additive close behavior in the authoritative Editor. Independent cleanup preserves the primary failure and attempts close, active-scene restoration, temporary asset deletion, and canonical hash verification even when an earlier recovery action fails.
+- Editor non-play setup/configuration intentionally creates no CLR subscriptions. The EditMode source verifies that invariant through zero calls on the public coordinator `ResultProduced` event plus public adapter/binding/collider behavior; the PlayMode assembly covers the real runtime subscribe/unsubscribe/reconfigure/publisher-replacement chain, including the fake-null interval after a destroyed Unity publisher, atomic failure behavior, distinct output/audio/key ownership, per-event A-to-B detachment, terminal-snapshot input closure, and authority reconstruction with exact observable call counts. Root Unity has supplied 11/11 green PlayMode evidence, including the kinematic/non-convex planned-key leaf. This final change touches only EditMode fixture/assertion source. `InteractionSubscriptionDiagnostic`, named event counters, the clip-configuration test seam, the direct target-binding refresh/global scan, and the Editor teardown contract are fully guarded by `UNITY_INCLUDE_TESTS` and/or `UNITY_EDITOR` and absent from Study Player compilation.
+- The EditMode fixture no longer depends on canonical InteractionLab load state or on `NewScene(Additive)`. Main setup tests and both outer sentinel fixtures work on unique temporary copies of the canonical scene asset, make each copy active before creating anything, and leave already loaded/dirty, untitled dirty, and active clean saved caller scenes untouched. The dirty sentinel case marks only its loaded temporary copy dirty; the clean case saves only its temporary copy. The adapter-authority counterexample also uses this fixture rather than creating in the caller's active scene. Test-only mutation APIs reject an inactive target scene. Unity Test Runner must still execute the three latest changed leaves after integration to validate AssetDatabase copy/delete, active-scene switching, dirty-memory preservation, and NUnit array assertions in the authoritative Editor. Independent cleanup preserves the primary failure and attempts close, active-scene restoration, temporary asset deletion, and canonical hash verification even when an earlier recovery action fails.
 - Deterministic visual feedback is implemented; accepted/error audio clips are optional serialized references, which accounts for the two benign Player-only `CS0649` warnings. Real audio playback/`isPlaying`, Unity's no-kinematic-velocity-warning behavior, multi-Rigidbody key restoration, and destroyed-Coordinator recovery are source-covered but remain Unity Test Runner/device checks because Unity execution was prohibited here.
 - No setup was applied to the saved `InteractionLab.unity` in this worktree, so authoritative scene wiring remains an Orchestrator integration step.
 - Per the narrow review scope, this follow-up did not alter the separately noted `InteractionTargetBinding` dynamic restoration order or make test-only Strip transactional; both are explicitly outside this change.
@@ -752,5 +822,5 @@ The two legitimate semantic `"left"` uses remaining in setup are exclusively for
 2. In the authoritative Unity 6000 editor, run W7 Setup on `InteractionLab`, then W7 Validate. Confirm the caller's prior scene setup and unsaved-scene prompt behavior are preserved. If automatic hand discovery cannot resolve the project hierarchy, explicitly assign the coordinator's two allowed roots to the left/right hand-only interactor roots and rerun validation; do not weaken the validator.
 3. Wire lifecycle in this order: `Configure(machine.Plan)`; enable the coordinator; call `Synchronize(machine.CurrentPhase)` on Run start and every FirstPlayback/Active/ReplayPlayback/phase transition; on W7 task completion call W1 `CompletePhase`, then synchronize W7 with W1's new snapshot. For GiveUp, pass the current W1 snapshot to W7, invoke W1 `GiveUpPhase`, then synchronize the resulting snapshot. Abort/reset W1 separately and call W7's local `Abort`/`Reset`; configure a new immutable plan for a new Run.
 4. For W8, attach one handler to `ResultProduced` and serialize the four nullable input fields into the detail JSON; do not add an alternate interaction event stream.
-5. Rerun the nine EditMode leaves that were RED on imported `8b37f25`: `CleanActiveSavedSceneSurvivesSuccessfulAndFailedFixtures`, `IsolatedSetupPreservesDirtyUnsavedUserScene`, `CleanInteractionLabSetupIsCompleteAndAssetIsUnchanged`, `FailedSetupRestoresReferencesWithoutEditorSubscriptions`, `LoadedInteractionLabMemoryStateSurvivesIsolatedSetup`, `SceneValidatorRejectsWrongMovingPartHierarchy`, `FailedSetupRollsBackChangesToExistingObjects`, `ReenabledPresentationRestoresMissedDoorButtonsAndKey`, and `StripUsesExactOwnershipAndRestoresAuthoredRuntimeState`. In the last leaf, verify a setup-created relay whose Collider baseline is explicitly reset to `isTrigger=false` remains operational across two Configure calls and restores false across two Strip calls. Confirm Editor additive-scene creation, no PhysX error, deterministic validator poison, planned-key locked baseline, explicit strip restoration, independent cleanup, temporary-asset deletion, and unchanged InteractionLab hash. The other fifteen EditMode leaves were already green but should remain in the eventual 24-leaf full regression. Root already recorded PlayMode 11/11 green on the imported build; rerun at least the strengthened `PlannedKeyReleaseRestoresAuthoredPoseAndMotion` leaf and require the kinematic/non-convex fixture to produce no unexpected log while preserving the existing full pose/physics restoration assertions.
+5. Rerun the three leaves that remained RED in the latest 21/24 root result: `CleanActiveSavedSceneSurvivesSuccessfulAndFailedFixtures`, `IsolatedSetupPreservesDirtyUnsavedUserScene`, and `StripUsesExactOwnershipAndRestoresAuthoredRuntimeState`. For the first two, begin with the Test Runner's normal untitled scene present and confirm the temporary asset copies open `Additive`, the clean/dirty sentinel state survives, cleanup removes every transient asset/meta, and canonical InteractionLab bytes/hash remain unchanged. For the strip leaf, confirm the final `W7Notes` and `W7UserContent` array-length assertions pass in addition to the already-green repeated relay Configure/teardown `isTrigger=false` restoration. The other 21 EditMode leaves were green in the latest run; a final full 24-leaf regression is still preferred. Root already recorded PlayMode 11/11 green; this test-only change does not alter runtime code.
 6. On Quest, verify both naked-hand collider roots, all `0`–`9`/`*`/`#` trigger proxies, coin placement deduplication, phase-4 GiveUp key release, phase-5 visual reset, presentation rehydration, and final-door animation. Record the build identity; no device validation is claimed here.

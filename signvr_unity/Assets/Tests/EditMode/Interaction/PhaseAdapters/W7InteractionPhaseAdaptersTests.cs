@@ -193,6 +193,11 @@ namespace SignVR.Interaction.Editor.Tests
         [Test]
         public void CleanActiveSavedSceneSurvivesSuccessfulAndFailedFixtures()
         {
+            string fullScenePath = Path.GetFullPath(
+                InteractionSceneAssetPath
+            );
+            byte[] bytesBefore = File.ReadAllBytes(fullScenePath);
+            string hashBefore = ComputeSha256(bytesBefore);
             Type editorSceneManager = EditorType(
                 "UnityEditor.SceneManagement.EditorSceneManager"
             );
@@ -225,9 +230,24 @@ namespace SignVR.Interaction.Editor.Tests
                     );
                 }
                 sourceFolderCreated = true;
-                sourceScene = CreateRuntimeAdditiveScene(
-                    "W7CleanPreviousActive_" + ownerId
+                bool copied = (bool)assetDatabase.GetMethod(
+                    "CopyAsset",
+                    new[] { typeof(string), typeof(string) }
+                ).Invoke(
+                    null,
+                    new object[]
+                    {
+                        InteractionSceneAssetPath,
+                        sourceScenePath
+                    }
                 );
+                if (!copied)
+                {
+                    throw new InvalidOperationException(
+                        "Unity could not create the clean-source scene copy."
+                    );
+                }
+                sourceScene = OpenAdditiveSceneAsset(sourceScenePath);
                 SetActiveSceneForIsolatedCreation(sourceScene);
                 sentinel = CreateGameObjectInActiveScene(
                     sourceScene,
@@ -405,7 +425,12 @@ namespace SignVR.Interaction.Editor.Tests
                                 "folder."
                             );
                         }
-                    }
+                    },
+                    () => AssertSceneAssetUnchanged(
+                        fullScenePath,
+                        bytesBefore,
+                        hashBefore
+                    )
                 );
             }
         }
@@ -413,19 +438,59 @@ namespace SignVR.Interaction.Editor.Tests
         [Test]
         public void IsolatedSetupPreservesDirtyUnsavedUserScene()
         {
+            string fullScenePath = Path.GetFullPath(
+                InteractionSceneAssetPath
+            );
+            byte[] bytesBefore = File.ReadAllBytes(fullScenePath);
+            string hashBefore = ComputeSha256(bytesBefore);
             Type editorSceneManager = EditorType(
                 "UnityEditor.SceneManagement.EditorSceneManager"
             );
+            Type assetDatabase = EditorType("UnityEditor.AssetDatabase");
             object previousActiveScene = GetActiveScene();
+            string ownerId = Guid.NewGuid().ToString("N");
+            string userFolderName = "__W7DirtyUserScene_" + ownerId;
+            string userFolderPath = "Assets/" + userFolderName;
+            string userScenePath = userFolderPath + "/DirtyUser.unity";
             object userScene = null;
             object sentinel = null;
             object sentinelTransform = null;
+            bool userFolderCreated = false;
             ExceptionDispatchInfo primaryFailure = null;
             try
             {
-                userScene = CreateRuntimeAdditiveScene(
-                    "W7DirtyUnsavedUserScene_" + Guid.NewGuid().ToString("N")
+                string folderGuid = (string)assetDatabase.GetMethod(
+                    "CreateFolder",
+                    new[] { typeof(string), typeof(string) }
+                ).Invoke(
+                    null,
+                    new object[] { "Assets", userFolderName }
                 );
+                if (string.IsNullOrWhiteSpace(folderGuid))
+                {
+                    throw new InvalidOperationException(
+                        "Unity could not create the dirty-user folder."
+                    );
+                }
+                userFolderCreated = true;
+                bool copied = (bool)assetDatabase.GetMethod(
+                    "CopyAsset",
+                    new[] { typeof(string), typeof(string) }
+                ).Invoke(
+                    null,
+                    new object[]
+                    {
+                        InteractionSceneAssetPath,
+                        userScenePath
+                    }
+                );
+                if (!copied)
+                {
+                    throw new InvalidOperationException(
+                        "Unity could not create the dirty-user scene copy."
+                    );
+                }
+                userScene = OpenAdditiveSceneAsset(userScenePath);
                 SetActiveSceneForIsolatedCreation(userScene);
                 sentinel = CreateGameObjectInActiveScene(
                     userScene,
@@ -488,7 +553,29 @@ namespace SignVR.Interaction.Editor.Tests
                             CloseScene(editorSceneManager, userScene);
                         }
                     },
-                    () => RestoreActiveScene(previousActiveScene)
+                    () => RestoreActiveScene(previousActiveScene),
+                    () =>
+                    {
+                        if (!userFolderCreated)
+                        {
+                            return;
+                        }
+                        bool deleted = (bool)assetDatabase.GetMethod(
+                            "DeleteAsset",
+                            new[] { typeof(string) }
+                        ).Invoke(null, new object[] { userFolderPath });
+                        if (!deleted)
+                        {
+                            throw new InvalidOperationException(
+                                "Unity could not delete the dirty-user folder."
+                            );
+                        }
+                    },
+                    () => AssertSceneAssetUnchanged(
+                        fullScenePath,
+                        bytesBefore,
+                        hashBefore
+                    )
                 );
             }
         }
@@ -878,11 +965,11 @@ namespace SignVR.Interaction.Editor.Tests
                 );
                 Assert.That(
                     FindGameObjectsInScene(scene, "W7Notes"),
-                    Has.Count.EqualTo(1)
+                    Has.Length.EqualTo(1)
                 );
                 Assert.That(
                     FindGameObjectsInScene(scene, "W7UserContent"),
-                    Has.Count.EqualTo(1)
+                    Has.Length.EqualTo(1)
                 );
             });
         }
@@ -3044,30 +3131,32 @@ namespace SignVR.Interaction.Editor.Tests
             );
         }
 
-        private static object CreateRuntimeAdditiveScene(string sceneName)
+        private static object OpenAdditiveSceneAsset(string sceneAssetPath)
         {
-            if (string.IsNullOrWhiteSpace(sceneName))
+            if (string.IsNullOrWhiteSpace(sceneAssetPath))
             {
                 throw new ArgumentException(
-                    "A unique test scene name is required.",
-                    nameof(sceneName)
+                    "A temporary scene asset path is required.",
+                    nameof(sceneAssetPath)
                 );
             }
             Type editorSceneManager = EditorType(
                 "UnityEditor.SceneManagement.EditorSceneManager"
             );
-            Type setupType = EditorType(
-                "UnityEditor.SceneManagement.NewSceneSetup"
+            Type openModeType = EditorType(
+                "UnityEditor.SceneManagement.OpenSceneMode"
             );
-            Type modeType = EditorType(
-                "UnityEditor.SceneManagement.NewSceneMode"
-            );
-            object emptyScene = Enum.Parse(setupType, "EmptyScene");
-            object additive = Enum.Parse(modeType, "Additive");
             return editorSceneManager.GetMethod(
-                "NewScene",
-                new[] { setupType, modeType }
-            ).Invoke(null, new[] { emptyScene, additive });
+                "OpenScene",
+                new[] { typeof(string), openModeType }
+            ).Invoke(
+                null,
+                new[]
+                {
+                    (object)sceneAssetPath,
+                    Enum.Parse(openModeType, "Additive")
+                }
+            );
         }
 
         private static void CloseScene(Type editorSceneManager, object scene)
