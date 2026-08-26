@@ -17157,9 +17157,6 @@ MonoBehaviour:
   instructionControls: {fileID: 1661463749}
   preStartRoot: {fileID: 1289612318}
   startButton: {fileID: 1203012270}
-  participantIdInput: {fileID: 0}
-  buildIdentityInput: {fileID: 0}
-  applyIdentityButton: {fileID: 0}
   statusLabel: {fileID: 1057303979}
   progressLabel: {fileID: 2008354845}
 --- !u!64 &1662198722
