@@ -5,7 +5,9 @@ using System.Runtime.ExceptionServices;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.TestTools;
+using UnityEngine.UI;
 
 namespace SignVR.Interaction.PlayMode.Tests.Orchestration
 {
@@ -102,6 +104,95 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
             InvokeDriver(
                 "PresentationReplacementRejectsOnlyUnsettledCleanup"
             );
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator PreviouslyReportedQuestInteractionRegressionsStayFixed()
+        {
+            InvokeDriver(
+                "FixedStudyModeLeavesRuntimeTrackingOriginOwnedByXrRuntime"
+            );
+            InvokeDriver(
+                "HeadLockedStudyUiInheritsHmdPoseWithoutLateWorldCopy"
+            );
+
+            Type pokeCanvasType = Type.GetType(
+                "SignVR.SceneFlow.WorldSpacePokeCanvas, SignVR.SceneFlow",
+                throwOnError: true
+            );
+            Type rayInteractableType = Type.GetType(
+                "Oculus.Interaction.RayInteractable, Oculus.Interaction",
+                throwOnError: true
+            );
+            Type pointableCanvasModuleType = Type.GetType(
+                "Oculus.Interaction.PointableCanvasModule, Oculus.Interaction",
+                throwOnError: true
+            );
+            GameObject existingEventSystem = EventSystem.current != null
+                ? EventSystem.current.gameObject
+                : null;
+            Component existingCanvasModule =
+                UnityEngine.Object.FindAnyObjectByType(
+                    pointableCanvasModuleType
+                ) as Component;
+            var panel = new GameObject(
+                "PlayMode Hand Ray Regression Panel",
+                typeof(RectTransform),
+                typeof(Canvas)
+            );
+            panel.SetActive(false);
+            try
+            {
+                Component pokeCanvas = panel.AddComponent(pokeCanvasType);
+                MethodInfo ensure = pokeCanvasType.GetMethod(
+                    "EnsurePokeInteraction",
+                    BindingFlags.Public | BindingFlags.Instance
+                );
+
+                Assert.That(ensure, Is.Not.Null);
+                Assert.That(
+                    (bool)ensure.Invoke(pokeCanvas, null),
+                    Is.True
+                );
+                panel.SetActive(true);
+                yield return null;
+
+                Assert.That(
+                    panel.GetComponent<GraphicRaycaster>(),
+                    Is.Not.Null,
+                    "The live world-space panel lost its UGUI raycaster."
+                );
+                Transform interaction = panel.transform.Find(
+                    "ISDK_PokeCanvasInteraction"
+                );
+                Assert.That(interaction, Is.Not.Null);
+                Assert.That(
+                    interaction.GetComponent(rayInteractableType),
+                    Is.Not.Null,
+                    "The live study panel no longer accepts a hand ray."
+                );
+            }
+            finally
+            {
+                UnityEngine.Object.Destroy(panel);
+                if (existingEventSystem == null && EventSystem.current != null)
+                {
+                    UnityEngine.Object.Destroy(EventSystem.current.gameObject);
+                }
+                else if (existingCanvasModule == null &&
+                    existingEventSystem != null)
+                {
+                    Component createdCanvasModule =
+                        existingEventSystem.GetComponent(
+                            pointableCanvasModuleType
+                        );
+                    if (createdCanvasModule != null)
+                    {
+                        UnityEngine.Object.Destroy(createdCanvasModule);
+                    }
+                }
+            }
             yield return null;
         }
 
