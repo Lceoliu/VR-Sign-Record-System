@@ -194,7 +194,11 @@ namespace SignVR.Interaction.Orchestration
                     controller.Snapshot.RunState == RunState.Scheduled,
                     "Accepted Start flashed back to PreStart."
                 );
-                Require(fixture.Run.StartCount == 1, "Start was not one action.");
+                Require(
+                    fixture.Run.StartCount == 1,
+                    "Start was not one action; observed " +
+                        fixture.Run.StartCount + " Run starts."
+                );
             }
             finally
             {
@@ -371,6 +375,7 @@ namespace SignVR.Interaction.Orchestration
                     root.AddComponent<InteractionInstructionControls>();
                 GameObject surface = NewChild(root.transform, "Surface");
                 Button start = NewUiComponent<Button>(root.transform, "Start");
+                root.SetActive(true);
                 controls.Configure(
                     controller,
                     instruction,
@@ -388,12 +393,15 @@ namespace SignVR.Interaction.Orchestration
                         "Progress"
                     )
                 );
-                root.SetActive(true);
 
                 Require(start.interactable, "Ready Start button is disabled.");
                 start.onClick.Invoke();
 
-                Require(fixture.Run.StartCount == 1, "Start was not one action.");
+                Require(
+                    fixture.Run.StartCount == 1,
+                    "Start was not one action; observed " +
+                        fixture.Run.StartCount + " Run starts."
+                );
                 Require(!surface.activeSelf, "Start panel flashed back to PreStart.");
             }
             finally
