@@ -2575,7 +2575,7 @@ namespace SignVR.Interaction.CaptureHost
                 controllerCount: 1,
                 samplerCount: 1,
                 referencesWired: true,
-                runMode: InteractionRunMode.Study,
+                runMode: InteractionRunMode.StandaloneStudy,
                 debugOverridesActive: false,
                 requireHostForStart: true
             );
@@ -2825,7 +2825,7 @@ namespace SignVR.Interaction.CaptureHost
         {
             ExpectThrows<InvalidOperationException>(() =>
                 InteractionStudyStartPolicy.Validate(
-                    InteractionRunMode.Study,
+                    InteractionRunMode.StandaloneStudy,
                     true,
                     false,
                     true,
@@ -2834,7 +2834,7 @@ namespace SignVR.Interaction.CaptureHost
             );
             ExpectThrows<InvalidOperationException>(() =>
                 InteractionStudyStartPolicy.Validate(
-                    InteractionRunMode.Study,
+                    InteractionRunMode.StandaloneStudy,
                     false,
                     false,
                     true,

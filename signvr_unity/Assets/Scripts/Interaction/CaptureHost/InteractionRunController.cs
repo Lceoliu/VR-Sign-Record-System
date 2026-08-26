@@ -18,7 +18,7 @@ namespace SignVR.Interaction.CaptureHost
 
         [Header("Mode")]
         [SerializeField]
-        private InteractionRunMode runMode = InteractionRunMode.Study;
+        private InteractionRunMode runMode = InteractionRunMode.StandaloneStudy;
 
         [SerializeField]
         [Tooltip("Must stay false for Study. This is a startup self-check, not an override implementation.")]
@@ -355,7 +355,7 @@ namespace SignVR.Interaction.CaptureHost
                 reason = "Instruction content manifest is not configured.";
                 return false;
             }
-            if (runMode == InteractionRunMode.Study &&
+            if (runMode == InteractionRunMode.StandaloneStudy &&
                 string.Equals(
                     gitCommit,
                     "unintegrated",
@@ -387,7 +387,7 @@ namespace SignVR.Interaction.CaptureHost
                 return false;
             }
 
-            if (runMode == InteractionRunMode.Study)
+            if (runMode == InteractionRunMode.StandaloneStudy)
             {
                 if (string.Equals(
                         participantId,
@@ -1510,7 +1510,7 @@ namespace SignVR.Interaction.CaptureHost
                     null,
                     BuildRunCreatedPayload(plan)
                 );
-                if (runMode == InteractionRunMode.Study)
+                if (runMode == InteractionRunMode.StandaloneStudy)
                 {
                     RecordAt(
                         InteractionEventNames.HostReady,

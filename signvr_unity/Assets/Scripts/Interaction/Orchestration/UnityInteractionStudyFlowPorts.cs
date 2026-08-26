@@ -60,7 +60,7 @@ namespace SignVR.Interaction.Orchestration
             {
                 return false;
             }
-            if (controller.RunMode == InteractionRunMode.Study &&
+            if (controller.RunMode == InteractionRunMode.StandaloneStudy &&
                 (strictStartGate == null ||
                  !strictStartGate.CanStartStudy(out reason)))
             {

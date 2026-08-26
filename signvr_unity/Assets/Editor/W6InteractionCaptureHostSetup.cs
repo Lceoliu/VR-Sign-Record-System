@@ -282,7 +282,7 @@ namespace SignVR.Editor.Interaction
                 );
             }
             if (controllers.Length == 1 &&
-                (controllers[0].RunMode != InteractionRunMode.Study ||
+                (controllers[0].RunMode != InteractionRunMode.StandaloneStudy ||
                  controllers[0].DebugOverridesActive ||
                  !controllers[0].RequireHostForStart))
             {
