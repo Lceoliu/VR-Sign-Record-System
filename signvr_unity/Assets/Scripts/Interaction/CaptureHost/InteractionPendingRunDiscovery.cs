@@ -127,8 +127,16 @@ namespace SignVR.Interaction.CaptureHost
                                 InteractionLocalArtifactTypes.Manifest
                             )
                         );
-                        if (!File.Exists(manifest))
+                        if (!InteractionAtomicFile
+                                .TryRecoverInterruptedWriteNew(manifest))
                         {
+                            if (!Directory.EnumerateFileSystemEntries(
+                                    runDirectory
+                                ).Any())
+                            {
+                                Directory.Delete(runDirectory, false);
+                                continue;
+                            }
                             throw new IOException(
                                 "Quest-local Run manifest is missing from " +
                                 runDirectory + "."
@@ -163,20 +171,26 @@ namespace SignVR.Interaction.CaptureHost
                             );
                         }
 
+                        string summaryPath = Path.Combine(
+                            runDirectory,
+                            InteractionLocalArtifactTypes.FileNameFor(
+                                InteractionLocalArtifactTypes.Summary
+                            )
+                        );
+                        InteractionAtomicFile.TryRecoverInterruptedWriteNew(
+                            summaryPath
+                        );
                         bool sealedCapture = RequiredLocalArtifactFileNames.All(
                             file => File.Exists(Path.Combine(runDirectory, file))
                         );
                         if (sealedCapture)
                         {
                             ValidateTerminalSummary(
-                                Path.Combine(
-                                    runDirectory,
-                                    InteractionLocalArtifactTypes.FileNameFor(
-                                        InteractionLocalArtifactTypes.Summary
-                                    )
-                                ),
+                                summaryPath,
                                 runId
                             );
+                            DeleteKnownPartialResidue(runDirectory);
+                            ValidateExactLocalArtifactSet(runDirectory);
                         }
                         results.Add(new InteractionPendingRun(
                             batchId,
@@ -200,6 +214,57 @@ namespace SignVR.Interaction.CaptureHost
             InteractionLocalArtifactTypes.All
                 .Select(InteractionLocalArtifactTypes.FileNameFor)
                 .ToArray();
+
+        private static void DeleteKnownPartialResidue(string runDirectory)
+        {
+            string[] streamFileNames =
+            {
+                InteractionStoragePaths.EventsFileName,
+                InteractionStoragePaths.PosesFileName,
+                InteractionStoragePaths.ObjectsFileName
+            };
+            for (int index = 0; index < streamFileNames.Length; index++)
+            {
+                string partial = Path.Combine(
+                    runDirectory,
+                    "." + streamFileNames[index] + ".partial"
+                );
+                if (File.Exists(partial))
+                {
+                    File.Delete(partial);
+                }
+            }
+        }
+
+        private static void ValidateExactLocalArtifactSet(string runDirectory)
+        {
+            StringComparer comparer = Path.DirectorySeparatorChar == '\\'
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+            string[] actual = Directory.GetFiles(
+                    runDirectory,
+                    "*",
+                    SearchOption.TopDirectoryOnly
+                )
+                .Select(Path.GetFileName)
+                .OrderBy(value => value, comparer)
+                .ToArray();
+            string[] expected = RequiredLocalArtifactFileNames
+                .OrderBy(value => value, comparer)
+                .ToArray();
+            if (Directory.GetDirectories(
+                    runDirectory,
+                    "*",
+                    SearchOption.TopDirectoryOnly
+                ).Length > 0 ||
+                !actual.SequenceEqual(expected, comparer))
+            {
+                throw new IOException(
+                    "Quest-local sealed Run contains non-authoritative " +
+                    "files or directories at " + runDirectory + "."
+                );
+            }
+        }
 
         private static bool TryValidateDirectorySegment(
             string path,

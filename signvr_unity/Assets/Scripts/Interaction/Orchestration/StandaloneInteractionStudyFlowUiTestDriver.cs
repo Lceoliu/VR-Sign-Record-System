@@ -93,7 +93,7 @@ namespace SignVR.Interaction.Orchestration
 
                 controller.ApplyAutomaticIdentityForTests(() => session);
 
-                Require(controller.IdentityArmed, "Automatic identity was not ready.");
+                Require(controller.IdentityReady, "Automatic identity was not ready.");
                 Require(
                     string.Equals(
                         run.ParticipantId,
@@ -142,7 +142,7 @@ namespace SignVR.Interaction.Orchestration
                     "A second Run replaced the application participant_id."
                 );
                 Require(
-                    controller.IdentityArmed,
+                    controller.IdentityReady,
                     "Automatic identity was consumed after Start."
                 );
                 Require(fixture.Run.StartCount == 2, "Expected two Runs.");

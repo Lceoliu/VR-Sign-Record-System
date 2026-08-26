@@ -209,6 +209,9 @@ namespace SignVR.Interaction.CaptureHost
                     InteractionSummaryJson.Serialize(aborted)
                 )
             );
+            // Retain original partial evidence until the terminal summary is
+            // durable. Discovery removes these known residues idempotently if
+            // the process exits between summary publication and this cleanup.
             DeleteKnownPartial(
                 directory,
                 InteractionStoragePaths.EventsFileName

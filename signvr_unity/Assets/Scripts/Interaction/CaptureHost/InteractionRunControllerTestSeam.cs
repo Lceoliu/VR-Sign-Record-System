@@ -190,6 +190,11 @@ namespace SignVR.Interaction.CaptureHost
         {
             ProcessLifecycleSignal(ControllerLifecycleSignal.ApplicationPaused);
         }
+
+        internal void ProcessHeadsetUnmountForTests()
+        {
+            ProcessLifecycleSignal(ControllerLifecycleSignal.HeadsetUnmounted);
+        }
     }
 }
 #endif

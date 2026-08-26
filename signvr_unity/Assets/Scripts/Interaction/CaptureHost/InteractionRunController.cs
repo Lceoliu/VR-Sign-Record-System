@@ -86,6 +86,7 @@ namespace SignVR.Interaction.CaptureHost
         private string pointingTargetId;
         private string pendingRunDiscoveryFailure = string.Empty;
         private string lastError = string.Empty;
+        private bool headsetLifecycleSubscribed;
 #if UNITY_EDITOR
         private bool editorLifecycleTestsArmed;
         private bool? debugBuildOverrideForTests;
@@ -1950,6 +1951,7 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return;
             }
+            SubscribeHeadsetLifecycle();
             TryRestorePreStartLifecycle();
             ReconcileLifecycleTerminalization();
         }
@@ -1958,6 +1960,7 @@ namespace SignVR.Interaction.CaptureHost
         {
             Disabled,
             ApplicationPaused,
+            HeadsetUnmounted,
             ApplicationQuit,
             Destroyed
         }
@@ -1972,6 +1975,9 @@ namespace SignVR.Interaction.CaptureHost
                 case ControllerLifecycleSignal.ApplicationPaused:
                     BeginLifecycleShutdown("application_pause");
                     return;
+                case ControllerLifecycleSignal.HeadsetUnmounted:
+                    BeginLifecycleShutdown("headset_unmounted");
+                    return;
                 case ControllerLifecycleSignal.ApplicationQuit:
                     BeginLifecycleShutdown("application_quit");
                     return;
@@ -1985,6 +1991,7 @@ namespace SignVR.Interaction.CaptureHost
 
         private void OnDisable()
         {
+            UnsubscribeHeadsetLifecycle();
             if (!ShouldProcessUnityLifecycle())
             {
                 return;
@@ -2021,11 +2028,41 @@ namespace SignVR.Interaction.CaptureHost
 
         private void OnDestroy()
         {
+            UnsubscribeHeadsetLifecycle();
             if (!ShouldProcessUnityLifecycle())
             {
                 return;
             }
             ProcessLifecycleSignal(ControllerLifecycleSignal.Destroyed);
+        }
+
+        private void SubscribeHeadsetLifecycle()
+        {
+            if (headsetLifecycleSubscribed)
+            {
+                return;
+            }
+            OVRManager.HMDUnmounted += HandleHeadsetUnmounted;
+            headsetLifecycleSubscribed = true;
+        }
+
+        private void UnsubscribeHeadsetLifecycle()
+        {
+            if (!headsetLifecycleSubscribed)
+            {
+                return;
+            }
+            OVRManager.HMDUnmounted -= HandleHeadsetUnmounted;
+            headsetLifecycleSubscribed = false;
+        }
+
+        private void HandleHeadsetUnmounted()
+        {
+            if (!ShouldProcessUnityLifecycle())
+            {
+                return;
+            }
+            ProcessLifecycleSignal(ControllerLifecycleSignal.HeadsetUnmounted);
         }
 
         private bool ShouldProcessUnityLifecycle()

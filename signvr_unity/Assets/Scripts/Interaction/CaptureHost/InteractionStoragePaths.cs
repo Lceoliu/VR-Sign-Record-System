@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace SignVR.Interaction.CaptureHost
@@ -413,6 +414,80 @@ namespace SignVR.Interaction.CaptureHost
                     TryDelete(backups[index]);
                 }
             }
+        }
+
+        /// <summary>
+        /// Completes an interrupted WriteNew after its fully flushed atomic
+        /// sibling was created but before it was renamed into place. Empty
+        /// siblings contain no recoverable evidence and are removed.
+        /// </summary>
+        public static bool TryRecoverInterruptedWriteNew(string destination)
+        {
+            if (string.IsNullOrWhiteSpace(destination))
+            {
+                throw new ArgumentException(
+                    "Recovery destination is required.",
+                    nameof(destination)
+                );
+            }
+
+            string canonical = Path.GetFullPath(destination);
+            string directory = Path.GetDirectoryName(canonical);
+            if (string.IsNullOrWhiteSpace(directory) ||
+                !Directory.Exists(directory))
+            {
+                return File.Exists(canonical);
+            }
+
+            string pattern = "." + Path.GetFileName(canonical) +
+                ".atomic.*.tmp";
+            string[] candidates = Directory.GetFiles(
+                directory,
+                pattern,
+                SearchOption.TopDirectoryOnly
+            );
+            if (File.Exists(canonical))
+            {
+                for (int index = 0; index < candidates.Length; index++)
+                {
+                    TryDelete(candidates[index]);
+                }
+                return true;
+            }
+
+            string[] recoverable = candidates
+                .Where(path => new FileInfo(path).Length > 0L)
+                .ToArray();
+            if (recoverable.Length > 1)
+            {
+                throw new IOException(
+                    "Interrupted atomic WriteNew recovery requires at most " +
+                    "one non-empty sibling for " + canonical + "."
+                );
+            }
+            if (recoverable.Length == 0)
+            {
+                for (int index = 0; index < candidates.Length; index++)
+                {
+                    TryDelete(candidates[index]);
+                }
+                return false;
+            }
+
+            File.Move(recoverable[0], canonical);
+            for (int index = 0; index < candidates.Length; index++)
+            {
+                if (!string.Equals(
+                        candidates[index],
+                        recoverable[0],
+                        Path.DirectorySeparatorChar == '\\'
+                            ? StringComparison.OrdinalIgnoreCase
+                            : StringComparison.Ordinal))
+                {
+                    TryDelete(candidates[index]);
+                }
+            }
+            return true;
         }
 
         public static string CreateSiblingTemporaryPath(

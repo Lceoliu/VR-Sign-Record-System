@@ -178,6 +178,184 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
+        public static void EmptyRunDirectoryBeforeManifestPublicationIsPruned()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            try
+            {
+                RunPlan plan = W6InteractionCaptureHostTestDriver.CreatePlan(
+                    709,
+                    "P709"
+                );
+                string runDirectory = InteractionStoragePaths.GetRunDirectory(
+                    root,
+                    plan.BatchId,
+                    plan.ParticipantId,
+                    plan.RunId
+                );
+                Directory.CreateDirectory(runDirectory);
+                Require(
+                    !Directory.EnumerateFileSystemEntries(runDirectory).Any(),
+                    "The pre-manifest crash fixture was not empty."
+                );
+
+                InteractionStandaloneLocalRunRecoveryCoordinator coordinator =
+                    Recover(root);
+
+                Require(
+                    coordinator.RecoveredRunCount == 0,
+                    "An empty pre-manifest directory was counted as a recovered Run."
+                );
+                Require(
+                    !Directory.Exists(runDirectory),
+                    "Startup recovery retained the empty pre-manifest Run directory."
+                );
+                Require(
+                    InteractionPendingRunDiscovery
+                        .DiscoverQuestLocal(root)
+                        .Count == 0,
+                    "The pruned pre-manifest directory still blocked local discovery."
+                );
+            }
+            finally
+            {
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
+        public static void AtomicManifestTemporaryIsPublishedAndSealedAborted()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            try
+            {
+                RunPlan plan = W6InteractionCaptureHostTestDriver.CreatePlan(
+                    710,
+                    "P710"
+                );
+                string runDirectory = InteractionStoragePaths.GetRunDirectory(
+                    root,
+                    plan.BatchId,
+                    plan.ParticipantId,
+                    plan.RunId
+                );
+                Directory.CreateDirectory(runDirectory);
+                byte[] expectedManifest =
+                    InteractionRunManifestContractV1.SerializeUtf8(plan);
+                string atomicManifest = Path.Combine(
+                    runDirectory,
+                    "." + InteractionStoragePaths.ManifestFileName +
+                        ".atomic.0123456789abcdef0123456789abcdef.tmp"
+                );
+                File.WriteAllBytes(atomicManifest, expectedManifest);
+                Require(
+                    Directory.GetFiles(runDirectory).Length == 1,
+                    "The atomic-manifest crash fixture contained extra evidence."
+                );
+
+                InteractionStandaloneLocalRunRecoveryCoordinator coordinator =
+                    Recover(root);
+
+                Require(
+                    coordinator.RecoveredRunCount == 1,
+                    "Startup recovery did not seal the atomic-manifest Run."
+                );
+                InteractionPendingRun recovered = InteractionPendingRunDiscovery
+                    .DiscoverQuestLocal(root)
+                    .Single();
+                RequireLocallyComplete(recovered, "Atomic-manifest recovered");
+                Require(
+                    !File.Exists(atomicManifest) &&
+                    BytesEqual(
+                        expectedManifest,
+                        File.ReadAllBytes(recovered.ManifestPath)
+                    ),
+                    "Recovery did not publish the exact atomic manifest bytes."
+                );
+                IDictionary<string, object> summary = InteractionJson.ParseObject(
+                    InteractionAtomicFile.ReadUtf8(recovered.ArtifactPath(
+                        InteractionLocalArtifactTypes.Summary
+                    ))
+                );
+                Require(
+                    InteractionJson.RequireString(summary, "status") == "aborted" &&
+                    InteractionJson.RequireString(summary, "abort_reason") ==
+                        "app_start_partial_recovery",
+                    "The atomic-manifest Run was not sealed as startup Aborted."
+                );
+                RequireFiveSealedFiles(runDirectory);
+            }
+            finally
+            {
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
+        public static void SealedAbortedRunCleansKnownPartialResidueIdempotently()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            try
+            {
+                string runDirectory = CreateAbortedRun(root, 711, "P711");
+                IDictionary<string, byte[]> sealedEvidence = SnapshotFiles(
+                    runDirectory
+                );
+                string[] streamTypes =
+                {
+                    InteractionLocalArtifactTypes.Events,
+                    InteractionLocalArtifactTypes.Poses,
+                    InteractionLocalArtifactTypes.Objects
+                };
+                for (int index = 0; index < streamTypes.Length; index++)
+                {
+                    string finalPath = Path.Combine(
+                        runDirectory,
+                        InteractionLocalArtifactTypes.FileNameFor(
+                            streamTypes[index]
+                        )
+                    );
+                    File.Copy(
+                        finalPath,
+                        KnownPartialPath(runDirectory, streamTypes[index])
+                    );
+                }
+                Require(
+                    Directory.GetFiles(
+                        runDirectory,
+                        "*.partial",
+                        SearchOption.TopDirectoryOnly
+                    ).Length == 3,
+                    "The post-summary crash fixture did not retain three partials."
+                );
+
+                InteractionStandaloneLocalRunRecoveryCoordinator coordinator =
+                    Recover(root);
+
+                Require(
+                    coordinator.RecoveredRunCount == 0,
+                    "Residue cleanup incorrectly re-terminalized a sealed Run."
+                );
+                InteractionPendingRun recovered = InteractionPendingRunDiscovery
+                    .DiscoverQuestLocal(root)
+                    .Single();
+                RequireLocallyComplete(recovered, "Residue-cleaned Aborted");
+                RequireEvidenceUnchanged(runDirectory, sealedEvidence);
+                IDictionary<string, object> summary = InteractionJson.ParseObject(
+                    InteractionAtomicFile.ReadUtf8(recovered.ArtifactPath(
+                        InteractionLocalArtifactTypes.Summary
+                    ))
+                );
+                Require(
+                    InteractionJson.RequireString(summary, "status") == "aborted",
+                    "Idempotent residue cleanup changed the terminal Run status."
+                );
+                RequireFiveSealedFiles(runDirectory);
+            }
+            finally
+            {
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
         public static void ManifestIdentityMismatchFailsClosedAndRetainsEvidence()
         {
             string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
@@ -637,6 +815,17 @@ namespace SignVR.Interaction.CaptureHost
             return File.ReadAllLines(path)
                 .Where(line => !string.IsNullOrWhiteSpace(line))
                 .ToArray();
+        }
+
+        private static string KnownPartialPath(
+            string directory,
+            string artifactType)
+        {
+            return Path.Combine(
+                directory,
+                "." + InteractionLocalArtifactTypes.FileNameFor(artifactType) +
+                    ".partial"
+            );
         }
 
         private static bool BytesEqual(byte[] left, byte[] right)

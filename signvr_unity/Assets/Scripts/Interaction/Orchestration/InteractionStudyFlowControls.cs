@@ -343,7 +343,7 @@ namespace SignVR.Interaction.Orchestration
                 startButton.interactable = preStart &&
                     flowController != null && flowController.ManifestReady &&
                     flowController.RecoveryComplete &&
-                    flowController.IdentityArmed &&
+                    flowController.IdentityReady &&
                     snapshot?.CanStart == true;
                 TMP_Text startLabel = startButton.GetComponentInChildren<
                     TMP_Text>(true);
@@ -372,7 +372,7 @@ namespace SignVR.Interaction.Orchestration
                         flowController.RecoveryComplete,
                         flowController.RecoveryFailed,
                         flowController.ManifestReady,
-                        flowController.IdentityArmed,
+                        flowController.IdentityReady,
                         snapshot?.CanStart == true,
                         initialization,
                         flowStatus,

@@ -42,6 +42,12 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void HeadsetUnmountSealsConsumedRunExactlyOnce()
+        {
+            Invoke(nameof(HeadsetUnmountSealsConsumedRunExactlyOnce));
+        }
+
+        [Test]
         public void StartupRecoveryFailureBlocksStartAndPreservesEvidence()
         {
             Invoke(nameof(StartupRecoveryFailureBlocksStartAndPreservesEvidence));

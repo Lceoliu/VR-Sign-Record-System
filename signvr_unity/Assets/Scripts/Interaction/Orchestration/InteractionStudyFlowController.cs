@@ -67,7 +67,7 @@ namespace SignVR.Interaction.Orchestration
             contentManifestRelativePath;
         public bool ManifestReady => manifestReady;
         public bool ManifestLoadInFlight => manifestLoadGate.InFlight;
-        public bool IdentityArmed => automaticIdentityConfigured;
+        public bool IdentityReady => automaticIdentityConfigured;
         public bool RecoveryInFlight => !recoveryComplete &&
             string.IsNullOrEmpty(recoveryFailure);
         public bool RecoveryComplete => recoveryComplete;
@@ -76,10 +76,6 @@ namespace SignVR.Interaction.Orchestration
         public int RecoveredPartialRunCount => recoveredPartialRunCount;
         public string ParticipantSessionId =>
             participantSession?.ParticipantId ?? string.Empty;
-        public string ConfiguredParticipantId => runController?.ParticipantId ??
-            string.Empty;
-        public string ConfiguredBuildIdentity => runController?.GitCommit ??
-            string.Empty;
         public string InitializationStatus => initializationStatus;
         public string IdentityStatus => identityStatus;
         public InteractionStudyFlow Flow => flow;

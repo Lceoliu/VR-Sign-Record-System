@@ -36,6 +36,24 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void EmptyRunDirectoryBeforeManifestPublicationIsPruned()
+        {
+            Invoke(nameof(EmptyRunDirectoryBeforeManifestPublicationIsPruned));
+        }
+
+        [Test]
+        public void AtomicManifestTemporaryIsPublishedAndSealedAborted()
+        {
+            Invoke(nameof(AtomicManifestTemporaryIsPublishedAndSealedAborted));
+        }
+
+        [Test]
+        public void SealedAbortedRunCleansKnownPartialResidueIdempotently()
+        {
+            Invoke(nameof(SealedAbortedRunCleansKnownPartialResidueIdempotently));
+        }
+
+        [Test]
         public void ManifestIdentityMismatchFailsClosedAndRetainsEvidence()
         {
             Invoke(nameof(ManifestIdentityMismatchFailsClosedAndRetainsEvidence));

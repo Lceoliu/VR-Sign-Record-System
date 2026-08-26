@@ -309,6 +309,65 @@ namespace SignVR.Interaction.CaptureHost
             }
         }
 
+        public static void HeadsetUnmountSealsConsumedRunExactlyOnce()
+        {
+            string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
+            GameObject owner = null;
+            InteractionCaptureWriter writer = null;
+            try
+            {
+                CreateTerminalFixture(
+                    root,
+                    seed: 906,
+                    participantId: "P906",
+                    completing: false,
+                    out owner,
+                    out InteractionRunController controller,
+                    out writer
+                );
+
+                controller.ProcessHeadsetUnmountForTests();
+                controller.ProcessHeadsetUnmountForTests();
+                Require(
+                    controller.WaitForLifecycleTerminalizationForTests(
+                        TimeSpan.FromSeconds(10)
+                    ),
+                    "Headset unmount did not finish its local terminal owner."
+                );
+                Require(
+                    controller.State == RunState.Aborted && writer.IsSealed,
+                    "Headset unmount did not publish the sealed Aborted state."
+                );
+                AssertStandaloneTerminal(
+                    controller,
+                    writer,
+                    expectedStatus: "aborted",
+                    expectedEvent: InteractionEventNames.RunAborted
+                );
+                string events = File.ReadAllText(Path.Combine(
+                    writer.RunDirectory,
+                    InteractionStoragePaths.EventsFileName
+                ));
+                Require(
+                    CountOccurrences(
+                        events,
+                        "\"event_type\":\"" +
+                            InteractionEventNames.RunAborted + "\""
+                    ) == 1,
+                    "Repeated headset unmount wrote more than one terminal event."
+                );
+            }
+            finally
+            {
+                DisposeAndWaitForCaptureStreams(writer);
+                if (owner != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(owner);
+                }
+                W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(root);
+            }
+        }
+
         public static void StartupRecoveryFailureBlocksStartAndPreservesEvidence()
         {
             string root = W6InteractionCaptureHostTestDriver.CreateTemporaryRoot();
