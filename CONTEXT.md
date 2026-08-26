@@ -12,6 +12,10 @@ _Avoid_: Teacher, avatar operator
 A hearing person who follows the Instruction Signer and performs the interaction tasks.
 _Avoid_: Recorder, player, subject
 
+**Participant Session**:
+The Interaction Runs performed during one Interaction application launch, sharing one automatically generated pseudonymous Participant identifier. A new application launch starts a new Participant Session.
+_Avoid_: Interaction Run, app instance
+
 **Recording Take**:
 One captured performance from the Instruction Signer in the Recorder workflow.
 _Avoid_: Pose Take, participant recording
@@ -92,17 +96,17 @@ _Avoid_: Formal test, study sample
 An Interaction Run whose pseudonymous participant data is intentionally retained for analysis after the Engineering Pilot gate passes.
 _Avoid_: Demo, synthetic sample
 
+**Standalone Study Mode**:
+An Interaction execution mode in which Quest alone owns Run planning, Experiment Capture, recovery, and retained artifacts without requiring an Interaction Host or Webcam Capture.
+_Avoid_: Offline demo, EngineeringLocal
+
+**Sealed Run Artifact Set**:
+The Quest-authoritative local files for one Completed or Aborted Interaction Run: its manifest, events, poses, objects, and summary. Once all five files are sealed, the Run is complete and never waits for upload or acknowledgement; staff export the retained files later through USB or ADB.
+_Avoid_: Pending upload, Host archive, acknowledged Run
+
 **Experiment Capture**:
 The time-aligned record of participant motion, interaction events, and scene state produced during an Interaction Run.
 _Avoid_: Video, Recording Take
-
-**Webcam Capture**:
-The PC-connected camera video recorded by the Host from the synchronized start of an Interaction Run until completion or abort. It documents the participant test and is distinct from the later high-quality Unity Showcase recording.
-_Avoid_: Quest preview, Showcase Replay
-
-**Interaction Host**:
-The PC service that receives the Quest-authored Run Plan and Experiment Capture, synchronizes and stores Webcam Capture, and reports readiness. It does not choose Task Variants, Assistance Condition, passwords, Instruction Signers, or Recording Takes.
-_Avoid_: Run planner, Recording Take service
 
 **Showcase Replay**:
 A presentation-oriented replay derived from an Experiment Capture and enhanced with improved cameras and visual effects.
