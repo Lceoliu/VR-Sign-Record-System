@@ -354,10 +354,10 @@ Additional review behavior retained or strengthened:
 - No webcam is captured or fabricated on Quest. No Host random selection,
   Showcase Replay, Zhao-teacher mixed package, Addressables, authentication
   system, automatic local deletion, or Quest visual feature was added.
-- No live Unity, Quest, W8a Host, browser-camera, or three-process run was
-  executed in this worktree because this task explicitly prohibited starting
-  Unity and reading another worktree. The Orchestrator-provided pre-fix Unity
-  `53/62` result is recorded separately below.
+- No Unity Editor was started in this worktree because the task explicitly
+  prohibited it. Root-side validation on main after `ee49f78` is recorded below
+  and completes the W6 local Unity gate. Android/IL2CPP/Quest execution and live
+  W8a/W3/browser-camera/three-process Host field integration remain pending.
 
 ## 2. Files created or changed
 
@@ -754,8 +754,9 @@ in place. The helper source gate after correction reported:
 - `RESTORE_HELPER_GREEN_SAME_HANDLE_RETURNS=1`
 - `RESTORE_HELPER_GREEN_SET_FALLBACKS=1`
 
-This worktree did not run Unity after the no-op correction; job `1ce292c6` remains
-the latest real EditMode leaf result and is not relabeled green.
+At that boundary this worktree had not run Unity after the no-op correction;
+job `1ce292c6` was therefore the latest real EditMode leaf result at that time
+and is retained above as historical RED evidence.
 
 The Orchestrator also completed the split PlayMode suite and reported `6/8`.
 The six other lifecycle wrappers passed through real callbacks. The two RED
@@ -788,8 +789,33 @@ with `UNITY_EDITOR` at:
 
 `C:\Users\woshica\AppData\Local\Temp\signvr-w6-awake-order-final-50c294d335504e2b8f805f2591827a93`
 
-Exact result: `FINAL_CURRENT_EDITOR_RUNTIME_STATIC_EXIT=0`. Unity was not rerun
-after this ordering correction, so `6/8` remains the latest real PlayMode result.
+Exact result: `FINAL_CURRENT_EDITOR_RUNTIME_STATIC_EXIT=0`. At that boundary
+Unity had not yet been rerun after the ordering correction, so `6/8` was the
+latest real PlayMode result at that time.
+
+### Authoritative Unity W6 local gate on main
+
+After integration on main at `ee49f78`, the Orchestrator supplied the final
+authoritative Unity results:
+
+- targeted EditMode job `612ee8a0`: `1/1` passed;
+- full W6 EditMode job `8d4d5c26`: `54/54` passed;
+- targeted PlayMode job `48632227`: `1/1` passed;
+- targeted PlayMode job `8dd79af0`: `1/1` passed;
+- full W6 PlayMode job `e25d243a`: `8/8` passed.
+
+The full W6 wrapper matrix is therefore `62/62` (`54` EditMode plus `8`
+PlayMode). Post-run inspection reported:
+
+- the only loaded scene was the clean active
+  `Assets/Scenes/InteractionLab.unity` with `34` roots;
+- its SHA-256 remained
+  `EEA4FAA23734EDF3533C82907B7EA7F65332C34B40DFB316F6924D7FC5691F2F`;
+- W6 temporary assets: `0`;
+- user dirty files: unchanged.
+
+The W6 local Unity gate is complete. Android/IL2CPP/Quest validation and live
+Host field integration remain pending.
 
 ### Deterministic scenario execution
 
@@ -1023,9 +1049,15 @@ Orchestrator integration step.
   `TEST_PREFS_SAVE=1`
 - `TRAILING_WHITESPACE_LINES=0`
 - `CONFLICT_MARKER_LINES=0`
-- InteractionLab bytes: `408990`
-- InteractionLab SHA-256 before/after:
+- Isolated-worktree source-audit InteractionLab bytes: `408990`
+- Isolated-worktree source-audit InteractionLab SHA-256 before/after:
   `A394EABE4D72739C625BA5A261F36DF86A87B15C201CCB02F53A134B1DF027B5`
+- Authoritative main post-run scene: only loaded and active
+  `Assets/Scenes/InteractionLab.unity`, clean, `34` roots
+- Authoritative main post-run InteractionLab SHA-256:
+  `EEA4FAA23734EDF3533C82907B7EA7F65332C34B40DFB316F6924D7FC5691F2F`
+- Authoritative main post-run W6 temporary assets: `0`
+- Authoritative main post-run user dirty files: unchanged
 
 Git `diff --check` was not run because every Git command was explicitly
 prohibited. The two non-Git textual checks above found no whitespace errors or
@@ -1059,25 +1091,14 @@ merge markers.
 
 ### Risks and unfinished validation
 
-1. The Orchestrator's historical all-EditMode result was `53/62`. After the
-   PlayMode split and cleanup-bool fix, Unity job `96350528` produced `53/54` in
-   EditMode; only `SetupUndoGroupRollsBackOnFailure` failed at its first additive
-   `NewScene` because an untitled Test Runner scene remained loaded. Targeted job
-   `3a4094a5` later produced `0/1`: saved-copy isolation removed that failure, but
-   original-active restoration returned false before the still-active target was
-   closed. Job `1ce292c6` also produced `0/1` after ordering was corrected: target
-   close succeeded and Unity automatically restored InteractionLab, but redundant
-   `SetActiveScene` returned false. The current same-handle no-op correction has
-   not been rerun. The split PlayMode suite produced `6/8`: six real lifecycle cases passed,
-   while the delayed-initialization disable/destroy cases failed because ordinary
-   `OnEnable` claimed Host heartbeat ownership before deterministic setup. Root
-   review then found the first inactive-owner correction could defer Controller
-   `Awake`; the current warm-up activate/deactivate ordering fix has not been
-   rerun. Android/IL2CPP and Quest execution also remain unrun. Static compilation
-   and source gates cannot replace those runs.
+1. The historical `53/62`, `53/54`, targeted `0/1`, and PlayMode `6/8` REDs are
+   retained above as diagnosis evidence. After `ee49f78`, authoritative main jobs
+   `612ee8a0` and `8d4d5c26` passed EditMode `1/1` and `54/54`; jobs `48632227`,
+   `8dd79af0`, and `e25d243a` passed PlayMode `1/1`, `1/1`, and `8/8`. The W6 local
+   Unity gate is complete. Android/IL2CPP and Quest execution remain unrun.
 2. Live W8a heartbeat ACK/readiness TTL, W3 POST/409/GET/PUT/ACK, browser camera,
-   and participant admission were not available inside this worktree. Field
-   names are centralized for a small integration adaptation if necessary.
+   participant admission, and end-to-end Host field integration were not
+   exercised. Field names are centralized for a small adaptation if necessary.
 3. `DriveInfo.AvailableFreeSpace`, `UploadHandlerFile` cancellation/disposal,
    worker threading, and file durability compile for Unity 6 but require Quest
    hardware validation for IL2CPP/platform behavior and peak memory.
@@ -1114,13 +1135,11 @@ merge markers.
 
 1. Integrate the W6 files as a unit; do not add a CaptureHost/runtime asmdef or
    modify `SignVR.Interaction.Core`.
-2. Import the main Unity `6000.5.6f1` project and require Player plus Editor
-   compile. Run EditMode class
-   `SignVR.Interaction.Editor.Tests.W6InteractionCaptureHostTests` and expect
-   `54/54`. Then run PlayMode class
-   `SignVR.Interaction.PlayMode.Tests.W6InteractionCaptureHostPlayModeTests` and
-   expect `8/8`. The authoritative total remains `62/62`; do not run the eight
-   lifecycle methods through their removed EditMode wrappers.
+2. Main Unity `6000.5.6f1` validation is complete after `ee49f78`: EditMode job
+   `8d4d5c26` passed `54/54`, PlayMode job `e25d243a` passed `8/8`, and the
+   targeted jobs also passed (`612ee8a0`, `48632227`, and `8dd79af0`, each
+   `1/1`). Preserve this authoritative `62/62` split as the regression gate; do
+   not run the eight lifecycle methods through their removed EditMode wrappers.
 3. In a clean loaded `InteractionLab.unity`, run structural setup first and
    confirm it succeeds with no tracking/probes. Undo once and verify all three
    additions/reference changes roll back. Reapply, inject W8 tracking/probes,
