@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using SignVR.Interaction.Core;
 
 namespace SignVR.Interaction.CaptureHost
@@ -490,7 +491,53 @@ namespace SignVR.Interaction.CaptureHost
             W6InteractionCaptureHostTestDriver.WriteOnePoseAndObject(writer);
             string directory = writer.RunDirectory;
             writer.Dispose();
+            WaitForPartialStreamsToClose(directory);
             return new PartialFixture(directory, plan.RunId);
+        }
+
+        private static void WaitForPartialStreamsToClose(string runDirectory)
+        {
+            string[] partialPaths =
+            {
+                Path.Combine(
+                    runDirectory,
+                    "." + InteractionStoragePaths.EventsFileName + ".partial"
+                ),
+                Path.Combine(
+                    runDirectory,
+                    "." + InteractionStoragePaths.PosesFileName + ".partial"
+                ),
+                Path.Combine(
+                    runDirectory,
+                    "." + InteractionStoragePaths.ObjectsFileName + ".partial"
+                )
+            };
+            Require(
+                SpinWait.SpinUntil(
+                    () => partialPaths.All(CanOpenExclusively),
+                    TimeSpan.FromSeconds(5)
+                ),
+                "The partial capture streams did not close within the test timeout."
+            );
+        }
+
+        private static bool CanOpenExclusively(string path)
+        {
+            try
+            {
+                using (new FileStream(
+                    path,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.None))
+                {
+                }
+                return true;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
         }
 
         private static void RequireLocallyCompleteWithoutAck(
