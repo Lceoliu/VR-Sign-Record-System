@@ -102,13 +102,13 @@ namespace SignVR.Interaction.CaptureHost
                 );
 
                 string[] recoveredEvents = ReadNonEmptyLines(
-                    recovered.ArtifactPath(InteractionArtifactTypes.Events)
+                    recovered.ArtifactPath(InteractionLocalArtifactTypes.Events)
                 );
                 string[] recoveredPoses = ReadNonEmptyLines(
-                    recovered.ArtifactPath(InteractionArtifactTypes.Poses)
+                    recovered.ArtifactPath(InteractionLocalArtifactTypes.Poses)
                 );
                 string[] recoveredObjects = ReadNonEmptyLines(
-                    recovered.ArtifactPath(InteractionArtifactTypes.Objects)
+                    recovered.ArtifactPath(InteractionLocalArtifactTypes.Objects)
                 );
                 Require(
                     recoveredEvents.Length == originalEvents.Length + 1 &&
@@ -132,7 +132,7 @@ namespace SignVR.Interaction.CaptureHost
 
                 IDictionary<string, object> summary = InteractionJson.ParseObject(
                     InteractionAtomicFile.ReadUtf8(recovered.ArtifactPath(
-                        InteractionArtifactTypes.Summary
+                        InteractionLocalArtifactTypes.Summary
                     ))
                 );
                 Require(
@@ -192,7 +192,9 @@ namespace SignVR.Interaction.CaptureHost
                 PartialFixture partial = CreatePartialRun(root, 706, "P706");
                 string manifestPath = Path.Combine(
                     partial.DirectoryPath,
-                    InteractionStoragePaths.ManifestFileName
+                    InteractionLocalArtifactTypes.FileNameFor(
+                        InteractionLocalArtifactTypes.Manifest
+                    )
                 );
                 string manifest = InteractionAtomicFile.ReadUtf8(manifestPath);
                 string mismatched = manifest.Replace(
@@ -229,7 +231,9 @@ namespace SignVR.Interaction.CaptureHost
                 PartialFixture partial = CreatePartialRun(root, 707, "P707");
                 string manifestPath = Path.Combine(
                     partial.DirectoryPath,
-                    InteractionStoragePaths.ManifestFileName
+                    InteractionLocalArtifactTypes.FileNameFor(
+                        InteractionLocalArtifactTypes.Manifest
+                    )
                 );
                 File.WriteAllText(manifestPath, "{not-json");
                 IDictionary<string, byte[]> evidence = SnapshotFiles(
@@ -260,7 +264,9 @@ namespace SignVR.Interaction.CaptureHost
                 PartialFixture partial = CreatePartialRun(root, 708, "P708");
                 string summaryPath = Path.Combine(
                     partial.DirectoryPath,
-                    InteractionStoragePaths.SummaryFileName
+                    InteractionLocalArtifactTypes.FileNameFor(
+                        InteractionLocalArtifactTypes.Summary
+                    )
                 );
                 Directory.CreateDirectory(summaryPath);
                 IDictionary<string, byte[]> evidence = SnapshotFiles(
@@ -501,15 +507,21 @@ namespace SignVR.Interaction.CaptureHost
             {
                 Path.Combine(
                     runDirectory,
-                    "." + InteractionStoragePaths.EventsFileName + ".partial"
+                    "." + InteractionLocalArtifactTypes.FileNameFor(
+                        InteractionLocalArtifactTypes.Events
+                    ) + ".partial"
                 ),
                 Path.Combine(
                     runDirectory,
-                    "." + InteractionStoragePaths.PosesFileName + ".partial"
+                    "." + InteractionLocalArtifactTypes.FileNameFor(
+                        InteractionLocalArtifactTypes.Poses
+                    ) + ".partial"
                 ),
                 Path.Combine(
                     runDirectory,
-                    "." + InteractionStoragePaths.ObjectsFileName + ".partial"
+                    "." + InteractionLocalArtifactTypes.FileNameFor(
+                        InteractionLocalArtifactTypes.Objects
+                    ) + ".partial"
                 )
             };
             Require(
@@ -556,14 +568,9 @@ namespace SignVR.Interaction.CaptureHost
 
         private static void RequireFiveSealedFiles(string directory)
         {
-            string[] names =
-            {
-                InteractionStoragePaths.ManifestFileName,
-                InteractionStoragePaths.EventsFileName,
-                InteractionStoragePaths.PosesFileName,
-                InteractionStoragePaths.ObjectsFileName,
-                InteractionStoragePaths.SummaryFileName
-            };
+            string[] names = InteractionLocalArtifactTypes.All
+                .Select(InteractionLocalArtifactTypes.FileNameFor)
+                .ToArray();
             Require(
                 names.All(name => File.Exists(Path.Combine(directory, name))),
                 "The locally sealed Run does not contain all five files."
@@ -652,13 +659,19 @@ namespace SignVR.Interaction.CaptureHost
             public string DirectoryPath { get; }
             public string RunId { get; }
             public string EventsPartial => PartialPath(
-                InteractionStoragePaths.EventsFileName
+                InteractionLocalArtifactTypes.FileNameFor(
+                    InteractionLocalArtifactTypes.Events
+                )
             );
             public string PosesPartial => PartialPath(
-                InteractionStoragePaths.PosesFileName
+                InteractionLocalArtifactTypes.FileNameFor(
+                    InteractionLocalArtifactTypes.Poses
+                )
             );
             public string ObjectsPartial => PartialPath(
-                InteractionStoragePaths.ObjectsFileName
+                InteractionLocalArtifactTypes.FileNameFor(
+                    InteractionLocalArtifactTypes.Objects
+                )
             );
 
             private string PartialPath(string finalName)

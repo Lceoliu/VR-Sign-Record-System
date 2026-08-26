@@ -39,14 +39,13 @@ namespace SignVR.Interaction.CaptureHost
         public bool NeedsRecovery => !IsSealed && !IsAcknowledged;
         public bool NeedsAttention => NeedsRecovery || NeedsUpload;
 
-        public string ManifestPath => Path.Combine(
-            DirectoryPath,
-            InteractionStoragePaths.ManifestFileName
+        public string ManifestPath => ArtifactPath(
+            InteractionLocalArtifactTypes.Manifest
         );
 
         public string ArtifactPath(string artifactType)
         {
-            string fileName = InteractionArtifactTypes.FileNameFor(
+            string fileName = InteractionLocalArtifactTypes.FileNameFor(
                 artifactType
             );
             return Path.Combine(DirectoryPath, fileName);
@@ -143,7 +142,9 @@ namespace SignVR.Interaction.CaptureHost
                         }
                         string manifest = Path.Combine(
                             runDirectory,
-                            InteractionStoragePaths.ManifestFileName
+                            InteractionLocalArtifactTypes.FileNameFor(
+                                InteractionLocalArtifactTypes.Manifest
+                            )
                         );
                         if (!File.Exists(manifest))
                         {
@@ -193,7 +194,7 @@ namespace SignVR.Interaction.CaptureHost
                             continue;
                         }
 
-                        bool sealedCapture = RequiredQuestArtifacts.All(
+                        bool sealedCapture = RequiredLocalArtifactFileNames.All(
                             file => File.Exists(Path.Combine(runDirectory, file))
                         );
                         if (questLocalAuthoritative && sealedCapture)
@@ -201,7 +202,9 @@ namespace SignVR.Interaction.CaptureHost
                             ValidateTerminalSummary(
                                 Path.Combine(
                                     runDirectory,
-                                    InteractionStoragePaths.SummaryFileName
+                                    InteractionLocalArtifactTypes.FileNameFor(
+                                        InteractionLocalArtifactTypes.Summary
+                                    )
                                 ),
                                 runId
                             );
@@ -231,13 +234,10 @@ namespace SignVR.Interaction.CaptureHost
             return results.AsReadOnly();
         }
 
-        private static readonly string[] RequiredQuestArtifacts =
-        {
-            InteractionStoragePaths.EventsFileName,
-            InteractionStoragePaths.PosesFileName,
-            InteractionStoragePaths.ObjectsFileName,
-            InteractionStoragePaths.SummaryFileName
-        };
+        private static readonly string[] RequiredLocalArtifactFileNames =
+            InteractionLocalArtifactTypes.All
+                .Select(InteractionLocalArtifactTypes.FileNameFor)
+                .ToArray();
 
         private static bool TryValidateDirectorySegment(
             string path,

@@ -381,26 +381,26 @@ namespace SignVR.Interaction.CaptureHost
                 new InteractionJsonlBudget(
                     DefaultMaxLineBytes,
                     DefaultPendingBytes,
-                    InteractionArtifactSizeLimits.MaximumBytesFor(
-                        InteractionArtifactTypes.Events
+                    InteractionLocalArtifactSizeLimits.MaximumBytesFor(
+                        InteractionLocalArtifactTypes.Events
                     )
                 ),
                 new InteractionJsonlBudget(
                     DefaultMaxLineBytes,
                     DefaultPendingBytes,
-                    InteractionArtifactSizeLimits.MaximumBytesFor(
-                        InteractionArtifactTypes.Poses
+                    InteractionLocalArtifactSizeLimits.MaximumBytesFor(
+                        InteractionLocalArtifactTypes.Poses
                     )
                 ),
                 new InteractionJsonlBudget(
                     DefaultMaxLineBytes,
                     DefaultPendingBytes,
-                    InteractionArtifactSizeLimits.MaximumBytesFor(
-                        InteractionArtifactTypes.Objects
+                    InteractionLocalArtifactSizeLimits.MaximumBytesFor(
+                        InteractionLocalArtifactTypes.Objects
                     )
                 ),
-                InteractionArtifactSizeLimits.MaximumBytesFor(
-                    InteractionArtifactTypes.Summary
+                InteractionLocalArtifactSizeLimits.MaximumBytesFor(
+                    InteractionLocalArtifactTypes.Summary
                 ),
                 DefaultMinimumFreeBytes,
                 new InteractionDriveFreeSpaceProbe()
