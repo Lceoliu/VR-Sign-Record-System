@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using UnityEngine;
 using SignVR.Interaction.Core;
 
@@ -107,15 +108,24 @@ namespace SignVR.Interaction.CaptureHost
                     ),
                     "Controller ignored the injected standalone storage root."
                 );
-                string eventsPartial = Path.Combine(
-                    writer.RunDirectory,
-                    "." + InteractionStoragePaths.EventsFileName + ".partial"
+                Require(
+                    controller.TryAbortRun(
+                        "local_schedule_test_cleanup",
+                        out string abortError
+                    ),
+                    "Local schedule cleanup Abort failed: " + abortError
                 );
                 Require(
-                    writer.BeginPhaseCheckpoint().Wait(TimeSpan.FromSeconds(5)),
-                    "Local schedule events did not flush for inspection."
+                    controller.TerminalizationForTests.Wait(
+                        TimeSpan.FromSeconds(10)
+                    ),
+                    "Local schedule cleanup seal timed out."
                 );
-                string events = File.ReadAllText(eventsPartial);
+                controller.ReconcileTerminalSealForTests();
+                string events = File.ReadAllText(Path.Combine(
+                    writer.RunDirectory,
+                    InteractionStoragePaths.EventsFileName
+                ));
                 Require(
                     events.IndexOf(
                         "\"event_type\":\"run_created\"",
@@ -128,7 +138,7 @@ namespace SignVR.Interaction.CaptureHost
             }
             finally
             {
-                writer?.Dispose();
+                DisposeAndWaitForCaptureStreams(writer);
                 if (owner != null)
                 {
                     UnityEngine.Object.DestroyImmediate(owner);
@@ -176,7 +186,7 @@ namespace SignVR.Interaction.CaptureHost
             }
             finally
             {
-                writer?.Dispose();
+                DisposeAndWaitForCaptureStreams(writer);
                 if (owner != null)
                 {
                     UnityEngine.Object.DestroyImmediate(owner);
@@ -230,7 +240,7 @@ namespace SignVR.Interaction.CaptureHost
             }
             finally
             {
-                writer?.Dispose();
+                DisposeAndWaitForCaptureStreams(writer);
                 if (owner != null)
                 {
                     UnityEngine.Object.DestroyImmediate(owner);
@@ -289,7 +299,7 @@ namespace SignVR.Interaction.CaptureHost
             }
             finally
             {
-                writer?.Dispose();
+                DisposeAndWaitForCaptureStreams(writer);
                 if (owner != null)
                 {
                     UnityEngine.Object.DestroyImmediate(owner);
@@ -485,6 +495,61 @@ namespace SignVR.Interaction.CaptureHost
                 offset += needle.Length;
             }
             return count;
+        }
+
+        private static void DisposeAndWaitForCaptureStreams(
+            InteractionCaptureWriter writer)
+        {
+            if (writer == null)
+            {
+                return;
+            }
+            string runDirectory = writer.RunDirectory;
+            writer.Dispose();
+            Require(
+                SpinWait.SpinUntil(
+                    () => CanOpenCapturePartialsExclusively(runDirectory),
+                    TimeSpan.FromSeconds(5)
+                ),
+                "Capture streams did not close within the test timeout."
+            );
+        }
+
+        private static bool CanOpenCapturePartialsExclusively(
+            string runDirectory)
+        {
+            string[] names =
+            {
+                InteractionStoragePaths.EventsFileName,
+                InteractionStoragePaths.PosesFileName,
+                InteractionStoragePaths.ObjectsFileName
+            };
+            try
+            {
+                for (int index = 0; index < names.Length; index++)
+                {
+                    string path = Path.Combine(
+                        runDirectory,
+                        "." + names[index] + ".partial"
+                    );
+                    if (!File.Exists(path))
+                    {
+                        continue;
+                    }
+                    using (new FileStream(
+                        path,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.None))
+                    {
+                    }
+                }
+                return true;
+            }
+            catch (IOException)
+            {
+                return false;
+            }
         }
 
         private static void InstallPreStart(
