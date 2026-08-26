@@ -702,6 +702,23 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
 
         private static void AssertConfiguredScene(Scene scene)
         {
+            Assert.That(
+                AllComponents(scene).Count(component => string.Equals(
+                    component.GetType().FullName,
+                    "SignVR.Interaction.CaptureHost.InteractionHostClient",
+                    StringComparison.Ordinal
+                )),
+                Is.Zero,
+                "Standalone InteractionLab must not retain a Host client."
+            );
+            RequireOneType(
+                scene,
+                "SignVR.Interaction.CaptureHost.InteractionRunController"
+            );
+            RequireOneType(
+                scene,
+                "SignVR.Interaction.CaptureHost.InteractionCaptureSampler"
+            );
             Component[] hands = AllComponents(scene).Where(component =>
                 component.GetType().Name == "OVRHand").ToArray();
             Component[] skeletons = AllComponents(scene).Where(component =>
@@ -801,17 +818,27 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
             foreach (string property in new[]
                      {
                          "FlowController",
-                         "InstructionControls",
-                         "PreStartRoot",
-                         "StartButton",
-                         "ParticipantIdInput",
-                         "BuildIdentityInput",
-                         "ApplyIdentityButton",
-                         "StatusLabel",
-                         "ProgressLabel"
+                          "InstructionControls",
+                          "PreStartRoot",
+                          "StartButton",
+                          "StatusLabel",
+                          "ProgressLabel"
                      })
             {
                 AssertPublicReference(controls, property);
+            }
+            foreach (string property in new[]
+                     {
+                         "ParticipantIdInput",
+                         "BuildIdentityInput",
+                         "ApplyIdentityButton"
+                     })
+            {
+                Assert.That(
+                    controls.GetType().GetProperty(property)?.GetValue(controls),
+                    Is.Null,
+                    property
+                );
             }
 
             Transform startSurface = FindNamedTransform(
@@ -820,16 +847,26 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
             );
             Assert.That(startSurface, Is.Not.Null);
             foreach (string child in new[]
-                     {
-                         "Start",
-                         "ParticipantId",
-                         "BuildIdentity",
-                         "ApplyIdentity",
-                         "Status",
-                         "Progress"
+                      {
+                          "Start",
+                          "Status",
+                          "Progress"
                      })
             {
                 Assert.That(startSurface.Find(child), Is.Not.Null, child);
+            }
+            foreach (string legacyChild in new[]
+                     {
+                         "ParticipantId",
+                         "BuildIdentity",
+                         "ApplyIdentity"
+                     })
+            {
+                Assert.That(
+                    startSurface.Find(legacyChild),
+                    Is.Null,
+                    legacyChild
+                );
             }
 
             Component realControls = FindSingleComponent(
@@ -876,12 +913,6 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
             );
             start.GetComponent<RectTransform>().anchoredPosition =
                 new Vector2(137f, -311f);
-
-            Component input = FindComponentOn(
-                surface.Find("ParticipantId").gameObject,
-                "TMPro.TMP_InputField"
-            );
-            input.GetType().GetProperty("characterLimit")?.SetValue(input, 7);
 
             Component status = FindComponentOn(
                 surface.Find("Status").gameObject,
