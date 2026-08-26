@@ -336,6 +336,7 @@ namespace SignVR.Interaction.CaptureHost
         public void InvalidateHostReadiness()
         {
             readinessResponseGate.Issue();
+            hostClient?.CancelReadinessRequest();
             lastReadiness = null;
             lastReadinessMonotonic = double.NegativeInfinity;
         }

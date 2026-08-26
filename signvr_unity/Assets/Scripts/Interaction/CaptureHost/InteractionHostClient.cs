@@ -153,6 +153,7 @@ namespace SignVR.Interaction.CaptureHost
         private IInteractionHostRequestFactory requestFactory =
             InteractionUnityWebRequestFactory.Shared;
         private InteractionUnityWebRequestCancellation activeHeartbeatRequest;
+        private InteractionUnityWebRequestCancellation activeReadinessRequest;
         private bool requestLifecycleExplicitlySuspended;
         private bool destroyed;
 #if UNITY_EDITOR
@@ -168,6 +169,10 @@ namespace SignVR.Interaction.CaptureHost
         public int ActiveRequestCount => activeRequests.ActiveCount;
         internal int ActiveArtifactOperationCount =>
             artifactOperations.ActiveCount;
+#if UNITY_EDITOR
+        internal InteractionUnityWebRequestCancellation
+            ActiveReadinessRequestForTests => activeReadinessRequest;
+#endif
 
         private void Awake()
         {
@@ -247,8 +252,23 @@ namespace SignVR.Interaction.CaptureHost
         {
             requestEpoch.CloseAndAdvance();
             activeHeartbeatRequest = null;
+            activeReadinessRequest = null;
             int artifactCancellations = artifactOperations.CancelAll();
             return checked(activeRequests.CancelAll() + artifactCancellations);
+        }
+
+        internal bool CancelReadinessRequest()
+        {
+            InteractionUnityWebRequestCancellation readinessRequest =
+                activeReadinessRequest;
+            activeReadinessRequest = null;
+            if (readinessRequest == null)
+            {
+                return false;
+            }
+            activeRequests.Unregister(readinessRequest);
+            readinessRequest.Abort();
+            return true;
         }
 
         private void EnableRequestLifecycle()
@@ -284,6 +304,7 @@ namespace SignVR.Interaction.CaptureHost
             EnsureCallback(callback);
             var completion = new InteractionHostCompletion<
                 InteractionHostReadiness>(callback);
+            CancelReadinessRequest();
             if (!TryAcquireRequestLease(completion, out InteractionHostRequestLease lease))
             {
                 yield break;
@@ -306,12 +327,14 @@ namespace SignVR.Interaction.CaptureHost
             {
                 yield break;
             }
+            activeReadinessRequest = requestCancellation;
             yield return Send(
                 request,
                 requestCancellation,
                 text => InteractionHostReadiness.Parse(text),
                 completion,
-                lease
+                lease,
+                isReadiness: true
             );
         }
 
@@ -767,7 +790,8 @@ namespace SignVR.Interaction.CaptureHost
             InteractionHostCompletion<T> completion,
             InteractionHostRequestLease lease,
             bool allowEmptySuccessBody = false,
-            bool isHeartbeat = false)
+            bool isHeartbeat = false,
+            bool isReadiness = false)
         {
             if (request == null || cancellation == null)
             {
@@ -777,9 +801,13 @@ namespace SignVR.Interaction.CaptureHost
             }
             try
             {
-                if (!requestEpoch.IsCurrent(lease))
+                if (!IsRequestCurrent(lease, cancellation, isReadiness))
                 {
-                    completion.TryComplete(LifecycleFailure<T>());
+                    CompleteLifecycleFailureIfOwned(
+                        cancellation,
+                        completion,
+                        isReadiness
+                    );
                     yield break;
                 }
                 UnityWebRequestAsyncOperation operation = null;
@@ -787,14 +815,19 @@ namespace SignVR.Interaction.CaptureHost
                 {
                     bool sent = requestEpoch.TryExecute(lease, () =>
                     {
-                        if (!cancellation.IsCancelled)
+                        if (!cancellation.IsCancelled &&
+                            OwnsReadinessRequest(cancellation, isReadiness))
                         {
                             operation = request.SendWebRequest();
                         }
                     });
                     if (!sent || operation == null)
                     {
-                        completion.TryComplete(LifecycleFailure<T>());
+                        CompleteLifecycleFailureIfOwned(
+                            cancellation,
+                            completion,
+                            isReadiness
+                        );
                         yield break;
                     }
                 }
@@ -803,6 +836,8 @@ namespace SignVR.Interaction.CaptureHost
                     CompleteIfCurrent(
                         lease,
                         completion,
+                        cancellation,
+                        isReadiness,
                         new InteractionHostResult<T>(
                         false,
                         0L,
@@ -816,9 +851,13 @@ namespace SignVR.Interaction.CaptureHost
                 yield return operation;
 
                 if (cancellation.IsCancelled ||
-                    !requestEpoch.IsCurrent(lease))
+                    !IsRequestCurrent(lease, cancellation, isReadiness))
                 {
-                    completion.TryComplete(LifecycleFailure<T>());
+                    CompleteLifecycleFailureIfOwned(
+                        cancellation,
+                        completion,
+                        isReadiness
+                    );
                     yield break;
                 }
 
@@ -833,6 +872,8 @@ namespace SignVR.Interaction.CaptureHost
                     CompleteIfCurrent(
                         lease,
                         completion,
+                        cancellation,
+                        isReadiness,
                         new InteractionHostResult<T>(
                             false,
                             request.responseCode,
@@ -855,6 +896,8 @@ namespace SignVR.Interaction.CaptureHost
                     CompleteIfCurrent(
                         lease,
                         completion,
+                        cancellation,
+                        isReadiness,
                         new InteractionHostResult<T>(
                             true,
                             request.responseCode,
@@ -872,6 +915,8 @@ namespace SignVR.Interaction.CaptureHost
                     CompleteIfCurrent(
                         lease,
                         completion,
+                        cancellation,
+                        isReadiness,
                         new InteractionHostResult<T>(
                             false,
                             request.responseCode,
@@ -888,6 +933,12 @@ namespace SignVR.Interaction.CaptureHost
                 if (ReferenceEquals(activeHeartbeatRequest, cancellation))
                 {
                     activeHeartbeatRequest = null;
+                }
+                if (isReadiness && ReferenceEquals(
+                        activeReadinessRequest,
+                        cancellation))
+                {
+                    activeReadinessRequest = null;
                 }
                 activeRequests.Unregister(cancellation);
                 cancellation.Dispose();
@@ -992,11 +1043,57 @@ namespace SignVR.Interaction.CaptureHost
         private void CompleteIfCurrent<T>(
             InteractionHostRequestLease lease,
             InteractionHostCompletion<T> completion,
+            InteractionUnityWebRequestCancellation cancellation,
+            bool isReadiness,
             InteractionHostResult<T> result)
         {
+            if (!OwnsReadinessRequest(cancellation, isReadiness))
+            {
+                return;
+            }
             if (!requestEpoch.TryExecute(
                     lease,
-                    () => completion.TryComplete(result)))
+                    () =>
+                    {
+                        if (OwnsReadinessRequest(cancellation, isReadiness))
+                        {
+                            completion.TryComplete(result);
+                        }
+                    }))
+            {
+                CompleteLifecycleFailureIfOwned(
+                    cancellation,
+                    completion,
+                    isReadiness
+                );
+            }
+        }
+
+        private bool IsRequestCurrent(
+            InteractionHostRequestLease lease,
+            InteractionUnityWebRequestCancellation cancellation,
+            bool isReadiness)
+        {
+            return requestEpoch.IsCurrent(lease) &&
+                OwnsReadinessRequest(cancellation, isReadiness);
+        }
+
+        private bool OwnsReadinessRequest(
+            InteractionUnityWebRequestCancellation cancellation,
+            bool isReadiness)
+        {
+            return !isReadiness || ReferenceEquals(
+                activeReadinessRequest,
+                cancellation
+            );
+        }
+
+        private void CompleteLifecycleFailureIfOwned<T>(
+            InteractionUnityWebRequestCancellation cancellation,
+            InteractionHostCompletion<T> completion,
+            bool isReadiness)
+        {
+            if (OwnsReadinessRequest(cancellation, isReadiness))
             {
                 completion.TryComplete(LifecycleFailure<T>());
             }
@@ -1287,6 +1384,15 @@ namespace SignVR.Interaction.CaptureHost
         private UnityWebRequest request;
         private int cancelled;
         private int disposed;
+#if UNITY_EDITOR
+        private int abortCountForTests;
+        private int disposeCountForTests;
+
+        internal int AbortCountForTests =>
+            Volatile.Read(ref abortCountForTests);
+        internal int DisposeCountForTests =>
+            Volatile.Read(ref disposeCountForTests);
+#endif
 
         public InteractionUnityWebRequestCancellation(UnityWebRequest request)
         {
@@ -1302,6 +1408,9 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return;
             }
+#if UNITY_EDITOR
+            Interlocked.Increment(ref abortCountForTests);
+#endif
             UnityWebRequest owned = request;
             try
             {
@@ -1319,6 +1428,9 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return;
             }
+#if UNITY_EDITOR
+            Interlocked.Increment(ref disposeCountForTests);
+#endif
             UnityWebRequest owned = request;
             request = null;
             owned?.Dispose();

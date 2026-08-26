@@ -177,6 +177,22 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void ReadinessReplacementCancelsOnlyPreviousReadiness()
+        {
+            InvokeController(
+                nameof(ReadinessReplacementCancelsOnlyPreviousReadiness)
+            );
+        }
+
+        [Test]
+        public void ReadinessInvalidationPreservesOtherOperations()
+        {
+            InvokeController(
+                nameof(ReadinessInvalidationPreservesOtherOperations)
+            );
+        }
+
+        [Test]
         public void WriterWaitsHaveShortFiniteLimits()
         {
             Invoke(nameof(WriterWaitsHaveShortFiniteLimits));

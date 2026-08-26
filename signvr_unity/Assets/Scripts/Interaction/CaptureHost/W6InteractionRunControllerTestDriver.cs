@@ -17,6 +17,279 @@ namespace SignVR.Interaction.CaptureHost
     /// </summary>
     public static class W6InteractionRunControllerTestDriver
     {
+        public static void ReadinessReplacementCancelsOnlyPreviousReadiness()
+        {
+            GameObject owner = null;
+            InteractionHostClient host = null;
+            LocalReadinessRequestFactory requests = null;
+            IEnumerator firstOuter = null;
+            IEnumerator firstSend = null;
+            IEnumerator secondOuter = null;
+            IEnumerator secondSend = null;
+            Exception primaryFailure = null;
+            try
+            {
+                owner = new GameObject("W6 Readiness Replacement Test");
+                owner.SetActive(false);
+                host = owner.AddComponent<InteractionHostClient>();
+                requests = new LocalReadinessRequestFactory(
+                    CreateLocalReadinessRequestUrl()
+                );
+                host.InstallRequestFactoryForTests(requests);
+
+                var heartbeat = new ObservableCancelableRequest();
+                var registration = new ObservableCancelableRequest();
+                var upload = new ObservableCancelableRequest();
+                host.RegisterActiveRequestForTests(heartbeat);
+                host.RegisterActiveRequestForTests(registration);
+                host.RegisterActiveRequestForTests(upload);
+
+                int firstCallbacks = 0;
+                firstOuter = host.GetReadiness(_ => firstCallbacks++);
+                firstSend = BeginInFlightReadiness(
+                    firstOuter,
+                    "first readiness",
+                    out UnityWebRequestAsyncOperation firstOperation
+                );
+                InteractionUnityWebRequestCancellation firstCancellation =
+                    host.ActiveReadinessRequestForTests;
+                W6InteractionCaptureHostTestDriver.Require(
+                    firstOperation != null && firstCancellation != null &&
+                    ReferenceEquals(
+                        firstOperation.webRequest,
+                        requests.LastGetRequest
+                    ) && firstCancellation.AbortCountForTests == 0 &&
+                    firstCancellation.DisposeCountForTests == 0 &&
+                    host.ActiveRequestCount == 4,
+                    "First readiness did not enter a real owned web request."
+                );
+
+                int secondCallbacks = 0;
+                secondOuter = host.GetReadiness(_ => secondCallbacks++);
+                secondSend = BeginInFlightReadiness(
+                    secondOuter,
+                    "replacement readiness",
+                    out UnityWebRequestAsyncOperation secondOperation
+                );
+                InteractionUnityWebRequestCancellation secondCancellation =
+                    host.ActiveReadinessRequestForTests;
+                W6InteractionCaptureHostTestDriver.Require(
+                    secondOperation != null && secondCancellation != null &&
+                    !ReferenceEquals(firstCancellation, secondCancellation) &&
+                    firstCancellation.AbortCountForTests == 1 &&
+                    firstCancellation.DisposeCountForTests == 1 &&
+                    ReferenceEquals(
+                        secondOperation.webRequest,
+                        requests.LastGetRequest
+                    ) && requests.CreateGetCount == 2 &&
+                    host.ActiveRequestCount == 4 &&
+                    heartbeat.AbortCount == 0 &&
+                    registration.AbortCount == 0 &&
+                    upload.AbortCount == 0,
+                    "Replacing readiness cancelled unrelated Host operations."
+                );
+
+                W6InteractionCaptureHostTestDriver.Require(
+                    !firstSend.MoveNext() && firstCallbacks == 0 &&
+                    firstCancellation.AbortCountForTests == 1 &&
+                    firstCancellation.DisposeCountForTests == 1,
+                    "A replaced in-flight readiness published a stale result."
+                );
+                W6InteractionCaptureHostTestDriver.Require(
+                    ReferenceEquals(
+                        host.ActiveReadinessRequestForTests,
+                        secondCancellation
+                    ) && secondCancellation.AbortCountForTests == 0 &&
+                    secondCancellation.DisposeCountForTests == 0 &&
+                    host.ActiveRequestCount == 4,
+                    "The replacement readiness was not retained for completion."
+                );
+                W6InteractionCaptureHostTestDriver.Require(
+                    host.CancelReadinessRequest() &&
+                    host.ActiveRequestCount == 3 &&
+                    secondCancellation.AbortCountForTests == 1 &&
+                    secondCancellation.DisposeCountForTests == 1 &&
+                    heartbeat.AbortCount == 0 &&
+                    registration.AbortCount == 0 &&
+                    upload.AbortCount == 0,
+                    "The replacement readiness did not retain exclusive slot ownership."
+                );
+                W6InteractionCaptureHostTestDriver.Require(
+                    !secondSend.MoveNext() && secondCallbacks == 0 &&
+                    secondCancellation.AbortCountForTests == 1 &&
+                    secondCancellation.DisposeCountForTests == 1,
+                    "Explicit readiness cancellation published a stale completion."
+                );
+                W6InteractionCaptureHostTestDriver.Require(
+                    host.CancelActiveRequests() == 3 &&
+                    heartbeat.AbortCount == 1 &&
+                    registration.AbortCount == 1 &&
+                    upload.AbortCount == 1,
+                    "Unrelated Host operations did not retain lifecycle ownership."
+                );
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = exception;
+                throw;
+            }
+            finally
+            {
+                var failures = new List<Exception>();
+                TryDriverCleanup(
+                    failures,
+                    "cancel replacement Host requests",
+                    () => host?.CancelActiveRequests()
+                );
+                TryDriverCleanup(
+                    failures,
+                    "dispose first readiness Send",
+                    () => (firstSend as IDisposable)?.Dispose()
+                );
+                TryDriverCleanup(
+                    failures,
+                    "dispose second readiness Send",
+                    () => (secondSend as IDisposable)?.Dispose()
+                );
+                TryDriverCleanup(
+                    failures,
+                    "dispose first readiness envelope",
+                    () => (firstOuter as IDisposable)?.Dispose()
+                );
+                TryDriverCleanup(
+                    failures,
+                    "dispose second readiness envelope",
+                    () => (secondOuter as IDisposable)?.Dispose()
+                );
+                TryDriverCleanup(failures, "destroy readiness fixture", () =>
+                {
+                    if (owner != null)
+                    {
+                        UnityEngine.Object.DestroyImmediate(owner);
+                    }
+                });
+                FinishDriverCleanup(
+                    primaryFailure,
+                    failures,
+                    "in-memory readiness replacement fixture"
+                );
+            }
+        }
+
+        public static void ReadinessInvalidationPreservesOtherOperations()
+        {
+            GameObject owner = null;
+            InteractionHostClient host = null;
+            LocalReadinessRequestFactory requests = null;
+            IEnumerator readinessOuter = null;
+            IEnumerator readinessSend = null;
+            Exception primaryFailure = null;
+            try
+            {
+                owner = new GameObject("W6 Readiness Invalidation Test");
+                owner.SetActive(false);
+                host = owner.AddComponent<InteractionHostClient>();
+                InteractionRunController controller =
+                    owner.AddComponent<InteractionRunController>();
+                requests = new LocalReadinessRequestFactory(
+                    CreateLocalReadinessRequestUrl()
+                );
+                host.InstallRequestFactoryForTests(requests);
+                controller.ConfigureHostClient(host);
+
+                var heartbeat = new ObservableCancelableRequest();
+                var registration = new ObservableCancelableRequest();
+                var upload = new ObservableCancelableRequest();
+                host.RegisterActiveRequestForTests(heartbeat);
+                host.RegisterActiveRequestForTests(registration);
+                host.RegisterActiveRequestForTests(upload);
+
+                int callbacks = 0;
+                readinessOuter = host.GetReadiness(_ => callbacks++);
+                readinessSend = BeginInFlightReadiness(
+                    readinessOuter,
+                    "invalidated readiness",
+                    out UnityWebRequestAsyncOperation readinessOperation
+                );
+                InteractionUnityWebRequestCancellation readinessCancellation =
+                    host.ActiveReadinessRequestForTests;
+                W6InteractionCaptureHostTestDriver.Require(
+                    readinessOperation != null &&
+                    readinessCancellation != null &&
+                    ReferenceEquals(
+                        readinessOperation.webRequest,
+                        requests.LastGetRequest
+                    ) && requests.CreateGetCount == 1 &&
+                    readinessCancellation.AbortCountForTests == 0 &&
+                    readinessCancellation.DisposeCountForTests == 0 &&
+                    host.ActiveRequestCount == 4,
+                    "Invalidation fixture did not enter an owned web request."
+                );
+
+                controller.InvalidateHostReadiness();
+                W6InteractionCaptureHostTestDriver.Require(
+                    host.ActiveRequestCount == 3 &&
+                    readinessCancellation.AbortCountForTests == 1 &&
+                    readinessCancellation.DisposeCountForTests == 1 &&
+                    heartbeat.AbortCount == 0 &&
+                    registration.AbortCount == 0 &&
+                    upload.AbortCount == 0 &&
+                    !host.CancelReadinessRequest(),
+                    "Readiness invalidation cancelled or retained unrelated Host work."
+                );
+                W6InteractionCaptureHostTestDriver.Require(
+                    !readinessSend.MoveNext() && callbacks == 0 &&
+                    readinessCancellation.AbortCountForTests == 1 &&
+                    readinessCancellation.DisposeCountForTests == 1 &&
+                    host.ActiveRequestCount == 3,
+                    "An invalidated readiness published a stale result."
+                );
+                W6InteractionCaptureHostTestDriver.Require(
+                    host.CancelActiveRequests() == 3 &&
+                    heartbeat.AbortCount == 1 &&
+                    registration.AbortCount == 1 &&
+                    upload.AbortCount == 1,
+                    "Invalidation removed other requests from lifecycle ownership."
+                );
+            }
+            catch (Exception exception)
+            {
+                primaryFailure = exception;
+                throw;
+            }
+            finally
+            {
+                var failures = new List<Exception>();
+                TryDriverCleanup(
+                    failures,
+                    "cancel invalidation Host requests",
+                    () => host?.CancelActiveRequests()
+                );
+                TryDriverCleanup(
+                    failures,
+                    "dispose invalidated readiness Send",
+                    () => (readinessSend as IDisposable)?.Dispose()
+                );
+                TryDriverCleanup(
+                    failures,
+                    "dispose invalidated readiness envelope",
+                    () => (readinessOuter as IDisposable)?.Dispose()
+                );
+                TryDriverCleanup(failures, "destroy invalidation fixture", () =>
+                {
+                    if (owner != null)
+                    {
+                        UnityEngine.Object.DestroyImmediate(owner);
+                    }
+                });
+                FinishDriverCleanup(
+                    primaryFailure,
+                    failures,
+                    "in-memory readiness invalidation fixture"
+                );
+            }
+        }
+
         public static void CompletedSealRejectsAbortThroughController()
         {
             string root = W6InteractionCaptureHostTestDriver
@@ -1737,14 +2010,97 @@ namespace SignVR.Interaction.CaptureHost
             return count;
         }
 
+        private static IEnumerator BeginInFlightReadiness(
+            IEnumerator outer,
+            string description,
+            out UnityWebRequestAsyncOperation operation)
+        {
+            bool began = outer != null && outer.MoveNext();
+            IEnumerator send = began ? outer.Current as IEnumerator : null;
+            W6InteractionCaptureHostTestDriver.Require(
+                began && send != null,
+                "Host did not create the " + description + " request."
+            );
+            bool sent = send.MoveNext();
+            operation = sent
+                ? send.Current as UnityWebRequestAsyncOperation
+                : null;
+            W6InteractionCaptureHostTestDriver.Require(
+                sent && operation != null,
+                "Host did not send the " + description + " request."
+            );
+            return send;
+        }
+
+        private static string CreateLocalReadinessRequestUrl()
+        {
+            string sourcePath = Path.Combine(
+                Application.dataPath,
+                "Scripts",
+                "Interaction",
+                "CaptureHost",
+                "InteractionHostClient.cs"
+            );
+            W6InteractionCaptureHostTestDriver.Require(
+                File.Exists(sourcePath),
+                "Local readiness request fixture is unavailable."
+            );
+            return new Uri(sourcePath).AbsoluteUri;
+        }
+
         private sealed class ObservableCancelableRequest :
             IInteractionCancelableRequest
         {
-            public bool WasAborted { get; private set; }
+            public int AbortCount { get; private set; }
+            public bool WasAborted => AbortCount > 0;
 
             public void Abort()
             {
-                WasAborted = true;
+                AbortCount++;
+            }
+        }
+
+        private sealed class LocalReadinessRequestFactory :
+            IInteractionHostRequestFactory
+        {
+            private readonly string localUrl;
+
+            public LocalReadinessRequestFactory(string localUrl)
+            {
+                this.localUrl = localUrl ??
+                    throw new ArgumentNullException(nameof(localUrl));
+            }
+
+            public int CreateGetCount { get; private set; }
+            public UnityWebRequest LastGetRequest { get; private set; }
+
+            public UnityWebRequest CreateGet(string url)
+            {
+                CreateGetCount++;
+                LastGetRequest = UnityWebRequest.Get(localUrl);
+                return LastGetRequest;
+            }
+
+            public UnityWebRequest CreateBody(
+                string url,
+                string method,
+                byte[] bytes,
+                string contentType)
+            {
+                throw new InvalidOperationException(
+                    "Readiness fixture must not create a body request."
+                );
+            }
+
+            public UnityWebRequest CreateFileBody(
+                string url,
+                string method,
+                string path,
+                string contentType)
+            {
+                throw new InvalidOperationException(
+                    "Readiness fixture must not create a file request."
+                );
             }
         }
 
