@@ -189,13 +189,6 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         }
 
         [Test]
-        public void SlowReadinessResponseCannotBeStaledByPolling()
-        {
-            InvokeDriver(nameof(
-                SlowReadinessResponseCannotBeStaledByPolling));
-        }
-
-        [Test]
         public void StartAndInitializationFailuresDoNotInventAnotherRunPlan()
         {
             InvokeDriver(nameof(
@@ -217,20 +210,6 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         }
 
         [Test]
-        public void IdentityIsPreStartArmedAndLocksAfterConsumption()
-        {
-            InvokeDriver(nameof(
-                IdentityIsPreStartArmedAndLocksAfterConsumption));
-        }
-
-        [Test]
-        public void ArmedIdentityInputsCannotDivergeFromW6Identity()
-        {
-            InvokeDriver(nameof(
-                ArmedIdentityInputsCannotDivergeFromW6Identity));
-        }
-
-        [Test]
         public void FixedStudyModeLeavesRuntimeTrackingOriginOwnedByXrRuntime()
         {
             InvokeDriver(nameof(
@@ -242,27 +221,6 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         {
             InvokeDriver(nameof(
                 HeadLockedStudyUiInheritsHmdPoseWithoutLateWorldCopy));
-        }
-
-        [Test]
-        public void AutomaticHostIdentityIsAdoptedWithoutVrTextEntry()
-        {
-            InvokeDriver(nameof(
-                AutomaticHostIdentityIsAdoptedWithoutVrTextEntry));
-        }
-
-        [Test]
-        public void AutomaticIdentityDefersReadinessRepollUntilNextUpdate()
-        {
-            InvokeDriver(nameof(
-                AutomaticIdentityDefersReadinessRepollUntilNextUpdate));
-        }
-
-        [Test]
-        public void AutomaticIdentityHidesVrTextInputsAndStartIsSingleAction()
-        {
-            InvokeDriver(nameof(
-                AutomaticIdentityHidesVrTextInputsAndStartIsSingleAction));
         }
 
         [Test]

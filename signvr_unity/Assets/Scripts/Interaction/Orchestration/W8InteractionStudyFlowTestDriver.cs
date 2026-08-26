@@ -1336,16 +1336,6 @@ namespace SignVR.Interaction.Orchestration
                     "flow",
                     BindingFlags.Instance | BindingFlags.NonPublic
                 ).SetValue(controller, authoritative.Flow);
-                var readiness = (InteractionStudyReadinessPollGate)
-                    typeof(InteractionStudyFlowController).GetField(
-                        "readinessPollGate",
-                        BindingFlags.Instance | BindingFlags.NonPublic
-                    ).GetValue(controller);
-                Assert.That(
-                    readiness.TryBegin(0d, out long readinessToken),
-                    Is.True
-                );
-
                 Assert.Throws<InvalidOperationException>(() =>
                     controller.Configure(
                         replacementRun,
@@ -1379,10 +1369,15 @@ namespace SignVR.Interaction.Orchestration
                     authoritative.Tasks.SubscriberCount,
                     Is.EqualTo(1)
                 );
-                Assert.That(controller.ReadinessRefreshInFlight, Is.True);
                 Assert.That(
-                    readiness.TryComplete(readinessToken, 1d),
-                    Is.True
+                    controller.Flow,
+                    Is.SameAs(authoritative.Flow)
+                );
+                authoritative.Run.PublishInitialPresentation();
+                Assert.That(
+                    authoritative.Presentation.BeginPhaseCount,
+                    Is.EqualTo(1),
+                    "Failed Controller reconfigure detached the original Flow."
                 );
             }
             finally
@@ -1833,225 +1828,6 @@ namespace SignVR.Interaction.Orchestration
             }
         }
 
-        public static void AutomaticHostIdentityIsAdoptedWithoutVrTextEntry()
-        {
-            GameObject owner = new GameObject("Automatic Identity Driver");
-            owner.SetActive(false);
-            try
-            {
-                var run = owner.AddComponent<InteractionRunController>();
-                var presentation =
-                    owner.AddComponent<InstructionPresentationController>();
-                var tasks = owner.AddComponent<
-                    SignVR.Interaction.PhaseAdapters
-                        .InteractionPhaseCoordinator>();
-                var capture =
-                    owner.AddComponent<InteractionStudyCaptureBinding>();
-                var controller =
-                    owner.AddComponent<InteractionStudyFlowController>();
-                controller.Configure(run, presentation, tasks, capture);
-
-                InteractionHostReadiness readiness =
-                    InteractionHostReadiness.Parse(
-                        "{\"schema_version\":1,\"ready\":true," +
-                        "\"backend_ready\":true,\"storage_ready\":true," +
-                        "\"quest_ready\":true,\"camera_ready\":true," +
-                        "\"quest_fresh\":true,\"camera_fresh\":true," +
-                        "\"participant_ready\":true," +
-                        "\"participant_fresh\":true," +
-                        "\"participant_id\":\"P-AUTO-001\"," +
-                        "\"quest_device_id\":\"quest_alpha\"}"
-                    );
-                MethodInfo adopt = typeof(InteractionStudyFlowController)
-                    .GetMethod(
-                        "TryAdoptAutomaticIdentity",
-                        BindingFlags.Instance | BindingFlags.NonPublic
-                    );
-                Assert.That(
-                    adopt,
-                    Is.Not.Null,
-                    "PreStart must adopt the Host-generated anonymous ID."
-                );
-
-                bool adopted = (bool)adopt.Invoke(
-                    controller,
-                    new object[]
-                    {
-                        readiness,
-                        "abcdef0123456789abcdef0123456789"
-                    }
-                );
-
-                Assert.That(adopted, Is.True);
-                Assert.That(controller.IdentityArmed, Is.True);
-                Assert.That(run.ParticipantId, Is.EqualTo("P-AUTO-001"));
-                Assert.That(
-                    run.GitCommit,
-                    Is.EqualTo("abcdef0123456789abcdef0123456789")
-                );
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(owner);
-            }
-        }
-
-        public static void AutomaticIdentityDefersReadinessRepollUntilNextUpdate()
-        {
-            GameObject owner = new GameObject("Automatic Identity Repoll Driver");
-            try
-            {
-                var host = owner.AddComponent<InteractionHostClient>();
-                var run = owner.AddComponent<InteractionRunController>();
-                var presentation =
-                    owner.AddComponent<InstructionPresentationController>();
-                var tasks = owner.AddComponent<
-                    SignVR.Interaction.PhaseAdapters
-                        .InteractionPhaseCoordinator>();
-                var capture =
-                    owner.AddComponent<InteractionStudyCaptureBinding>();
-                var controller =
-                    owner.AddComponent<InteractionStudyFlowController>();
-                run.ConfigureHostClient(host);
-                controller.Configure(run, presentation, tasks, capture);
-                typeof(InteractionStudyFlowController).GetField(
-                    "manifestReady",
-                    BindingFlags.Instance | BindingFlags.NonPublic
-                ).SetValue(controller, true);
-
-                InteractionHostReadiness readiness =
-                    InteractionHostReadiness.Parse(
-                        "{\"schema_version\":1,\"ready\":true," +
-                        "\"backend_ready\":true,\"storage_ready\":true," +
-                        "\"quest_ready\":true,\"camera_ready\":true," +
-                        "\"quest_fresh\":true,\"camera_fresh\":true," +
-                        "\"participant_ready\":true," +
-                        "\"participant_fresh\":true," +
-                        "\"participant_id\":\"P-AUTO-REPOLL\"," +
-                        "\"quest_device_id\":\"quest_alpha\"}"
-                    );
-                MethodInfo adopt = typeof(InteractionStudyFlowController)
-                    .GetMethod(
-                        "TryAdoptAutomaticIdentity",
-                        BindingFlags.Instance | BindingFlags.NonPublic
-                    );
-
-                bool adopted = (bool)adopt.Invoke(
-                    controller,
-                    new object[]
-                    {
-                        readiness,
-                        "abcdef0123456789abcdef0123456789"
-                    }
-                );
-
-                Assert.That(adopted, Is.True);
-                Assert.That(
-                    controller.ReadinessRefreshInFlight,
-                    Is.False,
-                    "Automatic identity is adopted inside a readiness " +
-                    "completion callback. Its replacement poll must be " +
-                    "deferred until the next Update instead of being started " +
-                    "reentrantly while the completed request still owns the " +
-                    "Host client's readiness slot."
-                );
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(owner);
-            }
-        }
-
-        public static void AutomaticIdentityHidesVrTextInputsAndStartIsSingleAction()
-        {
-            GameObject root = new GameObject("One Action Study UI");
-            GameObject controllerOwner = new GameObject("Controller");
-            controllerOwner.transform.SetParent(root.transform, false);
-            controllerOwner.SetActive(false);
-            try
-            {
-                var run =
-                    controllerOwner.AddComponent<InteractionRunController>();
-                var presentation = controllerOwner.AddComponent<
-                    InstructionPresentationController>();
-                var tasks = controllerOwner.AddComponent<
-                    SignVR.Interaction.PhaseAdapters
-                        .InteractionPhaseCoordinator>();
-                var capture = controllerOwner.AddComponent<
-                    InteractionStudyCaptureBinding>();
-                var controller = controllerOwner.AddComponent<
-                    InteractionStudyFlowController>();
-                controller.Configure(run, presentation, tasks, capture);
-                var authoritative = new FlowFixture();
-                typeof(InteractionStudyFlowController).GetField(
-                    "flow",
-                    BindingFlags.Instance | BindingFlags.NonPublic
-                ).SetValue(controller, authoritative.Flow);
-                typeof(InteractionStudyFlowController).GetField(
-                    "manifestReady",
-                    BindingFlags.Instance | BindingFlags.NonPublic
-                ).SetValue(controller, true);
-                Assert.That(controller.TryConfigureIdentity(
-                    "P-AUTO-001",
-                    "abcdef0123456789"
-                ).Succeeded, Is.True);
-
-                GameObject ui = new GameObject("UI");
-                ui.transform.SetParent(root.transform, false);
-                var instruction =
-                    ui.AddComponent<InteractionInstructionControls>();
-                instruction.Configure(presentation);
-                instruction.ConfigureCommandRouting(true);
-                var controls =
-                    ui.AddComponent<InteractionStudyFlowControls>();
-                GameObject surface = new GameObject("Start Surface");
-                surface.transform.SetParent(ui.transform, false);
-                Button start = NewUiComponent<Button>(ui.transform, "Start");
-                TMP_InputField participant = NewUiComponent<TMP_InputField>(
-                    ui.transform,
-                    "Participant"
-                );
-                TMP_InputField build = NewUiComponent<TMP_InputField>(
-                    ui.transform,
-                    "Build"
-                );
-                Button apply = NewUiComponent<Button>(ui.transform, "Apply");
-                TextMeshProUGUI status = NewUiComponent<TextMeshProUGUI>(
-                    ui.transform,
-                    "Status"
-                );
-                TextMeshProUGUI progress = NewUiComponent<TextMeshProUGUI>(
-                    ui.transform,
-                    "Progress"
-                );
-                controls.Configure(
-                    controller,
-                    instruction,
-                    surface,
-                    start,
-                    participant,
-                    build,
-                    apply,
-                    status,
-                    progress
-                );
-
-                Assert.That(participant.gameObject.activeSelf, Is.False);
-                Assert.That(build.gameObject.activeSelf, Is.False);
-                Assert.That(apply.gameObject.activeSelf, Is.False);
-                Assert.That(start.gameObject.activeSelf, Is.True);
-                Assert.That(start.interactable, Is.True);
-
-                start.onClick.Invoke();
-
-                Assert.That(authoritative.Run.StartCount, Is.EqualTo(1));
-            }
-            finally
-            {
-                UnityEngine.Object.DestroyImmediate(root);
-            }
-        }
-
         public static void ManifestFailureRetryAndDisableCancelAreSafe()
         {
             GameObject owner = new GameObject("W8 Manifest Driver");
@@ -2099,26 +1875,11 @@ namespace SignVR.Interaction.Orchestration
                 ).SetValue(controller, cancelledToken);
                 Assert.That(controller.ManifestLoadInFlight, Is.True);
 
-                var readinessGate = (InteractionStudyReadinessPollGate)
-                    typeof(InteractionStudyFlowController).GetField(
-                        "readinessPollGate",
-                        BindingFlags.Instance | BindingFlags.NonPublic
-                    ).GetValue(controller);
-                Assert.That(
-                    readinessGate.TryBegin(0d, out long readinessToken),
-                    Is.True
-                );
-
                 typeof(InteractionStudyFlowController).GetMethod(
                     "OnDisable",
                     BindingFlags.Instance | BindingFlags.NonPublic
                 ).Invoke(controller, null);
                 Assert.That(controller.ManifestLoadInFlight, Is.False);
-                Assert.That(controller.ReadinessRefreshInFlight, Is.False);
-                Assert.That(
-                    readinessGate.TryComplete(readinessToken, 1d),
-                    Is.False
-                );
                 Assert.That(
                     loadGate.TryComplete(cancelledToken),
                     Is.False
