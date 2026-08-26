@@ -1628,9 +1628,6 @@ namespace SignVR.Interaction.Orchestration
                     instruction,
                     surface,
                     start,
-                    participant,
-                    build,
-                    apply,
                     status,
                     progress
                 );
@@ -1703,9 +1700,6 @@ namespace SignVR.Interaction.Orchestration
                     replacement,
                     surface,
                     start,
-                    participant,
-                    build,
-                    apply,
                     status,
                     progress
                 );

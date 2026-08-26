@@ -567,9 +567,6 @@ namespace SignVR.Editor.Interaction
             );
             SetObjectReference(controls, "preStartRoot", surface);
             SetObjectReference(controls, "startButton", start);
-            SetObjectReference(controls, "participantIdInput", null);
-            SetObjectReference(controls, "buildIdentityInput", null);
-            SetObjectReference(controls, "applyIdentityButton", null);
             SetObjectReference(controls, "statusLabel", status);
             SetObjectReference(controls, "progressLabel", progress);
             SetBoolean(instructionControls, "requireCommandSink", true);
@@ -761,16 +758,12 @@ namespace SignVR.Editor.Interaction
                 controls.InstructionControls != instructionControls ||
                 controls.PreStartRoot != surface ||
                 controls.StartButton == null ||
-                controls.ParticipantIdInput != null ||
-                controls.BuildIdentityInput != null ||
-                controls.ApplyIdentityButton != null ||
                 controls.StatusLabel == null ||
                 controls.ProgressLabel == null ||
                 !controls.enabled))
             {
                 failures.Add(
-                    "W8 standalone Start/status controls are incomplete, " +
-                    "disabled, or still reference legacy identity widgets."
+                    "W8 standalone Start/status controls are incomplete or disabled."
                 );
             }
             if (surface != null && (

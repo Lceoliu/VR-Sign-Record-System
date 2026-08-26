@@ -128,15 +128,6 @@ namespace SignVR.Interaction.Orchestration
         private Button startButton;
 
         [SerializeField]
-        private TMP_InputField participantIdInput;
-
-        [SerializeField]
-        private TMP_InputField buildIdentityInput;
-
-        [SerializeField]
-        private Button applyIdentityButton;
-
-        [SerializeField]
         private TMP_Text statusLabel;
 
         [SerializeField]
@@ -153,9 +144,6 @@ namespace SignVR.Interaction.Orchestration
             instructionControls;
         public GameObject PreStartRoot => preStartRoot;
         public Button StartButton => startButton;
-        public TMP_InputField ParticipantIdInput => participantIdInput;
-        public TMP_InputField BuildIdentityInput => buildIdentityInput;
-        public Button ApplyIdentityButton => applyIdentityButton;
         public TMP_Text StatusLabel => statusLabel;
         public TMP_Text ProgressLabel => progressLabel;
 
@@ -179,9 +167,6 @@ namespace SignVR.Interaction.Orchestration
             InteractionInstructionControls existingInstructionControls,
             GameObject startSurface,
             Button start,
-            TMP_InputField participantInput,
-            TMP_InputField buildInput,
-            Button applyIdentity,
             TMP_Text status,
             TMP_Text progress)
         {
@@ -213,9 +198,6 @@ namespace SignVR.Interaction.Orchestration
                 instructionControls;
             GameObject oldPreStartRoot = preStartRoot;
             Button oldStartButton = startButton;
-            TMP_InputField oldParticipantInput = participantIdInput;
-            TMP_InputField oldBuildInput = buildIdentityInput;
-            Button oldApplyIdentity = applyIdentityButton;
             TMP_Text oldStatus = statusLabel;
             TMP_Text oldProgress = progressLabel;
             bool restoreBinding = bound;
@@ -225,9 +207,6 @@ namespace SignVR.Interaction.Orchestration
             instructionControls = validatedInstructionControls;
             preStartRoot = validatedStartSurface;
             startButton = validatedStart;
-            participantIdInput = participantInput;
-            buildIdentityInput = buildInput;
-            applyIdentityButton = applyIdentity;
             statusLabel = validatedStatus;
             progressLabel = validatedProgress;
             try
@@ -242,9 +221,6 @@ namespace SignVR.Interaction.Orchestration
                 instructionControls = oldInstructionControls;
                 preStartRoot = oldPreStartRoot;
                 startButton = oldStartButton;
-                participantIdInput = oldParticipantInput;
-                buildIdentityInput = oldBuildInput;
-                applyIdentityButton = oldApplyIdentity;
                 statusLabel = oldStatus;
                 progressLabel = oldProgress;
                 if (restoreBinding)
@@ -378,21 +354,6 @@ namespace SignVR.Interaction.Orchestration
                         : "正在准备…";
                 }
             }
-            if (participantIdInput != null)
-            {
-                participantIdInput.interactable = false;
-                participantIdInput.gameObject.SetActive(false);
-            }
-            if (buildIdentityInput != null)
-            {
-                buildIdentityInput.interactable = false;
-                buildIdentityInput.gameObject.SetActive(false);
-            }
-            if (applyIdentityButton != null)
-            {
-                applyIdentityButton.interactable = false;
-                applyIdentityButton.gameObject.SetActive(false);
-            }
             ApplyParticipantOnlyLayout();
             if (statusLabel != null)
             {
@@ -455,13 +416,13 @@ namespace SignVR.Interaction.Orchestration
         {
             if (startButton?.transform is RectTransform startRect)
             {
-                startRect.anchoredPosition = new Vector2(0f, 65f);
+                startRect.anchoredPosition = new Vector2(0f, 70f);
                 startRect.sizeDelta = new Vector2(520f, 110f);
             }
             if (statusLabel?.rectTransform != null)
             {
                 statusLabel.rectTransform.anchoredPosition =
-                    new Vector2(0f, -85f);
+                    new Vector2(0f, -55f);
                 statusLabel.rectTransform.sizeDelta =
                     new Vector2(700f, 150f);
             }

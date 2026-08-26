@@ -785,20 +785,6 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
             {
                 AssertPublicReference(controls, property);
             }
-            foreach (string property in new[]
-                     {
-                         "ParticipantIdInput",
-                         "BuildIdentityInput",
-                         "ApplyIdentityButton"
-                     })
-            {
-                Assert.That(
-                    controls.GetType().GetProperty(property)?.GetValue(controls),
-                    Is.Null,
-                    property
-                );
-            }
-
             Transform startSurface = FindNamedTransform(
                 scene,
                 "W8StudyStartSurface"
