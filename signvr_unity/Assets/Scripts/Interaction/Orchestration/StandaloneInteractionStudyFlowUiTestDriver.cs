@@ -1,5 +1,6 @@
 #if UNITY_EDITOR || UNITY_INCLUDE_TESTS
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using SignVR.Interaction.CaptureHost;
@@ -7,6 +8,7 @@ using SignVR.Interaction.Core;
 using SignVR.Interaction.Presentation;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace SignVR.Interaction.Orchestration
@@ -171,6 +173,149 @@ namespace SignVR.Interaction.Orchestration
                 "Successive Runs reused run_id."
             );
             fixture.Flow.Dispose();
+        }
+
+        public static IEnumerator RecreatedControllersShareApplicationSessionButNotRunId()
+        {
+            Require(
+                Application.isPlaying,
+                "This regression must exercise the live application session."
+            );
+
+            GameObject firstOwner = null;
+            GameObject secondOwner = null;
+            var firstFixture = new FlowFixture(
+                Guid.Parse("10101010-1111-2222-3333-444444444444")
+            );
+            var secondFixture = new FlowFixture(
+                Guid.Parse("20202020-1111-2222-3333-444444444444")
+            );
+            try
+            {
+                firstOwner = NewInactiveOwner(
+                    "PlayMode First Application Session Controller"
+                );
+                var firstController = firstOwner.AddComponent<
+                    InteractionStudyFlowController>();
+                ParticipantSession firstSession =
+                    firstController.EnsureParticipantSessionForTests(
+                        () => NewSession(
+                            "31313131-2222-3333-4444-555555555555"
+                        )
+                    );
+                firstFixture.Run.ParticipantId = firstSession.ParticipantId;
+                firstController.InstallStandaloneStateForTests(
+                    firstFixture.Flow,
+                    manifestIsReady: true,
+                    recoveryIsComplete: true,
+                    session: firstSession
+                );
+                firstOwner.SetActive(true);
+
+                Require(
+                    firstController.TryStart().Succeeded,
+                    "The first reconstructed Controller could not start."
+                );
+                string participantId = firstController.ParticipantSessionId;
+                string firstRunId = firstFixture.Run.Plan.RunId;
+
+                UnityEngine.Object.Destroy(firstOwner);
+                yield return null;
+                Require(
+                    firstOwner == null,
+                    "The first Controller was not destroyed before recreation."
+                );
+                firstOwner = null;
+
+                secondOwner = NewInactiveOwner(
+                    "PlayMode Recreated Application Session Controller"
+                );
+                var secondController = secondOwner.AddComponent<
+                    InteractionStudyFlowController>();
+                int replacementFactoryCalls = 0;
+                ParticipantSession secondSession =
+                    secondController.EnsureParticipantSessionForTests(() =>
+                    {
+                        replacementFactoryCalls++;
+                        return NewSession(
+                            "41414141-2222-3333-4444-555555555555"
+                        );
+                    });
+                secondFixture.Run.ParticipantId = secondSession.ParticipantId;
+                secondController.InstallStandaloneStateForTests(
+                    secondFixture.Flow,
+                    manifestIsReady: true,
+                    recoveryIsComplete: true,
+                    session: secondSession
+                );
+                secondOwner.SetActive(true);
+
+                Require(
+                    secondController.TryStart().Succeeded,
+                    "The recreated Controller could not start."
+                );
+                string secondRunId = secondFixture.Run.Plan.RunId;
+
+                Require(
+                    replacementFactoryCalls == 0,
+                    "Recreating the Controller replaced the application " +
+                        "Participant Session."
+                );
+                Require(
+                    ReferenceEquals(firstSession, secondSession),
+                    "Recreated Controllers did not share the same " +
+                        "ParticipantSession instance."
+                );
+                Require(
+                    string.Equals(
+                        participantId,
+                        secondController.ParticipantSessionId,
+                        StringComparison.Ordinal
+                    ),
+                    "Recreated Controllers did not reuse participant_id."
+                );
+                Require(
+                    string.Equals(
+                        firstFixture.Run.Plan.ParticipantId,
+                        secondFixture.Run.Plan.ParticipantId,
+                        StringComparison.Ordinal
+                    ) && string.Equals(
+                        firstFixture.Run.Plan.ParticipantId,
+                        participantId,
+                        StringComparison.Ordinal
+                    ),
+                    "Independent Runs did not retain the application " +
+                        "participant_id."
+                );
+                Require(
+                    !string.IsNullOrWhiteSpace(firstRunId) &&
+                        !string.IsNullOrWhiteSpace(secondRunId),
+                    "An independently started Run did not receive run_id."
+                );
+                Require(
+                    !string.Equals(
+                        firstRunId,
+                        secondRunId,
+                        StringComparison.Ordinal
+                    ),
+                    "Independent Runs reused run_id across Controllers."
+                );
+
+                UnityEngine.Object.Destroy(secondOwner);
+                yield return null;
+                secondOwner = null;
+            }
+            finally
+            {
+                if (firstOwner != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(firstOwner);
+                }
+                if (secondOwner != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(secondOwner);
+                }
+            }
         }
 
         public static void SuccessfulStartDoesNotReturnImmediatelyToPreStart()
@@ -374,6 +519,254 @@ namespace SignVR.Interaction.Orchestration
             }
         }
 
+        public static IEnumerator WorldSpaceStartButtonRaycastClicksExactlyOnce()
+        {
+            var fixture = new FlowFixture();
+            GameObject canvasOwner = null;
+            GameObject cameraOwner = null;
+            GameObject eventSystemOwner = null;
+            try
+            {
+                EventSystem eventSystem = EventSystem.current;
+                if (eventSystem == null)
+                {
+                    eventSystemOwner = new GameObject(
+                        "PlayMode Study EventSystem",
+                        typeof(EventSystem)
+                    );
+                    eventSystem = eventSystemOwner.GetComponent<EventSystem>();
+                }
+
+                cameraOwner = new GameObject(
+                    "PlayMode Study UI Camera",
+                    typeof(Camera)
+                );
+                Camera eventCamera = cameraOwner.GetComponent<Camera>();
+                int activeDisplay = ResolveActiveEditorGameViewTarget();
+                eventCamera.targetDisplay = activeDisplay;
+                eventCamera.transform.position = new Vector3(0f, 0f, -10f);
+                eventCamera.transform.rotation = Quaternion.identity;
+
+                canvasOwner = new GameObject(
+                    "PlayMode World-Space Study Canvas",
+                    typeof(RectTransform),
+                    typeof(Canvas),
+                    typeof(GraphicRaycaster)
+                );
+                canvasOwner.SetActive(false);
+                var canvas = canvasOwner.GetComponent<Canvas>();
+                canvas.renderMode = RenderMode.WorldSpace;
+                canvas.targetDisplay = activeDisplay;
+                canvas.worldCamera = eventCamera;
+                GraphicRaycaster raycaster =
+                    canvasOwner.GetComponent<GraphicRaycaster>();
+                raycaster.ignoreReversedGraphics = false;
+                var canvasRect = (RectTransform)canvasOwner.transform;
+                canvasRect.sizeDelta = new Vector2(800f, 600f);
+                canvasRect.localScale = Vector3.one * 0.01f;
+
+                InteractionStudyFlowController controller =
+                    NewReadyController(canvasOwner.transform, fixture.Flow);
+                var controls =
+                    canvasOwner.AddComponent<InteractionStudyFlowControls>();
+                var instruction = canvasOwner.AddComponent<
+                    InteractionInstructionControls>();
+                GameObject surface = NewChild(
+                    canvasOwner.transform,
+                    "Study Start Surface"
+                );
+                var surfaceRect = (RectTransform)surface.transform;
+                surfaceRect.anchorMin = Vector2.zero;
+                surfaceRect.anchorMax = Vector2.one;
+                surfaceRect.offsetMin = Vector2.zero;
+                surfaceRect.offsetMax = Vector2.zero;
+
+                GameObject startObject = NewChild(
+                    surface.transform,
+                    "Study Start Button"
+                );
+                var startImage = startObject.AddComponent<Image>();
+                var startButton = startObject.AddComponent<Button>();
+                startButton.targetGraphic = startImage;
+                var startRect = (RectTransform)startObject.transform;
+                startRect.sizeDelta = new Vector2(520f, 110f);
+                startRect.anchoredPosition = new Vector2(0f, 70f);
+
+                var status = NewUiComponent<TextMeshProUGUI>(
+                    canvasOwner.transform,
+                    "Study Status"
+                );
+                status.raycastTarget = false;
+                var progress = NewUiComponent<TextMeshProUGUI>(
+                    canvasOwner.transform,
+                    "Study Progress"
+                );
+                progress.raycastTarget = false;
+
+                controls.Configure(
+                    controller,
+                    instruction,
+                    surface,
+                    startButton,
+                    status,
+                    progress
+                );
+                canvasOwner.SetActive(true);
+                startImage.raycastTarget = false;
+                startImage.raycastTarget = true;
+                Canvas.ForceUpdateCanvases();
+                yield return null;
+                Canvas.ForceUpdateCanvases();
+
+                Require(
+                    startButton.interactable,
+                    "The live standalone Start button was not interactable."
+                );
+                Vector2 pointerPosition = RectTransformUtility.WorldToScreenPoint(
+                    eventCamera,
+                    startRect.position
+                );
+                var pointer = new PointerEventData(eventSystem)
+                {
+                    button = PointerEventData.InputButton.Left,
+                    position = pointerPosition
+                };
+                var hits = new List<RaycastResult>();
+                raycaster.Raycast(pointer, hits);
+
+                GameObject hitObject = null;
+                foreach (RaycastResult hit in hits)
+                {
+                    if (hit.gameObject == startObject)
+                    {
+                        hitObject = hit.gameObject;
+                        break;
+                    }
+                }
+                if (hitObject == null)
+                {
+                    // Synthetic PointerEventData is remapped through the
+                    // Editor's desktop/display coordinates before the public
+                    // raycaster reaches its graphic filter. Invoke that same
+                    // UGUI graphic filter directly so PC PlayMode still tests
+                    // the world-space target without a real OS pointer.
+                    hitObject = FindCoreGraphicRaycastHit(
+                        canvas,
+                        eventCamera,
+                        pointerPosition,
+                        startObject
+                    );
+                }
+                Require(
+                    hitObject != null,
+                    "GraphicRaycaster did not hit the world-space Start button. " +
+                    "hits=" + hits.Count +
+                    ", screen=" + pointerPosition +
+                    ", Screen=" + Screen.width + "x" + Screen.height +
+                    ", pixelRect=" + eventCamera.pixelRect +
+                    ", canvasActive=" + canvas.isActiveAndEnabled +
+                    ", imageActive=" + startImage.isActiveAndEnabled +
+                    ", imageDepth=" + startImage.depth +
+                    ", imageCull=" + startImage.canvasRenderer.cull +
+                    ", imageRaycast=" + startImage.Raycast(
+                        pointerPosition,
+                        eventCamera
+                    ) +
+                    ", registeredGraphics=" +
+                        GraphicRegistry.GetGraphicsForCanvas(canvas).Count +
+                    ", raycastableGraphics=" +
+                        GraphicRegistry.GetRaycastableGraphicsForCanvas(canvas).Count +
+                    ", activeDisplay=" + activeDisplay +
+                    ", cameraDisplay=" + eventCamera.targetDisplay +
+                    ", contains=" + RectTransformUtility.RectangleContainsScreenPoint(
+                        startRect,
+                        pointerPosition,
+                        eventCamera
+                    ) +
+                    ", rect=" + startRect.rect + "."
+                );
+
+                ExecuteEvents.ExecuteHierarchy(
+                    hitObject,
+                    pointer,
+                    ExecuteEvents.pointerClickHandler
+                );
+
+                Require(
+                    fixture.Run.StartCount == 1,
+                    "One EventSystem pointer click triggered " +
+                        fixture.Run.StartCount + " Run starts."
+                );
+                Require(
+                    controller.Snapshot.RunState == RunState.Scheduled,
+                    "The real Start listener did not leave the Run scheduled."
+                );
+                Require(
+                    !surface.activeSelf,
+                    "The Start surface remained visible after a real click."
+                );
+            }
+            finally
+            {
+                if (canvasOwner != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(canvasOwner);
+                }
+                if (cameraOwner != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(cameraOwner);
+                }
+                if (eventSystemOwner != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(eventSystemOwner);
+                }
+                fixture.Flow.Dispose();
+            }
+        }
+
+        private static GameObject FindCoreGraphicRaycastHit(
+            Canvas canvas,
+            Camera eventCamera,
+            Vector2 pointerPosition,
+            GameObject expected)
+        {
+            MethodInfo coreRaycast = null;
+            foreach (MethodInfo candidate in typeof(GraphicRaycaster).GetMethods(
+                         BindingFlags.NonPublic | BindingFlags.Static))
+            {
+                ParameterInfo[] parameters = candidate.GetParameters();
+                if (candidate.Name == "Raycast" && parameters.Length == 5 &&
+                    parameters[0].ParameterType == typeof(Canvas) &&
+                    parameters[1].ParameterType == typeof(Camera))
+                {
+                    coreRaycast = candidate;
+                    break;
+                }
+            }
+            Require(
+                coreRaycast != null,
+                "Unity UGUI core GraphicRaycaster filter was not found."
+            );
+
+            var graphics = new List<Graphic>();
+            coreRaycast.Invoke(null, new object[]
+            {
+                canvas,
+                eventCamera,
+                pointerPosition,
+                GraphicRegistry.GetRaycastableGraphicsForCanvas(canvas),
+                graphics
+            });
+            foreach (Graphic graphic in graphics)
+            {
+                if (graphic != null && graphic.gameObject == expected)
+                {
+                    return expected;
+                }
+            }
+            return null;
+        }
+
         public static void RecoveringMessageIsStable()
         {
             Require(
@@ -548,6 +941,16 @@ namespace SignVR.Interaction.Orchestration
             );
         }
 
+        private static int ResolveActiveEditorGameViewTarget()
+        {
+            PropertyInfo property = typeof(Display).GetProperty(
+                "activeEditorGameViewTarget",
+                BindingFlags.Public | BindingFlags.NonPublic |
+                    BindingFlags.Static
+            );
+            return property?.GetValue(null) is int display ? display : 0;
+        }
+
         private static InteractionStudyFlowController NewReadyController(
             Transform parent,
             InteractionStudyFlow flow)
@@ -607,9 +1010,9 @@ namespace SignVR.Interaction.Orchestration
 
         private sealed class FlowFixture
         {
-            public FlowFixture()
+            public FlowFixture(Guid? firstRunGuid = null)
             {
-                Run = new FakeRunPort();
+                Run = new FakeRunPort(firstRunGuid);
                 Presentation = new FakePresentationPort();
                 Tasks = new FakeTaskPort();
                 Flow = new InteractionStudyFlow(Run, Presentation, Tasks);
@@ -627,15 +1030,18 @@ namespace SignVR.Interaction.Orchestration
             private readonly RunPlanGenerator generator;
             private readonly AssistanceBlockAllocator allocator =
                 new AssistanceBlockAllocator(71);
+            private readonly Guid? firstRunGuid;
             private int guidSequence;
 
-            public FakeRunPort()
+            public FakeRunPort(Guid? firstRunGuid)
             {
+                this.firstRunGuid = firstRunGuid;
                 generator = new RunPlanGenerator(NextRunGuid, () => SessionTime);
             }
 
             public RunState State { get; private set; } = RunState.PreStart;
             public RunPlan Plan { get; private set; }
+            public string ParticipantId { get; set; } = "P-SESSION";
             public PhaseExecutionSnapshot CurrentPhase => null;
             public string LastError { get; private set; } = string.Empty;
             public int StartCount { get; private set; }
@@ -664,7 +1070,7 @@ namespace SignVR.Interaction.Orchestration
                 Plan = generator.Generate(
                     new RunPlanGenerationRequest(
                         "pilot-20260827",
-                        "P-SESSION",
+                        ParticipantId,
                         "standalone_flow_test",
                         "1.0.0",
                         "abcdef0123456789",
@@ -760,6 +1166,10 @@ namespace SignVR.Interaction.Orchestration
             private Guid NextRunGuid()
             {
                 guidSequence++;
+                if (guidSequence == 1 && firstRunGuid.HasValue)
+                {
+                    return firstRunGuid.Value;
+                }
                 return guidSequence == 1
                     ? Guid.Parse(
                         "99999999-8888-7777-6666-555555555555"
