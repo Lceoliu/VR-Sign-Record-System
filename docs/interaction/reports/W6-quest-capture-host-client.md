@@ -183,6 +183,12 @@ The final-review items were closed as follows:
    action remains an independent `TryEditorCleanup`, so a false-return exception
    cannot suppress later asset/meta/PlayerPrefs cleanup and a primary assertion
    still remains primary.
+7. `RestoreActiveSceneOrThrow` now distinguishes restoration from an already-met
+   target. It first requires the target scene to be valid and loaded, then reads
+   the valid current active scene and compares explicit raw handles. Equal handles
+   return without calling Unity again; unequal handles still call
+   `SceneManager.SetActiveScene`, and false still throws. The final active-handle
+   assertion remains unchanged.
 
 The final Standards follow-up was closed as follows:
 
@@ -445,6 +451,9 @@ real warm-up activation/deactivation and assertions; no production seam changed.
 The final cleanup-order correction modified only
 `W6InteractionCaptureHostTests.cs` and this report. PlayMode assets/metas and all
 product runtime sources were untouched.
+
+The active-scene no-op correction touched the same two files only and retained
+all existing cleanup and final-state assertions.
 
 ## 3. Commands/tests executed and exact results
 
@@ -712,7 +721,7 @@ After the fix, it reported:
 The resulting current EditMode and PlayMode test sources were compiled without
 Unity at:
 
-`C:\Users\woshica\AppData\Local\Temp\signvr-w6-cleanup-order-final-b41b0fed991e4cdfb8b85bd734d020b4`
+`C:\Users\woshica\AppData\Local\Temp\signvr-w6-active-noop-final-9de26adae8774cf8affb83d4ea8c86b3`
 
 Exact current results:
 
@@ -732,8 +741,21 @@ After correction it reported:
 - `CLEANUP_ORDER_GREEN_INNER=close:458|verify:466|restore:474|green:True`
 - `CLEANUP_ORDER_GREEN_OUTER=targetClose:529|targetVerify:537|guardClose:545|guardVerify:553|restore:561|green:True`
 
-This worktree did not run Unity after the cleanup-order change; targeted `0/1`
-remains the latest real EditMode leaf result and is not relabeled green.
+The second authoritative targeted EditMode job `1ce292c6` was still RED `0/1`.
+It proved the new order executed and the target closed successfully. Unity then
+automatically restored clean active InteractionLab; the redundant helper call to
+`SetActiveScene` returned false even though the desired active handle was already
+in place. The helper source gate after correction reported:
+
+- `RESTORE_HELPER_GREEN_VALID_LOADED_CHECKS=1`
+- `RESTORE_HELPER_GREEN_ACTIVE_READS=1`
+- `RESTORE_HELPER_GREEN_TARGET_HANDLE_DECLS=1`
+- `RESTORE_HELPER_GREEN_ACTIVE_HANDLE_DECLS=1`
+- `RESTORE_HELPER_GREEN_SAME_HANDLE_RETURNS=1`
+- `RESTORE_HELPER_GREEN_SET_FALLBACKS=1`
+
+This worktree did not run Unity after the no-op correction; job `1ce292c6` remains
+the latest real EditMode leaf result and is not relabeled green.
 
 The Orchestrator also completed the split PlayMode suite and reported `6/8`.
 The six other lifecycle wrappers passed through real callbacks. The two RED
@@ -970,6 +992,9 @@ Orchestrator integration step.
   `FINAL_UNLOAD_ASSERTS=2`
 - cleanup ordering: `INNER_CLOSE_VERIFY_BEFORE_RESTORE=1/1`,
   `OUTER_TARGET_AND_GUARD_CLOSE_VERIFY_BEFORE_RESTORE=1/1`
+- active restoration: `VALID_LOADED_PRECHECK=1`,
+  `VALID_ACTIVE_RAW_HANDLE_COMPARE=1`, `SAME_HANDLE_EARLY_RETURN=1`,
+  `UNEQUAL_HANDLE_SET_ACTIVE_FALSE_THROWS=1`
 - `PLAYMODE_ASMDEF_INCLUDE_PLATFORMS=0`
 - `PLAYMODE_ASMDEF_TEST_CONSTRAINT=1`
 - `PLAYMODE_ISPLAYING_ASSERTS=1`
@@ -1040,8 +1065,10 @@ merge markers.
    `NewScene` because an untitled Test Runner scene remained loaded. Targeted job
    `3a4094a5` later produced `0/1`: saved-copy isolation removed that failure, but
    original-active restoration returned false before the still-active target was
-   closed. The current close/verify-before-restore correction has not been rerun.
-   The split PlayMode suite produced `6/8`: six real lifecycle cases passed,
+   closed. Job `1ce292c6` also produced `0/1` after ordering was corrected: target
+   close succeeded and Unity automatically restored InteractionLab, but redundant
+   `SetActiveScene` returned false. The current same-handle no-op correction has
+   not been rerun. The split PlayMode suite produced `6/8`: six real lifecycle cases passed,
    while the delayed-initialization disable/destroy cases failed because ordinary
    `OnEnable` claimed Host heartbeat ownership before deterministic setup. Root
    review then found the first inactive-owner correction could defer Controller

@@ -765,6 +765,16 @@ namespace SignVR.Interaction.Editor.Tests
                     "The original active scene is no longer loaded."
                 );
             }
+            ulong targetHandle = scene.handle.GetRawData();
+            Scene activeScene = SceneManager.GetActiveScene();
+            if (activeScene.IsValid())
+            {
+                ulong activeHandle = activeScene.handle.GetRawData();
+                if (activeHandle == targetHandle)
+                {
+                    return;
+                }
+            }
             if (!SceneManager.SetActiveScene(scene))
             {
                 throw new InvalidOperationException(
