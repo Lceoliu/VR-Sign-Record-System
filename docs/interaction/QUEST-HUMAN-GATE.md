@@ -148,10 +148,18 @@ is installed. A cold start reached `InteractionLab` without the prior
 HIK 1080P Camera is selected in the Chrome Study page and its live 1280x720
 preview has been observed.
 
-An accepted participant Run is still open. The Quest currently reports the
-wrong wall-clock date (`2025-06-23` while the Host is on `2026-08-26`) and falls
-asleep when it is not worn. The operator must explicitly approve clock
-correction, wear the headset, enter the same anonymous participant ID on Host
-and Quest, wait for all four Host cards to show READY, and then execute the
-physical batches above. Cold-start evidence alone does not prove naked-hand
-button activation or artifact completeness.
+An accepted participant Run is still open. The Quest clock was corrected to
+`2026-08-26`, automatic time remains enabled, `PILOT01` is the selected
+anonymous participant ID, and Quest 3 `2G0YC5ZF84043B` is again authorized over
+ADB. The headset still sleeps when it is not worn.
+
+The Host runtime has been restarted and its Interaction storage is writable.
+`e265c23` repaired the Study page so a failed default camera still exposes the
+available camera selector and the last successful device is remembered. The
+HIK camera currently enumerates in Windows, DirectShow, and Chrome, but both
+Chrome and an independent FFmpeg capture probe fail to open it. Physically
+replug or otherwise reset the HIK device, select it again, and require a live
+1280x720 preview before accepting Camera READY. Then wear the headset, enter
+`PILOT01` and `ed00636` on Quest, wait for all four Host cards to remain READY,
+and execute the physical batches above. Cold-start evidence alone does not
+prove naked-hand button activation or artifact completeness.
