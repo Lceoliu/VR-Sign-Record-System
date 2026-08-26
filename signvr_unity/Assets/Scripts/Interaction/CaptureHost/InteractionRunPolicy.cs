@@ -6,8 +6,8 @@ namespace SignVR.Interaction.CaptureHost
 {
     public enum InteractionRunMode
     {
-        Study,
-        EngineeringLocal
+        StandaloneStudy = 0,
+        EngineeringLocal = 1
     }
 
     public static class InteractionStudyStartPolicy
@@ -23,18 +23,18 @@ namespace SignVR.Interaction.CaptureHost
             {
                 throw new ArgumentOutOfRangeException(nameof(mode));
             }
-            if (mode == InteractionRunMode.Study)
+            if (hostRequired)
+            {
+                throw new InvalidOperationException(
+                    "Standalone Interaction modes refuse Host-required configuration."
+                );
+            }
+            if (mode == InteractionRunMode.StandaloneStudy)
             {
                 if (debugOverridesActive)
                 {
                     throw new InvalidOperationException(
-                        "Study mode refuses every active debug override."
-                    );
-                }
-                if (!hostRequired)
-                {
-                    throw new InvalidOperationException(
-                        "Study mode always requires the Interaction Host."
+                        "StandaloneStudy refuses every active debug override."
                     );
                 }
                 return;
@@ -89,11 +89,12 @@ namespace SignVR.Interaction.CaptureHost
             bool debugOverridesActive,
             bool requireHostForStart)
         {
-            if (hostClientCount != 1 || controllerCount != 1 ||
+            if (hostClientCount != 0 || controllerCount != 1 ||
                 samplerCount != 1)
             {
                 throw new InvalidOperationException(
-                    "W6 structure requires exactly one Host client, controller, and sampler."
+                    "Standalone Interaction structure requires no Host client " +
+                    "and exactly one controller and sampler."
                 );
             }
             if (!referencesWired)
@@ -102,11 +103,12 @@ namespace SignVR.Interaction.CaptureHost
                     "W6 structure references are not wired."
                 );
             }
-            if (runMode != InteractionRunMode.Study || debugOverridesActive ||
-                !requireHostForStart)
+            if (runMode != InteractionRunMode.StandaloneStudy ||
+                debugOverridesActive || requireHostForStart)
             {
                 throw new InvalidOperationException(
-                    "W6 versioned structure must default to Study without overrides and require Host."
+                    "Standalone Interaction structure must default to " +
+                    "StandaloneStudy without overrides or Host."
                 );
             }
         }
