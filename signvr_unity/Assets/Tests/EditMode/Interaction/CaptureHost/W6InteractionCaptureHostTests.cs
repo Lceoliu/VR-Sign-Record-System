@@ -455,11 +455,6 @@ namespace SignVR.Interaction.Editor.Tests
                 {
                     TryEditorCleanup(
                         cleanupFailures,
-                        "restore original active scene after target setup",
-                        () => RestoreActiveSceneOrThrow(originalActive)
-                    );
-                    TryEditorCleanup(
-                        cleanupFailures,
                         "close isolated target scene",
                         () => CloseLoadedSceneOrThrow(
                             targetScene,
@@ -473,6 +468,11 @@ namespace SignVR.Interaction.Editor.Tests
                             targetSceneHandle,
                             "isolated target scene"
                         )
+                    );
+                    TryEditorCleanup(
+                        cleanupFailures,
+                        "restore original active scene after target setup",
+                        () => RestoreActiveSceneOrThrow(originalActive)
                     );
                 }
 
@@ -526,11 +526,6 @@ namespace SignVR.Interaction.Editor.Tests
             {
                 TryEditorCleanup(
                     cleanupFailures,
-                    "restore original active scene",
-                    () => RestoreActiveSceneOrThrow(originalActive)
-                );
-                TryEditorCleanup(
-                    cleanupFailures,
                     "close isolated target scene",
                     () => CloseLoadedSceneOrThrow(
                         targetScene,
@@ -560,6 +555,11 @@ namespace SignVR.Interaction.Editor.Tests
                         guardSceneHandle,
                         "isolated guard scene"
                     )
+                );
+                TryEditorCleanup(
+                    cleanupFailures,
+                    "restore original active scene",
+                    () => RestoreActiveSceneOrThrow(originalActive)
                 );
                 TryEditorCleanup(
                     cleanupFailures,

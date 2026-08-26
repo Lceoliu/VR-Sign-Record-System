@@ -176,6 +176,13 @@ The final-review items were closed as follows:
    deferred Controller `Awake` from overwriting the Running fixture and prevents
    ordinary Host ownership from colliding with deterministic ownership. No
    product reset seam or lifecycle bypass was added.
+6. The setup rollback cleanup now closes and verifies test-owned scenes before
+   restoring the caller's active scene. The inner cleanup is target close,
+   target-unloaded verification, then original-active restoration. The outer
+   cleanup is target close/verify, guard close/verify, then restoration. Every
+   action remains an independent `TryEditorCleanup`, so a false-return exception
+   cannot suppress later asset/meta/PlayerPrefs cleanup and a primary assertion
+   still remains primary.
 
 The final Standards follow-up was closed as follows:
 
@@ -434,6 +441,10 @@ Controller lifecycle code and public seams remain unchanged.
 
 The final Awake-order correction touched the same two files only. It added a
 real warm-up activation/deactivation and assertions; no production seam changed.
+
+The final cleanup-order correction modified only
+`W6InteractionCaptureHostTests.cs` and this report. PlayMode assets/metas and all
+product runtime sources were untouched.
 
 ## 3. Commands/tests executed and exact results
 
@@ -701,15 +712,28 @@ After the fix, it reported:
 The resulting current EditMode and PlayMode test sources were compiled without
 Unity at:
 
-`C:\Users\woshica\AppData\Local\Temp\signvr-w6-canonical-scene-final-efdf41c883e744b99c93fcf6fccb0272`
+`C:\Users\woshica\AppData\Local\Temp\signvr-w6-cleanup-order-final-b41b0fed991e4cdfb8b85bd734d020b4`
 
 Exact current results:
 
 - `FINAL_CURRENT_EDITMODE_STATIC_EXIT=0`
 - `FINAL_CURRENT_PLAYMODE_STATIC_EXIT=0`
 
-This worktree did not run Unity after the saved-copy change; `53/54` remains the
-latest real Unity result and is not relabeled green.
+The Orchestrator then ran the authoritative targeted EditMode leaf after supplied
+commit `3c4ba06`: job `3a4094a5` reported RED `0/1`. The old `NewScene` failure
+was gone. The sole failure was cleanup: `RestoreActiveSceneOrThrow(originalActive)`
+returned false while the temporary target remained active and loaded. The later
+checked `CloseScene(target, true)` succeeded and Unity restored a clean
+InteractionLab, proving the restore attempt was ordered too early.
+
+The pre-fix source gate reported restore before close in both cleanup scopes.
+After correction it reported:
+
+- `CLEANUP_ORDER_GREEN_INNER=close:458|verify:466|restore:474|green:True`
+- `CLEANUP_ORDER_GREEN_OUTER=targetClose:529|targetVerify:537|guardClose:545|guardVerify:553|restore:561|green:True`
+
+This worktree did not run Unity after the cleanup-order change; targeted `0/1`
+remains the latest real EditMode leaf result and is not relabeled green.
 
 The Orchestrator also completed the split PlayMode suite and reported `6/8`.
 The six other lifecycle wrappers passed through real callbacks. The two RED
@@ -944,6 +968,8 @@ Orchestrator integration step.
 - cleanup bool/unload audit: `UNCHECKED_SET_ACTIVE=0`,
   `UNCHECKED_CLOSE_SCENE=0`, `INDEPENDENT_UNLOAD_CHECKS=3`,
   `FINAL_UNLOAD_ASSERTS=2`
+- cleanup ordering: `INNER_CLOSE_VERIFY_BEFORE_RESTORE=1/1`,
+  `OUTER_TARGET_AND_GUARD_CLOSE_VERIFY_BEFORE_RESTORE=1/1`
 - `PLAYMODE_ASMDEF_INCLUDE_PLATFORMS=0`
 - `PLAYMODE_ASMDEF_TEST_CONSTRAINT=1`
 - `PLAYMODE_ISPLAYING_ASSERTS=1`
@@ -1011,15 +1037,17 @@ merge markers.
 1. The Orchestrator's historical all-EditMode result was `53/62`. After the
    PlayMode split and cleanup-bool fix, Unity job `96350528` produced `53/54` in
    EditMode; only `SetupUndoGroupRollsBackOnFailure` failed at its first additive
-   `NewScene` because an untitled Test Runner scene remained loaded. The current
-   saved-copy implementation has no `NewScene` token but has not been rerun in
-   Unity. The split PlayMode suite produced `6/8`: six real lifecycle cases
-   passed, while the delayed-initialization disable/destroy cases failed because
-   ordinary `OnEnable` claimed Host heartbeat ownership before deterministic
-   setup. Root review then found the first inactive-owner correction could defer
-   Controller `Awake`; the current warm-up activate/deactivate ordering fix has
-   not been rerun. Android/IL2CPP and Quest execution also remain unrun. Static
-   compilation and source gates cannot replace those runs.
+   `NewScene` because an untitled Test Runner scene remained loaded. Targeted job
+   `3a4094a5` later produced `0/1`: saved-copy isolation removed that failure, but
+   original-active restoration returned false before the still-active target was
+   closed. The current close/verify-before-restore correction has not been rerun.
+   The split PlayMode suite produced `6/8`: six real lifecycle cases passed,
+   while the delayed-initialization disable/destroy cases failed because ordinary
+   `OnEnable` claimed Host heartbeat ownership before deterministic setup. Root
+   review then found the first inactive-owner correction could defer Controller
+   `Awake`; the current warm-up activate/deactivate ordering fix has not been
+   rerun. Android/IL2CPP and Quest execution also remain unrun. Static compilation
+   and source gates cannot replace those runs.
 2. Live W8a heartbeat ACK/readiness TTL, W3 POST/409/GET/PUT/ACK, browser camera,
    and participant admission were not available inside this worktree. Field
    names are centralized for a small integration adaptation if necessary.
