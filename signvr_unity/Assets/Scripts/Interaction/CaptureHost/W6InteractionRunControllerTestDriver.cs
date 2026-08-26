@@ -143,6 +143,7 @@ namespace SignVR.Interaction.CaptureHost
                         owner.AddComponent<InteractionHostClient>();
                     InteractionRunController controller =
                         owner.AddComponent<InteractionRunController>();
+                    owner.SetActive(true);
                     InteractionRunStateMachine machine =
                         W6InteractionCaptureHostTestDriver
                             .CreateRunningStateMachine(112, "P945");
@@ -176,8 +177,7 @@ namespace SignVR.Interaction.CaptureHost
                         initialization,
                         host
                     );
-                    controller.ArmUnityLifecycleForTests();
-                    owner.SetActive(true);
+                    ArmUnityLifecycleOnlyOutsidePlayMode(controller);
 
                     controller.enabled = false;
                     job = controller.LifecycleTerminalizationForTests;
@@ -294,6 +294,7 @@ namespace SignVR.Interaction.CaptureHost
                         owner.AddComponent<InteractionHostClient>();
                     InteractionRunController controller =
                         owner.AddComponent<InteractionRunController>();
+                    owner.SetActive(true);
                     InteractionRunStateMachine machine =
                         W6InteractionCaptureHostTestDriver
                             .CreateRunningStateMachine(114, "P947");
@@ -327,8 +328,7 @@ namespace SignVR.Interaction.CaptureHost
                         initialization,
                         host
                     );
-                    controller.ArmUnityLifecycleForTests();
-                    owner.SetActive(true);
+                    ArmUnityLifecycleOnlyOutsidePlayMode(controller);
                     controller.enabled = false;
                     job = controller.LifecycleTerminalizationForTests;
                     W6InteractionCaptureHostTestDriver.Require(
@@ -435,10 +435,9 @@ namespace SignVR.Interaction.CaptureHost
                     out InteractionRunStateMachine machine,
                     out writer
                 );
-                controller.ArmUnityLifecycleForTests();
+                ArmUnityLifecycleOnlyOutsidePlayMode(controller);
                 operationOwner = controller.ArtifactOperationRegistryForTests;
                 controller.InstallArtifactWorkQueueForTests(workQueue);
-                owner.SetActive(true);
                 W6InteractionCaptureHostTestDriver.Require(
                     controller.BeginArtifactFreezeForTests(
                         writer.RunDirectory,
@@ -581,10 +580,9 @@ namespace SignVR.Interaction.CaptureHost
                     out InteractionRunStateMachine machine,
                     out writer
                 );
-                controller.ArmUnityLifecycleForTests();
+                ArmUnityLifecycleOnlyOutsidePlayMode(controller);
                 operationOwner = controller.ArtifactOperationRegistryForTests;
                 controller.InstallArtifactWorkQueueForTests(workQueue);
-                owner.SetActive(true);
                 W6InteractionCaptureHostTestDriver.Require(
                     controller.BeginArtifactFreezeForTests(
                         writer.RunDirectory,
@@ -714,11 +712,11 @@ namespace SignVR.Interaction.CaptureHost
                 owner.SetActive(false);
                 InteractionHostClient host =
                     owner.AddComponent<InteractionHostClient>();
+                owner.SetActive(true);
                 operationOwner = host.ArtifactOperationRegistryForTests;
-                host.ArmUnityLifecycleForTests();
+                ArmUnityLifecycleOnlyOutsidePlayMode(host);
                 host.InstallArtifactWorkQueueForTests(workQueue);
                 host.InstallArtifactReadObserverForTests(observer);
-                owner.SetActive(true);
                 InteractionHostResult<bool> firstResult = null;
                 IEnumerator first = host.PutArtifact(
                     "run_host_verify_lifecycle",
@@ -975,11 +973,11 @@ namespace SignVR.Interaction.CaptureHost
                 owner.SetActive(false);
                 InteractionHostClient host =
                     owner.AddComponent<InteractionHostClient>();
+                owner.SetActive(true);
                 operationOwner = host.ArtifactOperationRegistryForTests;
-                host.ArmUnityLifecycleForTests();
+                ArmUnityLifecycleOnlyOutsidePlayMode(host);
                 host.InstallArtifactWorkQueueForTests(workQueue);
                 host.InstallRequestFactoryForTests(requests);
-                owner.SetActive(true);
 
                 int staleCallbacks = 0;
                 InteractionHostResult<bool> staleResult = null;
@@ -1229,6 +1227,7 @@ namespace SignVR.Interaction.CaptureHost
             InteractionHostClient host =
                 owner.AddComponent<InteractionHostClient>();
             controller = owner.AddComponent<InteractionRunController>();
+            owner.SetActive(true);
             machine = W6InteractionCaptureHostTestDriver
                 .CreateCompletingStateMachine(seed, participantId);
             writer = W6InteractionCaptureHostTestDriver.CreateWriter(
@@ -1287,6 +1286,7 @@ namespace SignVR.Interaction.CaptureHost
                     owner.AddComponent<InteractionHostClient>();
                 InteractionRunController controller =
                     owner.AddComponent<InteractionRunController>();
+                owner.SetActive(true);
                 InteractionRunStateMachine machine =
                     W6InteractionCaptureHostTestDriver
                         .CreateRunningStateMachine(seed, participantId);
@@ -1309,8 +1309,7 @@ namespace SignVR.Interaction.CaptureHost
                     host
                 );
                 controller.InstallLifecycleWorkQueueForTests(workQueue);
-                controller.ArmUnityLifecycleForTests();
-                owner.SetActive(true);
+                ArmUnityLifecycleOnlyOutsidePlayMode(controller);
 
                 if (destroyController)
                 {
@@ -1374,6 +1373,7 @@ namespace SignVR.Interaction.CaptureHost
                         owner.AddComponent<InteractionHostClient>();
                     InteractionRunController controller =
                         owner.AddComponent<InteractionRunController>();
+                    owner.SetActive(true);
                     InteractionRunStateMachine machine =
                         W6InteractionCaptureHostTestDriver
                             .CreateRunningStateMachine(seed, participantId);
@@ -1407,8 +1407,7 @@ namespace SignVR.Interaction.CaptureHost
                         host
                     );
                     controller.InstallLifecycleWorkQueueForTests(workQueue);
-                    controller.ArmUnityLifecycleForTests();
-                    owner.SetActive(true);
+                    ArmUnityLifecycleOnlyOutsidePlayMode(controller);
 
                     if (destroyController)
                     {
@@ -1650,6 +1649,24 @@ namespace SignVR.Interaction.CaptureHost
                 retainedPath + ".",
                 cleanupFailures
             );
+        }
+
+        private static void ArmUnityLifecycleOnlyOutsidePlayMode(
+            InteractionRunController controller)
+        {
+            if (!Application.isPlaying)
+            {
+                controller.ArmUnityLifecycleForTests();
+            }
+        }
+
+        private static void ArmUnityLifecycleOnlyOutsidePlayMode(
+            InteractionHostClient host)
+        {
+            if (!Application.isPlaying)
+            {
+                host.ArmUnityLifecycleForTests();
+            }
         }
 
         private static void AssertTerminalArtifacts(

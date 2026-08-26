@@ -3,7 +3,8 @@
 Date: 2026-08-26
 Worker: W6 targeted review remediation
 Worktree: `C:\Users\woshica\.codex\worktrees\13c9\VR-Sign-Record-System`
-Requested baseline: `be28ad6`
+Original requested baseline: `be28ad6`
+Final test-boundary baseline supplied by Orchestrator: `fdc2cb4`
 
 The baseline was supplied by the Orchestrator but was not queried: every Git
 command was prohibited. No Git command was run, no commit was created, Unity
@@ -110,17 +111,19 @@ The follow-up review items were closed as follows:
    outside Play Mode, so setup cannot allocate heartbeat PlayerPrefs or start
    coroutines.
 5. The real setup rollback NUnit test is isolated from user scene memory. It
-   creates only additive in-memory guard/target scenes, temporarily changes the
+   creates only test-owned additive guard/target scenes, temporarily changes the
    active scene, injects failure after W6 wiring, and restores the original
-   active scene in `finally`. It never opens, reloads, replaces, closes, or
-   saves a pre-existing scene. The target starts with an existing Controller,
+   active scene in `finally`. The empty guard is first saved into a unique
+   temporary `Assets` folder, then made dirty with its sentinel; the target may
+   therefore remain the sole untitled scene. It never opens, reloads, replaces,
+   closes, or saves a pre-existing scene. The target starts with an existing Controller,
    so rollback must both remove the newly added Host/Sampler and restore that
    Controller's original null references. It also asserts every original scene
    remains loaded with the same dirty flag and object-value signature, the
    dirty guard sentinel remains unchanged after target cleanup, heartbeat
    PlayerPrefs are byte-for-byte equivalent through the string seam, and the
-   on-disk InteractionLab SHA-256 remains unchanged. Only the two test-owned
-   additive scenes are closed.
+   on-disk InteractionLab SHA-256 remains unchanged. Both test-owned scenes are
+   closed independently and the temporary guard scene asset/folder are deleted.
 
 The final-review items were closed as follows:
 
@@ -137,10 +140,11 @@ The final-review items were closed as follows:
 2. Controller behavior now has an Editor-only test seam and driver, both removed
    from Player compilation by `#if UNITY_EDITOR`. The driver constructs the real
    `InteractionRunController`, `InteractionHostClient`, W1 state machine, capture
-   writer, summary, and files. It calls public `TryAbortRun`, triggers actual
-   `OnDisable`/`OnDestroy` through Unity component lifecycle, traverses the real
-   Controller-to-Host cancellation path, reconciles on the main thread, and
-   verifies terminal uniqueness from final artifacts. Test observations are
+   writer, summary, and files. Lifecycle-dependent wrappers now live in a
+   non-Editor-only PlayMode test assembly, assert `Application.isPlaying`, finish
+   component `Awake`/`OnEnable` before installing deterministic state, and then
+   trigger actual `OnDisable`/`OnDestroy`. The driver arms its EditMode-only seam
+   only when `Application.isPlaying` is false. Test observations remain
    internal/read-only; Study Player APIs and the frozen schema are unchanged.
 3. The setup rollback test restores heartbeat PlayerPrefs in the outermost
    cleanup `finally`: it restores the original existence/value and always calls
@@ -164,11 +168,11 @@ The final Standards follow-up was closed as follows:
    Shutdown only flips cancellation state and never waits on the Unity thread.
    Host `PutArtifact` uses the same owner, so stopping its outer request
    coroutine cannot orphan verification.
-3. Editor-only lifecycle regressions drive real Controller disable/destroy and
+3. PlayMode lifecycle regressions drive real Controller disable/destroy and
    public Host `PutArtifact` with a controlled chunk observer. They assert
    cancellation observation, no overlapping retry, automatic reap, exclusive
-   file reopen, and no background W1 transition. These tests were source-built
-   but not executed because Unity startup remained prohibited.
+   file reopen, and no background W1 transition. They were source-built in this
+   worktree but still require the Orchestrator's Unity rerun.
 4. Scene cleanup now attempts active-scene restoration, target close, guard
    close, PlayerPrefs restoration, and `PlayerPrefs.Save` independently. It
    preserves a primary exception and attaches cleanup failures, or aggregates
@@ -313,8 +317,9 @@ Additional review behavior retained or strengthened:
   Showcase Replay, Zhao-teacher mixed package, Addressables, authentication
   system, automatic local deletion, or Quest visual feature was added.
 - No live Unity, Quest, W8a Host, browser-camera, or three-process run was
-  executed because this task explicitly prohibited starting Unity and reading
-  another worktree.
+  executed in this worktree because this task explicitly prohibited starting
+  Unity and reading another worktree. The Orchestrator-provided pre-fix Unity
+  `53/62` result is recorded separately below.
 
 ## 2. Files created or changed
 
@@ -351,6 +356,16 @@ Modified Editor/test/report files:
 - `signvr_unity/Assets/Tests/EditMode/Interaction/CaptureHost/W6InteractionCaptureHostTests.cs`
 - `docs/interaction/reports/W6-quest-capture-host-client.md`
 
+New PlayMode test assets:
+
+- `signvr_unity/Assets/Tests/PlayMode.meta`
+- `signvr_unity/Assets/Tests/PlayMode/Interaction.meta`
+- `signvr_unity/Assets/Tests/PlayMode/Interaction/CaptureHost.meta`
+- `signvr_unity/Assets/Tests/PlayMode/Interaction/CaptureHost/SignVR.Interaction.CaptureHost.PlayMode.Tests.asmdef`
+- `signvr_unity/Assets/Tests/PlayMode/Interaction/CaptureHost/SignVR.Interaction.CaptureHost.PlayMode.Tests.asmdef.meta`
+- `signvr_unity/Assets/Tests/PlayMode/Interaction/CaptureHost/W6InteractionCaptureHostPlayModeTests.cs`
+- `signvr_unity/Assets/Tests/PlayMode/Interaction/CaptureHost/W6InteractionCaptureHostPlayModeTests.cs.meta`
+
 The final closeout pass specifically modified:
 
 - `InteractionAsyncWork.cs` (once-consumable lifecycle queue/worker failure
@@ -374,7 +389,11 @@ The final concurrency pass modified only `InteractionAsyncWork.cs`,
 `W6InteractionCaptureHostTestDriver.cs`, and this report. No public Study API,
 schema, scene, asmdef, or `.meta` file changed.
 
-No asmdef or scene/settings asset was created or changed.
+The final test-boundary pass modified
+`W6InteractionRunControllerTestDriver.cs`, the EditMode wrapper, and this report;
+it added the isolated PlayMode test assets listed above. No runtime asmdef,
+scene/settings asset, product lifecycle method, public Study API, or user setting
+was created or changed.
 
 ## 3. Commands/tests executed and exact results
 
@@ -534,12 +553,40 @@ After production changed, targeted GREEN output was
 `GREEN_PURE_COMPILE_EXIT=0`, both named scenarios passed, and
 `TARGET_GREEN_COUNT=2`.
 
+The Orchestrator then supplied the first authoritative Unity execution result:
+`53 passed / 9 failed` across the old 62-method EditMode fixture. Eight failures
+were the lifecycle wrappers listed below: an ordinary MonoBehaviour does not
+guarantee EditMode `OnDisable`/`OnDestroy`, so those tests never crossed the
+product wrapper. `SetupUndoGroupRollsBackOnFailure` was the ninth failure because
+it attempted to create a second additive untitled scene while the guard scene was
+still untitled and unsaved. This `53/62` result is retained as the real Unity RED;
+it is not relabeled as a passing run.
+
+Before the boundary change, a non-Unity source gate independently reported:
+
+- `STRUCTURAL_RED_EDITMODE_TESTS=62`
+- `STRUCTURAL_RED_MISPLACED_LIFECYCLE_WRAPPERS=8`
+- `STRUCTURAL_RED_PLAYMODE_TESTS=0`
+- `STRUCTURAL_RED_GUARD_SAVE_BEFORE_TARGET=0`
+
+After the change, the same gate reported:
+
+- `STRUCTURAL_GREEN_EDITMODE_TESTS=54`
+- `STRUCTURAL_GREEN_PLAYMODE_TESTS=8`
+- `STRUCTURAL_GREEN_EDITMODE_LIFECYCLE_WRAPPERS=0`
+- `STRUCTURAL_GREEN_PLAYMODE_LIFECYCLE_WRAPPERS=8`
+- `STRUCTURAL_GREEN_GUARD_SAVE_BEFORE_TARGET=1`
+- `EXECUTE_ALWAYS_REFERENCES=0`
+
+Unity execution was prohibited in this worktree, so the new 54+8 split and the
+saved-dirty guard-scene transaction remain explicit Orchestrator rerun gates.
+
 ### Final standalone compilation gate
 
 Unity `6000.5.6f1` bundled Roslyn and .NET Standard 2.1 references were used
 without starting the Editor. Final output directory:
 
-`C:\Users\woshica\AppData\Local\Temp\signvr-w6-atomic-owner-final-64d1c01bb5de4b2db667ebc63a86b595`
+`C:\Users\woshica\AppData\Local\Temp\signvr-w6-playmode-boundary-final-b3de290a55134a6795ef20f922909757`
 
 Exact final results:
 
@@ -548,14 +595,16 @@ Exact final results:
 - `FINAL_PLAYER_EXIT=0`
 - `FINAL_EDITOR_RUNTIME_EXIT=0`
 - `FINAL_EDITOR_SETUP_EXIT=0`
-- `FINAL_NUNIT_WRAPPER_EXIT=0`
-- `NUNIT_TEST_METHODS=62`
+- `FINAL_EDITMODE_TESTS_EXIT=0`
+- `FINAL_PLAYMODE_TESTS_EXIT=0`
+- `EDITMODE_TEST_METHODS=54`
+- `PLAYMODE_TEST_METHODS=8`
+- `TOTAL_TEST_METHODS=62`
 
-All six requested source targets were recompiled from current source with Unity
-`6000.5.6f1` references. The NUnit wrapper static gate uses the already-validated
-compile-only stub (`W6_FINALREVIEW_NUNIT_STUB_CSC_EXIT=0` in the immediately
-preceding full gate); authoritative execution remains Unity Test Runner after
-integration.
+All seven requested source targets were recompiled from current source with Unity
+`6000.5.6f1` references. Both NUnit wrapper gates use the already-validated
+compile-only stub; authoritative execution remains the Orchestrator's Unity Test
+Runner rerun after integration.
 
 ### Deterministic scenario execution
 
@@ -626,8 +675,14 @@ case matching, lifecycle policy, summary semantics, unsafe paths, Study debug
 rejection, and W2 artifact mapping. `AckStateNeverMutatesSealedArtifacts` now
 also asserts upload-state fsync ran off its calling thread.
 
-The remaining eleven of 62 NUnit methods are Editor-only behavior tests. They all
-compiled but were not executed because starting Unity was forbidden:
+The Unity wrappers are now partitioned by their real execution boundary:
+EditMode contains the 51 deterministic scenarios plus
+`CompletedSealRejectsAbortThroughController`,
+`CaptureSamplerEnforcesTwentyHertzCadence`, and
+`SetupUndoGroupRollsBackOnFailure` (`54` total). PlayMode contains exactly the
+eight lifecycle wrappers (`8` total). All 62 compiled here; only the old all-
+EditMode layout has an authoritative Unity result (`53/62`, with the eight
+lifecycle wrappers and setup rollback failing as described above):
 
 - `CompletedSealRejectsAbortThroughController` exercises public
   `TryAbortRun` after the production Completed seal is queued, then verifies W1
@@ -663,8 +718,9 @@ compiled but were not executed because starting Unity was forbidden:
 - `CaptureSamplerEnforcesTwentyHertzCadence` drives the real sampler cadence seam
   at 72 Hz, 90 Hz, across a long frame, and across disable/re-enable;
 - `SetupUndoGroupRollsBackOnFailure` exercises the actual Undo transaction in
-  two additive in-memory scenes and restores PlayerPrefs from its outermost
-  `finally`.
+  one temporary saved-but-dirty guard scene and one untitled target scene. Its
+  outermost `finally` independently restores the active scene and PlayerPrefs,
+  closes both scenes, and deletes the temporary scene asset and folder.
 
 ### Strict W3-compatible fixture rerun
 
@@ -693,12 +749,18 @@ Orchestrator integration step.
 ### Metadata and boundary audit
 
 - `RUNTIME_CS=21`
-- `TARGET_CS=23`
-- `TARGET_META=23`
+- `TARGET_CS=24`
+- `TARGET_META=28` (24 source metas plus the PlayMode asmdef and three folder metas)
 - `MISSING_META=0`
-- `TARGET_GUID_ROWS=23`
+- `TARGET_GUID_ROWS=28`
 - `DUPLICATE_TARGET_GUIDS=0`
 - `NON_UNIQUE_GLOBAL_TARGET_GUIDS=0`
+- new PlayMode asset GUID global hit counts: all five are `1`
+- new GUIDs: PlayMode folder `89d8f771e04447d28f034c4ae1d1adbc`,
+  Interaction folder `57ebded3e82c4815be3a64411a859d48`, CaptureHost
+  folder `1f4b07d671ab4c35bb3ffc812f6edd29`, test source
+  `7251a52041a246fbbe7d1d398b518e1b`, and asmdef
+  `1ced1fed00a048708cfb1b4f258d3cd6`
 - new test-seam GUID global hit counts: `1` and `1`
 - new artifact-operation GUID global hit count: `1`
 - `RUNTIME_ONCOMPLETED_CALLS=0`
@@ -730,13 +792,30 @@ Orchestrator integration step.
   MonoBehaviour/Unity fields `0`
 - `SNAPSHOT_BAD_FIELDS_TOTAL=0`
 - `IGNORED_DRIVER_WAITS=0`
+- `EDITMODE_TEST_METHODS=54`
+- `PLAYMODE_TEST_METHODS=8`
+- `TOTAL_TEST_METHODS=62`
 - `NUNIT_IGNORE_OR_EXPLICIT=0`
+- `EDITMODE_LIFECYCLE_WRAPPERS=0`
+- `PLAYMODE_LIFECYCLE_WRAPPERS=8`
+- `PLAYMODE_ASMDEF_INCLUDE_PLATFORMS=0`
+- `PLAYMODE_ASMDEF_TEST_CONSTRAINT=1`
+- `PLAYMODE_ISPLAYING_ASSERTS=1`
+- compiled PlayMode wrapper UnityEditor assembly references: `0`
+- `EXECUTE_ALWAYS_REFERENCES=0`
+- `ARM_HELPER_REFERENCES=10` (eight call sites plus two overloads)
+- direct `ArmUnityLifecycleForTests` calls: `2`, both inside guarded
+  `!Application.isPlaying` helper overloads
 - `MANIFEST_QUEST_DEVICE_FIELDS=0`
 - `SETUP_RUNTIME_CONFIGURE_CALLS=0`
 - `SETUP_PLAYERPREFS_CALLS=0`
-- `SETUP_SAVE_OR_OPEN_CALLS=0`
+- `SETUP_RUNTIME_SAVE_OR_OPEN_CALLS=0`
 - `TEST_UNSAFE_SCENE_CALLS=0`
 - `TEST_ADDITIVE_SCENE_CALLS=2`
+- `GUARD_SAVE_BEFORE_TARGET=1`
+- test cleanup asset calls: `CREATE_FOLDER=1`, `SAVE_SCENE=1`,
+  `DELETE_ASSET=2`
+- `LEFTOVER_W6_TEMP_ASSET_FOLDERS=0`
 - outer restoration calls: `TEST_PREFS_SET=1`, `TEST_PREFS_DELETE=1`,
   `TEST_PREFS_SAVE=1`
 - `TRAILING_WHITESPACE_LINES=0`
@@ -777,12 +856,11 @@ merge markers.
 
 ### Risks and unfinished validation
 
-1. Unity import, Test Runner (including the real Undo rollback test), PlayMode,
-   Android/IL2CPP, and Quest execution were not run by explicit instruction.
-   The ten real Controller/Host/sampler lifecycle tests plus the isolated Undo
-   rollback test therefore compiled but did not execute; the non-Unity closure
-   audit did verify the two artifact worker delegates contain no
-   MonoBehaviour/Unity field.
+1. The Orchestrator ran the pre-fix all-EditMode fixture and reported `53/62`.
+   This worktree did not start Unity, so neither the new PlayMode eight nor the
+   repaired saved-dirty guard-scene EditMode test has a post-fix Unity result.
+   Android/IL2CPP and Quest execution also remain unrun. Static compilation and
+   source gates cannot replace that rerun.
 2. Live W8a heartbeat ACK/readiness TTL, W3 POST/409/GET/PUT/ACK, browser camera,
    and participant admission were not available inside this worktree. Field
    names are centralized for a small integration adaptation if necessary.
@@ -823,11 +901,12 @@ merge markers.
 1. Integrate the W6 files as a unit; do not add a CaptureHost/runtime asmdef or
    modify `SignVR.Interaction.Core`.
 2. Import the main Unity `6000.5.6f1` project and require Player plus Editor
-   compile. Run
+   compile. Run EditMode class
    `SignVR.Interaction.Editor.Tests.W6InteractionCaptureHostTests` and expect
-   62/62, including ten real Controller/Host/sampler lifecycle/arbitration tests
-   and the
-   additive-scene-safe `SetupUndoGroupRollsBackOnFailure`.
+   `54/54`. Then run PlayMode class
+   `SignVR.Interaction.PlayMode.Tests.W6InteractionCaptureHostPlayModeTests` and
+   expect `8/8`. The authoritative total remains `62/62`; do not run the eight
+   lifecycle methods through their removed EditMode wrappers.
 3. In a clean loaded `InteractionLab.unity`, run structural setup first and
    confirm it succeeds with no tracking/probes. Undo once and verify all three
    additions/reference changes roll back. Reapply, inject W8 tracking/probes,

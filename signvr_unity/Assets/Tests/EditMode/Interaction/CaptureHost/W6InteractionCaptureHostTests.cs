@@ -273,60 +273,6 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void DisableOwnsLateInitializationThroughController()
-        {
-            InvokeController(
-                nameof(DisableOwnsLateInitializationThroughController)
-            );
-        }
-
-        [Test]
-        public void DestroyDoesNotDuplicateDetachedTerminalization()
-        {
-            InvokeController(
-                nameof(DestroyDoesNotDuplicateDetachedTerminalization)
-            );
-        }
-
-        [Test]
-        public void ControllerDisableCancelsOwnedArtifactFreeze()
-        {
-            InvokeController(nameof(ControllerDisableCancelsOwnedArtifactFreeze));
-        }
-
-        [Test]
-        public void ControllerDestroyCancelsOwnedArtifactFreeze()
-        {
-            InvokeController(nameof(ControllerDestroyCancelsOwnedArtifactFreeze));
-        }
-
-        [Test]
-        public void HostDisableCancelsOwnedArtifactVerify()
-        {
-            InvokeController(nameof(HostDisableCancelsOwnedArtifactVerify));
-        }
-
-        [Test]
-        public void LifecycleQueueFailureConvergesThroughController()
-        {
-            InvokeController(nameof(LifecycleQueueFailureConvergesThroughController));
-        }
-
-        [Test]
-        public void PendingInitializationQueueFailureConvergesThroughController()
-        {
-            InvokeController(
-                nameof(PendingInitializationQueueFailureConvergesThroughController)
-            );
-        }
-
-        [Test]
-        public void HostLifecycleEpochRejectsStaleArtifactIterator()
-        {
-            InvokeController(nameof(HostLifecycleEpochRejectsStaleArtifactIterator));
-        }
-
-        [Test]
         public void CaptureSamplerEnforcesTwentyHertzCadence()
         {
             InvokeController(nameof(CaptureSamplerEnforcesTwentyHertzCadence));
@@ -362,15 +308,44 @@ namespace SignVR.Interaction.Editor.Tests
             Scene guardScene = default(Scene);
             Scene targetScene = default(Scene);
             GameObject sentinel = null;
+            string temporaryFolderAssetPath =
+                "Assets/__W6CaptureHostSetupTest_" +
+                Guid.NewGuid().ToString("N");
+            string guardSceneAssetPath =
+                temporaryFolderAssetPath + "/Guard.unity";
             var cleanupFailures = new List<Exception>();
             Exception primaryFailure = null;
             try
             {
+                string temporaryFolderGuid = AssetDatabase.CreateFolder(
+                    "Assets",
+                    Path.GetFileName(temporaryFolderAssetPath)
+                );
+                Assert.That(
+                    string.IsNullOrEmpty(temporaryFolderGuid),
+                    Is.False,
+                    "Could not create an isolated guard-scene asset folder."
+                );
                 guardScene = EditorSceneManager.NewScene(
                     NewSceneSetup.EmptyScene,
                     NewSceneMode.Additive
                 );
                 Assert.That(SceneManager.SetActiveScene(guardScene), Is.True);
+                Assert.That(
+                    EditorSceneManager.SaveScene(
+                        guardScene,
+                        guardSceneAssetPath,
+                        false
+                    ),
+                    Is.True,
+                    "Could not save the isolated guard scene before target creation."
+                );
+                Assert.That(guardScene.isDirty, Is.False);
+                Assert.That(
+                    guardScene.path,
+                    Is.EqualTo(guardSceneAssetPath),
+                    "Guard scene did not acquire its isolated saved asset path."
+                );
                 sentinel = new GameObject("W6 Dirty Scene Sentinel");
                 sentinel.transform.localPosition = new Vector3(3f, 4f, 5f);
                 sentinel.SetActive(false);
@@ -547,6 +522,39 @@ namespace SignVR.Interaction.Editor.Tests
                 );
                 TryEditorCleanup(
                     cleanupFailures,
+                    "delete isolated guard scene asset",
+                    () =>
+                    {
+                        if (AssetDatabase.LoadAssetAtPath<SceneAsset>(
+                                guardSceneAssetPath) != null)
+                        {
+                            if (!AssetDatabase.DeleteAsset(guardSceneAssetPath))
+                            {
+                                throw new IOException(
+                                    "Could not delete " + guardSceneAssetPath
+                                );
+                            }
+                        }
+                    }
+                );
+                TryEditorCleanup(
+                    cleanupFailures,
+                    "delete isolated guard scene folder",
+                    () =>
+                    {
+                        if (AssetDatabase.IsValidFolder(
+                                temporaryFolderAssetPath) &&
+                            !AssetDatabase.DeleteAsset(
+                                temporaryFolderAssetPath))
+                        {
+                            throw new IOException(
+                                "Could not delete " + temporaryFolderAssetPath
+                            );
+                        }
+                    }
+                );
+                TryEditorCleanup(
+                    cleanupFailures,
                     "restore heartbeat PlayerPrefs value",
                     () =>
                     {
@@ -571,6 +579,17 @@ namespace SignVR.Interaction.Editor.Tests
                     "W6 setup test cleanup failed."
                 );
             }
+            Assert.That(
+                AssetDatabase.LoadAssetAtPath<SceneAsset>(
+                    guardSceneAssetPath),
+                Is.Null,
+                "Isolated guard scene asset survived test cleanup."
+            );
+            Assert.That(
+                AssetDatabase.IsValidFolder(temporaryFolderAssetPath),
+                Is.False,
+                "Isolated guard scene folder survived test cleanup."
+            );
             AssertOriginalScenesUnchanged(originalScenes);
             Assert.That(
                 SceneManager.GetActiveScene().handle.GetRawData(),
