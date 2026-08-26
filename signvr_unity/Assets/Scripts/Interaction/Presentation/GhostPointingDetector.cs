@@ -671,8 +671,11 @@ namespace SignVR.Interaction.Presentation
                 rayObject.transform.SetParent(transform, false);
             }
 
-            rayRenderer = rayObject.GetComponent<LineRenderer>() ??
-                rayObject.AddComponent<LineRenderer>();
+            rayRenderer = rayObject.GetComponent<LineRenderer>();
+            if (rayRenderer == null)
+            {
+                rayRenderer = rayObject.AddComponent<LineRenderer>();
+            }
             Shader shader = Resources.Load<Shader>(OverlayShaderResource) ??
                 Shader.Find(OverlayShaderName);
             if (shader != null)

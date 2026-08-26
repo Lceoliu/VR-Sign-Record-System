@@ -72,14 +72,14 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
             LogAssert.Expect(
                 LogType.Exception,
                 new Regex(
-                    "Instruction presentation cleanup failed",
+                    "injected controller OnDisable cleanup failure",
                     RegexOptions.Singleline
                 )
             );
             LogAssert.Expect(
                 LogType.Exception,
                 new Regex(
-                    "Ghost pointing cleanup failed",
+                    "injected detector OnDisable cleanup failure",
                     RegexOptions.Singleline
                 )
             );

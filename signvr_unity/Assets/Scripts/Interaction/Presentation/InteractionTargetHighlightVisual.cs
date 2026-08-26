@@ -129,8 +129,11 @@ namespace SignVR.Interaction.Presentation
                     edgeObject.transform.SetParent(transform, false);
                 }
 
-                LineRenderer edge = edgeObject.GetComponent<LineRenderer>() ??
-                    edgeObject.AddComponent<LineRenderer>();
+                LineRenderer edge = edgeObject.GetComponent<LineRenderer>();
+                if (edge == null)
+                {
+                    edge = edgeObject.AddComponent<LineRenderer>();
+                }
                 edge.enabled = false;
                 edge.useWorldSpace = true;
                 edge.loop = false;
