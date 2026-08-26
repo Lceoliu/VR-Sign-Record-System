@@ -4,6 +4,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
 using SignVR.Interaction.Presentation;
@@ -732,250 +733,72 @@ namespace SignVR.Interaction.Orchestration
 #if UNITY_EDITOR
         public static IEnumerator SavedInteractionLabStartButtonConsumesOneRun()
         {
+            return RunSavedInteractionLabScenarioWithCleanup(
+                injectFailureAfterRunStart: false
+            );
+        }
+
+        public static IEnumerator
+            SavedInteractionLabFailureAfterStartCleansOwnedResources()
+        {
+            return RunSavedInteractionLabScenarioWithCleanup(
+                injectFailureAfterRunStart: true
+            );
+        }
+
+        private static IEnumerator RunSavedInteractionLabScenarioWithCleanup(
+            bool injectFailureAfterRunStart)
+        {
             Require(
                 Application.isPlaying,
                 "The saved InteractionLab integration must run in Play Mode."
             );
 
-            const string ScenePath = "Assets/Scenes/InteractionLab.unity";
-            string temporaryRoot = CreateShortTemporaryRoot();
-            HashSet<ulong> preexistingSceneHandles =
-                CaptureLoadedSceneHandles();
-            Scene loadedScene = default;
-            bool ownsLoadedScene = false;
-            bool cleanupTerminalizationSucceeded = true;
-            AsyncOperation unload = null;
-            InteractionRunController runController = null;
-            try
+            var context = new SavedInteractionLabTestContext(
+                injectFailureAfterRunStart
+            );
+            Exception primaryFailure = null;
+            Exception cleanupFailure = null;
+            IEnumerator scenario =
+                RunSavedInteractionLabStartButtonScenario(context);
+
+            while (true)
             {
-                // Always load a test-owned scene instance. Reusing the scene
-                // that entered Play Mode would leave its mode, Run, and storage
-                // root mutated after this integration test.
-                loadedScene = EditorSceneManager.LoadSceneInPlayMode(
-                    ScenePath,
-                    new LoadSceneParameters(LoadSceneMode.Additive)
-                );
-                ownsLoadedScene = true;
-                double loadDeadline =
-                    Time.realtimeSinceStartupAsDouble + 10d;
-                while ((!loadedScene.IsValid() || !loadedScene.isLoaded ||
-                        preexistingSceneHandles.Contains(
-                            loadedScene.handle.GetRawData()
-                        )) &&
-                    Time.realtimeSinceStartupAsDouble < loadDeadline)
+                bool hasNext = false;
+                object current = null;
+                try
                 {
-                    yield return null;
-                    Scene discovered = FindNewLoadedSceneByPath(
-                        ScenePath,
-                        preexistingSceneHandles
-                    );
-                    if (discovered.IsValid())
+                    hasNext = scenario.MoveNext();
+                    if (hasNext)
                     {
-                        loadedScene = discovered;
+                        current = scenario.Current;
                     }
                 }
-                Require(
-                    loadedScene.IsValid() && loadedScene.isLoaded &&
-                        !preexistingSceneHandles.Contains(
-                            loadedScene.handle.GetRawData()
-                        ),
-                    "Unity did not load a test-owned InteractionLab scene."
-                );
-                yield return null;
-
-                InteractionStudyFlowControls controls =
-                    FindSingleSceneComponent<InteractionStudyFlowControls>(
-                        loadedScene
-                    );
-                InteractionStudyFlowController flowController =
-                    FindSingleSceneComponent<InteractionStudyFlowController>(
-                        loadedScene
-                    );
-                runController =
-                    FindSingleSceneComponent<InteractionRunController>(
-                        loadedScene
-                    );
-                Button startButton = controls.StartButton;
-
-                Require(
-                    controls.FlowController == flowController &&
-                        flowController.RunController == runController,
-                    "Saved InteractionLab Start controls are not wired to " +
-                        "the saved Flow and Run controllers."
-                );
-                Require(
-                    startButton != null &&
-                        startButton.gameObject.scene == loadedScene,
-                    "Saved InteractionLab has no scene-owned Start button."
-                );
-
-                string editorStorageRoot = Path.GetFullPath(
-                    runController.StorageRootForTests
-                );
-                string realPersistentRoot = Path.GetFullPath(
-                    Application.persistentDataPath
-                );
-                string tempParent = Path.GetFullPath(Path.GetTempPath())
-                    .TrimEnd(
-                        Path.DirectorySeparatorChar,
-                        Path.AltDirectorySeparatorChar
-                    );
-                string editorStorageParent =
-                    Directory.GetParent(editorStorageRoot)?.FullName;
-                string editorStorageName = Path.GetFileName(editorStorageRoot);
-                StringComparison pathComparison =
-                    Path.DirectorySeparatorChar == '\\'
-                        ? StringComparison.OrdinalIgnoreCase
-                        : StringComparison.Ordinal;
-                Require(
-                    !string.Equals(
-                        editorStorageRoot,
-                        realPersistentRoot,
-                        pathComparison
-                    ) &&
-                        string.Equals(
-                            editorStorageParent,
-                            tempParent,
-                            pathComparison
-                        ) &&
-                        editorStorageName.StartsWith(
-                            "svr-ed-",
-                            StringComparison.Ordinal
-                        ),
-                    "Editor Play Mode startup recovery was not isolated from " +
-                        "the real persistent experiment root."
-                );
-
-                double preparationDeadline =
-                    Time.realtimeSinceStartupAsDouble + 10d;
-                while ((!flowController.ManifestReady ||
-                        runController.StartupRecoveryStatus ==
-                            InteractionStandaloneLocalRunRecoveryStatus.NotStarted ||
-                        runController.StartupRecoveryStatus ==
-                            InteractionStandaloneLocalRunRecoveryStatus.Recovering) &&
-                    Time.realtimeSinceStartupAsDouble < preparationDeadline)
+                catch (Exception exception)
                 {
-                    yield return null;
+                    primaryFailure = exception;
                 }
-                Require(
-                    flowController.ManifestReady,
-                    "Saved InteractionLab did not load its real manifest."
-                );
-                Require(
-                    runController.StartupRecoveryStatus ==
-                        InteractionStandaloneLocalRunRecoveryStatus.Succeeded,
-                    "Saved InteractionLab did not finish its real startup " +
-                        "recovery. Status=" +
-                        runController.StartupRecoveryStatus + "."
-                );
-                Require(
-                    runController.State == RunState.PreStart,
-                    "Saved InteractionLab was not in PreStart before the click."
-                );
-
-                // Preserve the saved UI/Flow/Controller wiring. Only replace
-                // the device-owned XR gate and write root with the existing
-                // EngineeringLocal test boundary. The completed sandbox startup
-                // recovery and manifest catalog stay installed.
-                runController.RedirectStandaloneStorageRootForTests(
-                    temporaryRoot,
-                    debugBuild: true
-                );
-                runController.ConfigureMode(
-                    InteractionRunMode.EngineeringLocal,
-                    configuredDebugOverridesActive: false,
-                    explicitlyArmEngineeringLocal: true
-                );
-
-                double readyDeadline =
-                    Time.realtimeSinceStartupAsDouble + 5d;
-                while (!startButton.interactable &&
-                    Time.realtimeSinceStartupAsDouble < readyDeadline)
+                if (primaryFailure != null || !hasNext)
                 {
-                    yield return null;
+                    break;
                 }
-                Require(
-                    startButton.interactable,
-                    "Saved InteractionLab Start button did not become ready " +
-                        "through its real FlowControls binding."
-                );
+                yield return current;
+            }
 
-                startButton.onClick.Invoke();
-                RunPlan consumedPlan = runController.Plan;
-                Require(
-                    consumedPlan != null &&
-                        !string.IsNullOrWhiteSpace(consumedPlan.RunId),
-                    "The saved Start listener did not consume a Run Plan."
-                );
-                Require(
-                    runController.State != RunState.PreStart,
-                    "Saved InteractionLab flashed immediately back to PreStart."
-                );
-                Require(
-                    string.Equals(
-                        flowController.Snapshot?.Status,
-                        "Run consumed; waiting for local capture and presentation.",
-                        StringComparison.Ordinal
-                    ),
-                    "The saved Start listener did not finish the Flow start " +
-                        "transaction. State=" + runController.State +
-                        ", flow_status=" +
-                        (flowController.Snapshot?.Status ?? "<none>") + "."
-                );
-                Require(
-                    runController.WaitForCaptureInitializationForTests(
-                        TimeSpan.FromSeconds(5)
-                    ),
-                    "Saved InteractionLab capture initialization did not finish."
-                );
-                runController.ReconcileConsumedRunInitializationForTests();
-                string interactionRoot = InteractionStoragePaths
-                    .GetInteractionRoot(temporaryRoot);
-                Require(
-                    Directory.GetDirectories(
-                        interactionRoot,
-                        "run_*",
-                        SearchOption.AllDirectories
-                    ).Length == 1,
-                    "The first saved-button click did not create exactly one Run."
-                );
-
-                string consumedRunId = consumedPlan.RunId;
-                startButton.onClick.Invoke();
-                Require(
-                    ReferenceEquals(consumedPlan, runController.Plan) &&
-                        string.Equals(
-                            consumedRunId,
-                            runController.Plan?.RunId,
-                            StringComparison.Ordinal
-                    ),
-                    "A repeated saved-button click consumed another Run Plan."
-                );
-                Require(
-                    Directory.GetDirectories(
-                        interactionRoot,
-                        "run_*",
-                        SearchOption.AllDirectories
-                    ).Length == 1,
-                    "A repeated saved-button click created another Run directory."
-                );
-                Require(
-                    runController.State != RunState.PreStart,
-                    "Repeated Start returned the active Run to PreStart."
-                );
-
-                yield return null;
-                Require(
-                    ReferenceEquals(consumedPlan, runController.Plan) &&
-                        runController.State != RunState.PreStart,
-                    "The saved scene did not retain the consumed Run next " +
-                        "frame. State=" + runController.State +
-                        ", controller_error=" + runController.LastError +
-                        ", flow_status=" +
-                        (flowController.Snapshot?.Status ?? "<none>") + "."
+            try
+            {
+                (scenario as IDisposable)?.Dispose();
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = AppendCleanupFailure(
+                    cleanupFailure,
+                    exception
                 );
             }
-            finally
+
+            InteractionRunController runController = context.RunController;
+            try
             {
                 if (runController != null && runController.Plan != null &&
                     runController.State != RunState.Completed &&
@@ -983,30 +806,460 @@ namespace SignVR.Interaction.Orchestration
                     runController.State != RunState.Faulted)
                 {
                     runController.ProcessApplicationPauseForTests();
-                    cleanupTerminalizationSucceeded =
-                        runController.WaitForLifecycleTerminalizationForTests(
-                        TimeSpan.FromSeconds(10)
+                    if (!runController.WaitForLifecycleTerminalizationForTests(
+                            TimeSpan.FromSeconds(10)))
+                    {
+                        throw new TimeoutException(
+                            "Saved-scene cleanup did not finish Run " +
+                            "terminalization; fixture retained at " +
+                            context.TemporaryRoot + "."
+                        );
+                    }
+                }
+                else if (runController != null && runController.Plan != null &&
+                    runController.State == RunState.Faulted)
+                {
+                    throw new InvalidOperationException(
+                        "Saved-scene Controller faulted; fixture retained at " +
+                            context.TemporaryRoot + "."
                     );
                 }
-                if (ownsLoadedScene && loadedScene.IsValid() &&
-                    loadedScene.isLoaded)
+            }
+            catch (Exception exception)
+            {
+                cleanupFailure = AppendCleanupFailure(
+                    cleanupFailure,
+                    exception
+                );
+            }
+
+            Scene ownedScene = ResolveOwnedScene(context);
+            if (context.LoadRequested &&
+                (!ownedScene.IsValid() || !ownedScene.isLoaded))
+            {
+                double cleanupLoadDeadline =
+                    Time.realtimeSinceStartupAsDouble + 10d;
+                while ((!ownedScene.IsValid() || !ownedScene.isLoaded) &&
+                    Time.realtimeSinceStartupAsDouble < cleanupLoadDeadline)
                 {
-                    unload = SceneManager.UnloadSceneAsync(loadedScene);
+                    yield return null;
+                    ownedScene = ResolveOwnedScene(context);
                 }
             }
 
-            if (unload != null)
+            if (ownedScene.IsValid() && ownedScene.isLoaded &&
+                !context.PreexistingSceneHandles.Contains(
+                    ownedScene.handle.GetRawData()
+                ))
             {
-                yield return unload;
+                AsyncOperation unload = null;
+                try
+                {
+                    unload = SceneManager.UnloadSceneAsync(ownedScene);
+                    if (unload == null)
+                    {
+                        throw new InvalidOperationException(
+                            "Unity refused to unload the test-owned " +
+                                "InteractionLab scene."
+                        );
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure = AppendCleanupFailure(
+                        cleanupFailure,
+                        exception
+                    );
+                }
+                if (unload != null)
+                {
+                    yield return unload;
+                    if (ownedScene.isLoaded)
+                    {
+                        cleanupFailure = AppendCleanupFailure(
+                            cleanupFailure,
+                            new InvalidOperationException(
+                                "The test-owned InteractionLab scene remained " +
+                                    "loaded after cleanup."
+                            )
+                        );
+                    }
+                }
+            }
+            else if (context.LoadRequested)
+            {
+                cleanupFailure = AppendCleanupFailure(
+                    cleanupFailure,
+                    new InvalidOperationException(
+                        "Could not identify a loaded test-owned InteractionLab " +
+                            "scene without touching a preexisting scene."
+                    )
+                );
+            }
+
+            if (cleanupFailure == null)
+            {
+                try
+                {
+                    W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(
+                        context.TemporaryRoot
+                    );
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure = exception;
+                }
+            }
+
+            if (context.InjectFailureAfterRunStart)
+            {
+                if (cleanupFailure != null)
+                {
+                    ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+                }
+                Require(
+                    primaryFailure is InvalidOperationException &&
+                        string.Equals(
+                            primaryFailure.Message,
+                            SavedInteractionLabTestContext.InjectedFailureMessage,
+                            StringComparison.Ordinal
+                        ),
+                    "The saved-scene failure-path test did not capture its " +
+                        "injected primary failure."
+                );
+                Require(
+                    !Directory.Exists(context.TemporaryRoot),
+                    "The saved-scene failure path retained its temporary root."
+                );
+                Require(
+                    !FindNewLoadedSceneByPath(
+                        SavedInteractionLabTestContext.ScenePath,
+                        context.PreexistingSceneHandles
+                    ).IsValid(),
+                    "The saved-scene failure path left its owned scene loaded."
+                );
+                Require(
+                    context.PreexistingSceneHandles.IsSubsetOf(
+                        CaptureLoadedSceneHandles()
+                    ),
+                    "The saved-scene failure path unloaded a preexisting scene."
+                );
+                yield break;
+            }
+
+            if (primaryFailure != null && cleanupFailure != null)
+            {
+                throw new AggregateException(
+                    "Saved InteractionLab scenario and cleanup both failed.",
+                    primaryFailure,
+                    cleanupFailure
+                );
+            }
+            if (primaryFailure != null)
+            {
+                ExceptionDispatchInfo.Capture(primaryFailure).Throw();
+            }
+            if (cleanupFailure != null)
+            {
+                ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+            }
+        }
+
+        private static IEnumerator RunSavedInteractionLabStartButtonScenario(
+            SavedInteractionLabTestContext context)
+        {
+            // Always load a test-owned scene instance. Reusing the scene that
+            // entered Play Mode would leave its mode, Run, and storage root
+            // mutated after this integration test.
+            context.LoadRequested = true;
+            context.LoadedScene = EditorSceneManager.LoadSceneInPlayMode(
+                SavedInteractionLabTestContext.ScenePath,
+                new LoadSceneParameters(LoadSceneMode.Additive)
+            );
+            double loadDeadline = Time.realtimeSinceStartupAsDouble + 10d;
+            while ((!context.LoadedScene.IsValid() ||
+                    !context.LoadedScene.isLoaded ||
+                    context.PreexistingSceneHandles.Contains(
+                        context.LoadedScene.handle.GetRawData()
+                    )) &&
+                Time.realtimeSinceStartupAsDouble < loadDeadline)
+            {
+                yield return null;
+                Scene discovered = FindNewLoadedSceneByPath(
+                    SavedInteractionLabTestContext.ScenePath,
+                    context.PreexistingSceneHandles
+                );
+                if (discovered.IsValid())
+                {
+                    context.LoadedScene = discovered;
+                }
+            }
+            Scene loadedScene = context.LoadedScene;
+            Require(
+                loadedScene.IsValid() && loadedScene.isLoaded &&
+                    !context.PreexistingSceneHandles.Contains(
+                        loadedScene.handle.GetRawData()
+                    ),
+                "Unity did not load a test-owned InteractionLab scene."
+            );
+            yield return null;
+
+            InteractionStudyFlowControls controls =
+                FindSingleSceneComponent<InteractionStudyFlowControls>(
+                    loadedScene
+                );
+            InteractionStudyFlowController flowController =
+                FindSingleSceneComponent<InteractionStudyFlowController>(
+                    loadedScene
+                );
+            context.RunController =
+                FindSingleSceneComponent<InteractionRunController>(
+                    loadedScene
+                );
+            InteractionRunController runController = context.RunController;
+            Button startButton = controls.StartButton;
+
+            Require(
+                controls.FlowController == flowController &&
+                    flowController.RunController == runController,
+                "Saved InteractionLab Start controls are not wired to " +
+                    "the saved Flow and Run controllers."
+            );
+            Require(
+                startButton != null &&
+                    startButton.gameObject.scene == loadedScene,
+                "Saved InteractionLab has no scene-owned Start button."
+            );
+
+            string editorStorageRoot = Path.GetFullPath(
+                runController.StorageRootForTests
+            );
+            string realPersistentRoot = Path.GetFullPath(
+                Application.persistentDataPath
+            );
+            string tempParent = Path.GetFullPath(Path.GetTempPath()).TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar
+            );
+            string editorStorageParent =
+                Directory.GetParent(editorStorageRoot)?.FullName;
+            string editorStorageName = Path.GetFileName(editorStorageRoot);
+            StringComparison pathComparison =
+                Path.DirectorySeparatorChar == '\\'
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal;
+            Require(
+                !string.Equals(
+                    editorStorageRoot,
+                    realPersistentRoot,
+                    pathComparison
+                ) &&
+                    string.Equals(
+                        editorStorageParent,
+                        tempParent,
+                        pathComparison
+                    ) &&
+                    editorStorageName.StartsWith(
+                        "svr-ed-",
+                        StringComparison.Ordinal
+                    ),
+                "Editor Play Mode startup recovery was not isolated from " +
+                    "the real persistent experiment root."
+            );
+
+            double preparationDeadline =
+                Time.realtimeSinceStartupAsDouble + 10d;
+            while ((!flowController.ManifestReady ||
+                    runController.StartupRecoveryStatus ==
+                        InteractionStandaloneLocalRunRecoveryStatus.NotStarted ||
+                    runController.StartupRecoveryStatus ==
+                        InteractionStandaloneLocalRunRecoveryStatus.Recovering) &&
+                Time.realtimeSinceStartupAsDouble < preparationDeadline)
+            {
+                yield return null;
             }
             Require(
-                cleanupTerminalizationSucceeded,
-                "Saved-scene test cleanup did not finish terminalization; " +
-                    "the owned fixture was retained at " + temporaryRoot + "."
+                flowController.ManifestReady,
+                "Saved InteractionLab did not load its real manifest."
             );
-            W6InteractionCaptureHostTestDriver.DeleteTemporaryRoot(
-                temporaryRoot
+            Require(
+                runController.StartupRecoveryStatus ==
+                    InteractionStandaloneLocalRunRecoveryStatus.Succeeded,
+                "Saved InteractionLab did not finish its real startup " +
+                    "recovery. Status=" +
+                    runController.StartupRecoveryStatus + "."
             );
+            Require(
+                runController.State == RunState.PreStart,
+                "Saved InteractionLab was not in PreStart before the click."
+            );
+
+            // Preserve the saved UI/Flow/Controller wiring. Only replace the
+            // device-owned XR gate and write root through the existing Editor
+            // EngineeringLocal seam. The sandbox recovery and real manifest
+            // catalog stay installed.
+            runController.RedirectStandaloneStorageRootForTests(
+                context.TemporaryRoot,
+                debugBuild: true
+            );
+            runController.ConfigureMode(
+                InteractionRunMode.EngineeringLocal,
+                configuredDebugOverridesActive: false,
+                explicitlyArmEngineeringLocal: true
+            );
+
+            double readyDeadline = Time.realtimeSinceStartupAsDouble + 5d;
+            while (!startButton.interactable &&
+                Time.realtimeSinceStartupAsDouble < readyDeadline)
+            {
+                yield return null;
+            }
+            Require(
+                startButton.interactable,
+                "Saved InteractionLab Start button did not become ready " +
+                    "through its real FlowControls binding."
+            );
+
+            startButton.onClick.Invoke();
+            RunPlan consumedPlan = runController.Plan;
+            Require(
+                consumedPlan != null &&
+                    !string.IsNullOrWhiteSpace(consumedPlan.RunId),
+                "The saved Start listener did not consume a Run Plan."
+            );
+            Require(
+                runController.State != RunState.PreStart,
+                "Saved InteractionLab flashed immediately back to PreStart."
+            );
+            Require(
+                string.Equals(
+                    flowController.Snapshot?.Status,
+                    "Run consumed; waiting for local capture and presentation.",
+                    StringComparison.Ordinal
+                ),
+                "The saved Start listener did not finish the Flow start " +
+                    "transaction. State=" + runController.State +
+                    ", flow_status=" +
+                    (flowController.Snapshot?.Status ?? "<none>") + "."
+            );
+            Require(
+                runController.WaitForCaptureInitializationForTests(
+                    TimeSpan.FromSeconds(5)
+                ),
+                "Saved InteractionLab capture initialization did not finish."
+            );
+            runController.ReconcileConsumedRunInitializationForTests();
+            string interactionRoot = InteractionStoragePaths.GetInteractionRoot(
+                context.TemporaryRoot
+            );
+            Require(
+                Directory.GetDirectories(
+                    interactionRoot,
+                    "run_*",
+                    SearchOption.AllDirectories
+                ).Length == 1,
+                "The first saved-button click did not create exactly one Run."
+            );
+
+            if (context.InjectFailureAfterRunStart)
+            {
+                throw new InvalidOperationException(
+                    SavedInteractionLabTestContext.InjectedFailureMessage
+                );
+            }
+
+            string consumedRunId = consumedPlan.RunId;
+            startButton.onClick.Invoke();
+            Require(
+                ReferenceEquals(consumedPlan, runController.Plan) &&
+                    string.Equals(
+                        consumedRunId,
+                        runController.Plan?.RunId,
+                        StringComparison.Ordinal
+                ),
+                "A repeated saved-button click consumed another Run Plan."
+            );
+            Require(
+                Directory.GetDirectories(
+                    interactionRoot,
+                    "run_*",
+                    SearchOption.AllDirectories
+                ).Length == 1,
+                "A repeated saved-button click created another Run directory."
+            );
+            Require(
+                runController.State != RunState.PreStart,
+                "Repeated Start returned the active Run to PreStart."
+            );
+
+            yield return null;
+            Require(
+                ReferenceEquals(consumedPlan, runController.Plan) &&
+                    runController.State != RunState.PreStart,
+                "The saved scene did not retain the consumed Run next frame. " +
+                    "State=" + runController.State +
+                    ", controller_error=" + runController.LastError +
+                    ", flow_status=" +
+                    (flowController.Snapshot?.Status ?? "<none>") + "."
+            );
+        }
+
+        private static Scene ResolveOwnedScene(
+            SavedInteractionLabTestContext context)
+        {
+            Scene candidate = context.LoadedScene;
+            if (candidate.IsValid() &&
+                !context.PreexistingSceneHandles.Contains(
+                    candidate.handle.GetRawData()
+                ))
+            {
+                return candidate;
+            }
+            candidate = FindNewLoadedSceneByPath(
+                SavedInteractionLabTestContext.ScenePath,
+                context.PreexistingSceneHandles
+            );
+            if (candidate.IsValid())
+            {
+                context.LoadedScene = candidate;
+            }
+            return candidate;
+        }
+
+        private static Exception AppendCleanupFailure(
+            Exception current,
+            Exception next)
+        {
+            return current == null
+                ? next
+                : new AggregateException(
+                    "Multiple saved-scene cleanup steps failed.",
+                    current,
+                    next
+                );
+        }
+
+        private sealed class SavedInteractionLabTestContext
+        {
+            internal const string ScenePath =
+                "Assets/Scenes/InteractionLab.unity";
+            internal const string InjectedFailureMessage =
+                "injected_saved_scene_failure_after_run_start";
+
+            internal SavedInteractionLabTestContext(
+                bool injectFailureAfterRunStart)
+            {
+                TemporaryRoot = CreateShortTemporaryRoot();
+                PreexistingSceneHandles = CaptureLoadedSceneHandles();
+                InjectFailureAfterRunStart = injectFailureAfterRunStart;
+            }
+
+            internal string TemporaryRoot { get; }
+            internal HashSet<ulong> PreexistingSceneHandles { get; }
+            internal bool InjectFailureAfterRunStart { get; }
+            internal bool LoadRequested { get; set; }
+            internal Scene LoadedScene { get; set; }
+            internal InteractionRunController RunController { get; set; }
         }
 
         private static HashSet<ulong> CaptureLoadedSceneHandles()

@@ -230,6 +230,16 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
                 "SavedInteractionLabStartButtonConsumesOneRun"
             );
         }
+
+        [UnityTest]
+        public IEnumerator
+            SavedInteractionLabFailureAfterStartCleansOwnedResources()
+        {
+            yield return InvokeDriverCoroutine(
+                StandaloneDriverTypeName,
+                "SavedInteractionLabFailureAfterStartCleansOwnedResources"
+            );
+        }
 #endif
 
         [UnityTest]
