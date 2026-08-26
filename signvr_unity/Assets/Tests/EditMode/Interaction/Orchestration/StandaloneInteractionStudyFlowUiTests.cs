@@ -58,15 +58,15 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         }
 
         [Test]
-        public void LegacyIdentityWidgetsAreAlwaysHidden()
+        public void LegacyIdentityWidgetsAreAbsentFromStandaloneControls()
         {
-            InvokeDriver(nameof(LegacyIdentityWidgetsAreAlwaysHidden));
+            InvokeDriver(nameof(LegacyIdentityWidgetsAreAbsentFromStandaloneControls));
         }
 
         [Test]
-        public void IdentityWidgetsMayBeOmittedFromComposition()
+        public void StandaloneControlsComposeWithoutIdentityWidgets()
         {
-            InvokeDriver(nameof(IdentityWidgetsMayBeOmittedFromComposition));
+            InvokeDriver(nameof(StandaloneControlsComposeWithoutIdentityWidgets));
         }
 
         [Test]

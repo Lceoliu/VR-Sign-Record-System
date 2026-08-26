@@ -1,6 +1,7 @@
 #if UNITY_EDITOR || UNITY_INCLUDE_TESTS
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
 using SignVR.Interaction.Presentation;
@@ -265,65 +266,33 @@ namespace SignVR.Interaction.Orchestration
             }
         }
 
-        public static void LegacyIdentityWidgetsAreAlwaysHidden()
+        public static void LegacyIdentityWidgetsAreAbsentFromStandaloneControls()
         {
-            var fixture = new FlowFixture();
-            GameObject root = NewInactiveOwner("Standalone Hidden Identity UI");
-            try
+            Type controls = typeof(InteractionStudyFlowControls);
+            foreach (string fieldName in new[]
+                     {
+                         "participantIdInput",
+                         "buildIdentityInput",
+                         "applyIdentityButton"
+                     })
             {
-                InteractionStudyFlowController controller =
-                    NewReadyController(root.transform, fixture.Flow);
-                InteractionStudyFlowControls controls =
-                    root.AddComponent<InteractionStudyFlowControls>();
-                var instruction =
-                    root.AddComponent<InteractionInstructionControls>();
-                GameObject surface = NewChild(root.transform, "Surface");
-                Button start = NewUiComponent<Button>(root.transform, "Start");
-                TMP_InputField participant = NewUiComponent<TMP_InputField>(
-                    root.transform,
-                    "Participant"
+                Require(
+                    controls.GetField(
+                        fieldName,
+                        BindingFlags.Instance | BindingFlags.NonPublic
+                    ) == null,
+                    "Standalone Controls still serialize " + fieldName + "."
                 );
-                TMP_InputField build = NewUiComponent<TMP_InputField>(
-                    root.transform,
-                    "Build"
-                );
-                Button apply = NewUiComponent<Button>(root.transform, "Apply");
-                TMP_Text status = NewUiComponent<TextMeshProUGUI>(
-                    root.transform,
-                    "Status"
-                );
-                TMP_Text progress = NewUiComponent<TextMeshProUGUI>(
-                    root.transform,
-                    "Progress"
-                );
-
-                controls.Configure(
-                    controller,
-                    instruction,
-                    surface,
-                    start,
-                    participant,
-                    build,
-                    apply,
-                    status,
-                    progress
-                );
-
-                Require(!participant.gameObject.activeSelf, "Participant input is visible.");
-                Require(!build.gameObject.activeSelf, "Build input is visible.");
-                Require(!apply.gameObject.activeSelf, "Identity action is visible.");
-                Require(!participant.interactable, "Participant input is interactive.");
-                Require(!build.interactable, "Build input is interactive.");
-                Require(!apply.interactable, "Identity action is interactive.");
             }
-            finally
-            {
-                fixture.Flow.Dispose();
-                UnityEngine.Object.DestroyImmediate(root);
-            }
+            Require(
+                controls.GetProperty("ParticipantIdInput") == null &&
+                controls.GetProperty("BuildIdentityInput") == null &&
+                controls.GetProperty("ApplyIdentityButton") == null,
+                "Standalone Controls still expose legacy identity widgets."
+            );
         }
 
-        public static void IdentityWidgetsMayBeOmittedFromComposition()
+        public static void StandaloneControlsComposeWithoutIdentityWidgets()
         {
             var fixture = new FlowFixture();
             GameObject root = NewInactiveOwner("Standalone No Identity UI");
@@ -341,9 +310,6 @@ namespace SignVR.Interaction.Orchestration
                     instruction,
                     NewChild(root.transform, "Surface"),
                     NewUiComponent<Button>(root.transform, "Start"),
-                    participantInput: null,
-                    buildInput: null,
-                    applyIdentity: null,
                     status: NewUiComponent<TextMeshProUGUI>(
                         root.transform,
                         "Status"
@@ -381,9 +347,6 @@ namespace SignVR.Interaction.Orchestration
                     instruction,
                     surface,
                     start,
-                    participantInput: null,
-                    buildInput: null,
-                    applyIdentity: null,
                     status: NewUiComponent<TextMeshProUGUI>(
                         root.transform,
                         "Status"
