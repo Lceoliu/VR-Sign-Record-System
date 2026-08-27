@@ -231,6 +231,70 @@ namespace SignVR.Editor.Interaction.Qa
             }
         }
 
+        public static void PhaseFiveQaInputHonorsTheFeedbackWindow()
+        {
+            var root = new GameObject("Interaction QA phase five gate");
+            try
+            {
+                InteractionPhaseCoordinator coordinator =
+                    root.AddComponent<InteractionPhaseCoordinator>();
+                InteractionPhaseAdapter[] adapters =
+                {
+                    root.AddComponent<PhaseOneInteractionAdapter>(),
+                    root.AddComponent<PhaseTwoInteractionAdapter>(),
+                    root.AddComponent<PhaseThreeInteractionAdapter>(),
+                    root.AddComponent<PhaseFourInteractionAdapter>(),
+                    root.AddComponent<PhaseFiveInteractionAdapter>(),
+                    root.AddComponent<PhaseSixInteractionAdapter>()
+                };
+                coordinator.ConfigureAdapters(adapters);
+                coordinator.Configure(CreatePlan());
+                coordinator.Enable();
+                coordinator.Synchronize(
+                    PhaseExecutionSnapshot.CreateEngineeringLabActivePhase(5)
+                );
+
+                var port = new UnityInteractionQaAuthorityPort(
+                    null,
+                    coordinator,
+                    null,
+                    () => true
+                );
+                Require(
+                    port.TrySubmitInput(
+                        PhaseInput.Target("button_a")
+                    ).Succeeded,
+                    "QA did not accept the first planned button."
+                );
+                InteractionQaActionResult reset = port.TrySubmitInput(
+                    PhaseInput.Target("button_a")
+                );
+                Require(
+                    reset.Succeeded && reset.ValidationResult != null &&
+                    reset.ValidationResult.ProgressReset,
+                    "QA did not expose the repeated-button reset."
+                );
+                InteractionQaActionResult blocked = port.TrySubmitInput(
+                    PhaseInput.Target("button_b")
+                );
+                Require(
+                    !blocked.Succeeded && blocked.Message.Contains(
+                        "temporarily unavailable"
+                    ),
+                    "QA bypassed the phase-five feedback input window."
+                );
+                Require(
+                    ReferenceEquals(coordinator.LastResult,
+                        reset.ValidationResult),
+                    "A blocked QA input mutated the phase authority."
+                );
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
         public static void ScreenshotPathCannotEscapeTheIgnoredQaDirectory()
         {
             string assets = Path.Combine(

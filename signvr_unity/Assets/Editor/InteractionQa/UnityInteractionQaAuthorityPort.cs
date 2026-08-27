@@ -154,10 +154,26 @@ namespace SignVR.Editor.Interaction.Qa
 
             try
             {
-                ValidationResult result = phaseCoordinator.AcceptInput(
-                    phaseId.Value,
-                    input
-                );
+                InteractionPhaseAdapter adapter = phaseCoordinator
+                    .PhaseAdapters.FirstOrDefault(
+                        value => value != null &&
+                            value.PhaseId == phaseId.Value
+                    );
+                if (adapter == null)
+                {
+                    return Missing(
+                        $"Phase {phaseId.Value} InteractionPhaseAdapter"
+                    );
+                }
+                ValidationResult result = adapter.AcceptInput(input);
+                if (result == null)
+                {
+                    return InteractionQaActionResult.Failure(
+                        $"Phase {phaseId.Value} input is temporarily " +
+                        "unavailable; exit the contact or wait for " +
+                        "feedback to finish."
+                    );
+                }
                 bool reachedTaskRule = result.Accepted ||
                     result.InteractionError;
                 string message = reachedTaskRule

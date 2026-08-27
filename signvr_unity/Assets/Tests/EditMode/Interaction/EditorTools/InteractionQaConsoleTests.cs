@@ -46,6 +46,12 @@ namespace SignVR.Interaction.Editor.Tests.EditorTools
         }
 
         [Test]
+        public void PhaseFiveQaInputHonorsTheFeedbackWindow()
+        {
+            InvokeDriver(nameof(PhaseFiveQaInputHonorsTheFeedbackWindow));
+        }
+
+        [Test]
         public void ScreenshotPathCannotEscapeTheIgnoredQaDirectory()
         {
             InvokeDriver(nameof(

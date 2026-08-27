@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
+using Oculus.Interaction;
 using TMPro;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -232,6 +233,21 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             InvokePublic(blueRelay, "ReleaseTrigger", right);
             InvokePublic(blueRelay, "ReleaseTrigger", leftFirst);
 
+            Assert.That(
+                InvokePublic(blueRelay, "AcceptTrigger", leftSecond),
+                Is.Null,
+                "Direct contact sources must keep the shared target latched."
+            );
+            InvokePublic(blueBinding, "PokeEnded");
+            InvokePublic(blueBinding, "TriggerEnded");
+            Assert.That(
+                InvokePublic(blueBinding, "AcceptInput"),
+                Is.Null,
+                "The remaining grab source must prevent premature rearm."
+            );
+            InvokePublic(blueBinding, "GrabEnded");
+            InvokePublic(blueRelay, "ReleaseTrigger", leftSecond);
+
             yield return new WaitForSecondsRealtime(0.06f);
             Assert.That(
                 InvokePublic(blueRelay, "AcceptTrigger", leftSecond),
@@ -239,6 +255,58 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 "The target must rearm after every hand collider exits and " +
                 "its short cooldown expires."
             );
+            Assert.That(results.Count, Is.EqualTo(3));
+        }
+
+        [UnityTest]
+        public IEnumerator PhaseFiveErrorFeedbackBlocksInputForResetWindow()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "PhaseFiveFeedbackInputLock"
+            );
+            Component phaseFive = fixture.Adapters[4];
+            ActivatePhase(fixture, 2);
+            ActivatePhase(fixture, 3);
+            ActivatePhase(fixture, 4);
+            ActivatePhase(fixture, 5);
+
+            var results = new EventCounter();
+            SubscribeGenericEvent(
+                fixture.Coordinator,
+                "ResultProduced",
+                results
+            );
+
+            AssertAccepted(InvokePublic(
+                phaseFive,
+                "AcceptTarget",
+                "button_a"
+            ));
+            object repeated = InvokePublic(
+                phaseFive,
+                "AcceptTarget",
+                "button_a"
+            );
+            Assert.That(repeated, Is.Not.Null);
+            Assert.That(
+                repeated.GetType().GetProperty("ProgressReset")
+                    .GetValue(repeated),
+                Is.True
+            );
+            Assert.That(
+                InvokePublic(phaseFive, "AcceptTarget", "button_b"),
+                Is.Null,
+                "The red feedback window must freeze logical input."
+            );
+            Assert.That(results.Count, Is.EqualTo(2));
+
+            yield return new WaitForSecondsRealtime(0.61f);
+
+            AssertAccepted(InvokePublic(
+                phaseFive,
+                "AcceptTarget",
+                "button_b"
+            ));
             Assert.That(results.Count, Is.EqualTo(3));
         }
 
@@ -349,7 +417,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         }
 
         [UnityTest]
-        public IEnumerator CorrectPlacementSnapsAndLocksCoinWithItsRigidbody()
+        public IEnumerator CorrectPlacementWaitsForReleaseThenSnapsAndLocksCoin()
         {
             RuntimeFixture fixture = CreateRuntimeFixture("CoinSnapLock");
             Component phaseTwo = fixture.Adapters[1];
@@ -364,6 +432,9 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             body.linearVelocity = new Vector3(2f, 3f, 4f);
             body.angularVelocity = new Vector3(5f, 6f, 7f);
             Collider coinCollider = coin.AddComponent<BoxCollider>();
+            FakeSelectionInteractableView selection =
+                coin.AddComponent<FakeSelectionInteractableView>();
+            selection.IsSelected = true;
             Component coinBinding = coin.AddComponent(
                 RuntimeType("InteractionTargetBinding")
             );
@@ -372,7 +443,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 "Configure",
                 "coin_dragon",
                 phaseTwo,
-                Array.Empty<Behaviour>(),
+                new Behaviour[] { selection },
                 new[] { coinCollider }
             );
 
@@ -395,12 +466,33 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 snapObject.transform
             );
 
-            object result = InvokePublic(
+            object queued = InvokePublic(
                 placement,
                 "AcceptTrigger",
                 coinCollider
             );
-            AssertAccepted(result);
+            Assert.That(
+                queued,
+                Is.Null,
+                "Entering the plate must only queue a placement."
+            );
+            Assert.That(
+                InvokePublic(placement, "TryAcceptStay", coinCollider),
+                Is.Null
+            );
+            Assert.That(
+                body.isKinematic,
+                Is.False,
+                "A still-selected coin must remain owned by the grab system."
+            );
+
+            selection.IsSelected = false;
+            AssertAccepted(InvokePublic(
+                placement,
+                "TryAcceptStay",
+                coinCollider
+            ));
+
             Assert.That(coin.GetComponent<Rigidbody>(), Is.SameAs(body));
             Assert.That(body.isKinematic, Is.True);
             Assert.That(body.useGravity, Is.False);
@@ -3780,5 +3872,49 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             public Component[] Adapters { get; }
             public object Plan { get; }
         }
+    }
+
+    public sealed class FakeSelectionInteractableView :
+        MonoBehaviour,
+        IInteractableView
+    {
+        public bool IsSelected { get; set; }
+
+        public object Data => null;
+
+        public InteractableState State => default;
+
+        public int MaxInteractors => 1;
+
+        public int MaxSelectingInteractors => 1;
+
+        public IEnumerable<IInteractorView> InteractorViews =>
+            SelectingInteractorViews;
+
+        public IEnumerable<IInteractorView> SelectingInteractorViews
+        {
+            get
+            {
+                if (IsSelected)
+                {
+                    yield return null;
+                }
+            }
+        }
+
+        public event Action<InteractableStateChangeArgs> WhenStateChanged =
+            delegate { };
+
+        public event Action<IInteractorView> WhenInteractorViewAdded =
+            delegate { };
+
+        public event Action<IInteractorView> WhenInteractorViewRemoved =
+            delegate { };
+
+        public event Action<IInteractorView> WhenSelectingInteractorViewAdded =
+            delegate { };
+
+        public event Action<IInteractorView>
+            WhenSelectingInteractorViewRemoved = delegate { };
     }
 }

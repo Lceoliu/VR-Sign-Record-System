@@ -70,6 +70,12 @@ namespace SignVR.Interaction.Editor.Tests
             );
 
             Type targetBinding = RuntimeType("InteractionTargetBinding");
+            AssertPublicInstanceMethod(targetBinding, "Poke");
+            AssertPublicInstanceMethod(targetBinding, "PokeEnded");
+            AssertPublicInstanceMethod(targetBinding, "Trigger");
+            AssertPublicInstanceMethod(targetBinding, "TriggerEnded");
+            AssertPublicInstanceMethod(targetBinding, "Grab");
+            AssertPublicInstanceMethod(targetBinding, "GrabEnded");
             Assert.That(
                 targetBinding.GetMethod(
                     "RestoreAuthoredStateForTeardown",
@@ -1650,6 +1656,59 @@ namespace SignVR.Interaction.Editor.Tests
                         Is.LessThan(0.001f)
                     );
                 }
+
+                presentationType.GetMethod("TickFeedback").Invoke(
+                    presentation,
+                    new object[] { 200d }
+                );
+                object secondAccepted = AcceptTarget(
+                    coordinator,
+                    5,
+                    "button_a"
+                );
+                presentationType.GetMethod("ApplyValidationResult").Invoke(
+                    presentation,
+                    new[] { secondAccepted }
+                );
+                object secondReset = AcceptTarget(
+                    coordinator,
+                    5,
+                    "button_a"
+                );
+                presentationType.GetMethod("ApplyValidationResult").Invoke(
+                    presentation,
+                    new[] { secondReset }
+                );
+                presentationType.GetMethod("TickFeedback").Invoke(
+                    presentation,
+                    new object[] { 200.59d }
+                );
+                object boundaryAccepted = AcceptTarget(
+                    coordinator,
+                    5,
+                    "button_b"
+                );
+                presentationType.GetMethod("ApplyValidationResult").Invoke(
+                    presentation,
+                    new[] { boundaryAccepted }
+                );
+                presentationType.GetMethod("TickFeedback").Invoke(
+                    presentation,
+                    new object[] { 200.61d }
+                );
+                Assert.That(
+                    stateType.GetProperty("VisualState").GetValue(
+                        cabinetBindings.GetValue(0)
+                    ).ToString(),
+                    Is.EqualTo("Idle")
+                );
+                Assert.That(
+                    stateType.GetProperty("VisualState").GetValue(
+                        cabinetBindings.GetValue(1)
+                    ).ToString(),
+                    Is.EqualTo("Accepted"),
+                    "An expired error timer must not erase new progress."
+                );
             }
             finally
             {
@@ -3140,8 +3199,18 @@ namespace SignVR.Interaction.Editor.Tests
                     }
                 );
 
-                object result = placement.GetType()
+                object queued = placement.GetType()
                     .GetMethod("AcceptTrigger").Invoke(
+                        placement,
+                        new[] { coinCollider }
+                    );
+                Assert.That(
+                    queued,
+                    Is.Null,
+                    "Entering a plate only queues placement until release."
+                );
+                object result = placement.GetType()
+                    .GetMethod("TryAcceptStay").Invoke(
                         placement,
                         new[] { coinCollider }
                     );
@@ -3324,6 +3393,18 @@ namespace SignVR.Interaction.Editor.Tests
                     Is.Null,
                     "The direct/Poke seam must share the trigger latch."
                 );
+                blueBinding.GetType().GetMethod("Poke").Invoke(
+                    blueBinding,
+                    null
+                );
+                blueBinding.GetType().GetMethod("Trigger").Invoke(
+                    blueBinding,
+                    null
+                );
+                blueBinding.GetType().GetMethod("Grab").Invoke(
+                    blueBinding,
+                    null
+                );
                 Assert.That(
                     redBinding.GetType().GetMethod("AcceptInput").Invoke(
                         redBinding,
@@ -3356,6 +3437,38 @@ namespace SignVR.Interaction.Editor.Tests
                 blueRelay.GetType().GetMethod("ReleaseTrigger").Invoke(
                     blueRelay,
                     new[] { leftFirst }
+                );
+                Assert.That(
+                    blueRelay.GetType().GetMethod("AcceptTrigger").Invoke(
+                        blueRelay,
+                        new[] { leftSecond }
+                    ),
+                    Is.Null,
+                    "Direct contact sources must keep the target latched."
+                );
+                blueBinding.GetType().GetMethod("PokeEnded").Invoke(
+                    blueBinding,
+                    null
+                );
+                blueBinding.GetType().GetMethod("TriggerEnded").Invoke(
+                    blueBinding,
+                    null
+                );
+                Assert.That(
+                    blueBinding.GetType().GetMethod("AcceptInput").Invoke(
+                        blueBinding,
+                        null
+                    ),
+                    Is.Null,
+                    "The remaining grab source must prevent early rearm."
+                );
+                blueBinding.GetType().GetMethod("GrabEnded").Invoke(
+                    blueBinding,
+                    null
+                );
+                blueRelay.GetType().GetMethod("ReleaseTrigger").Invoke(
+                    blueRelay,
+                    new[] { leftSecond }
                 );
                 Assert.That(
                     blueRelay.GetType().GetMethod("AcceptTrigger").Invoke(
@@ -3606,6 +3719,11 @@ namespace SignVR.Interaction.Editor.Tests
                 object duplicate = placement.GetType()
                     .GetMethod("AcceptTrigger")
                     .Invoke(placement, new[] { secondCollider });
+                Assert.That(first, Is.Null);
+                Assert.That(duplicate, Is.Null);
+                first = placement.GetType()
+                    .GetMethod("TryAcceptStay")
+                    .Invoke(placement, new[] { firstCollider });
                 Assert.That(first, Is.Not.Null);
                 Assert.That(
                     first.GetType().GetProperty("InteractionError")
@@ -3613,7 +3731,14 @@ namespace SignVR.Interaction.Editor.Tests
                     Is.True,
                     "coin_dragon on plate_a is intentionally the wrong pair."
                 );
-                Assert.That(duplicate, Is.Null);
+                Assert.That(
+                    placement.GetType().GetMethod("TryAcceptStay").Invoke(
+                        placement,
+                        new[] { secondCollider }
+                    ),
+                    Is.Null,
+                    "A wrong placement must report only once per overlap."
+                );
                 placement.GetType().GetMethod("ReleaseTrigger").Invoke(
                     placement,
                     new[] { firstCollider }
@@ -3626,6 +3751,13 @@ namespace SignVR.Interaction.Editor.Tests
                     Is.Null,
                     "One collider still overlapping must keep the coin latched."
                 );
+                Assert.That(
+                    placement.GetType().GetMethod("TryAcceptStay").Invoke(
+                        placement,
+                        new[] { firstCollider }
+                    ),
+                    Is.Null
+                );
                 placement.GetType().GetMethod("ReleaseTrigger").Invoke(
                     placement,
                     new[] { secondCollider }
@@ -3636,6 +3768,14 @@ namespace SignVR.Interaction.Editor.Tests
                 );
                 Assert.That(
                     placement.GetType().GetMethod("AcceptTrigger").Invoke(
+                        placement,
+                        new[] { secondCollider }
+                    ),
+                    Is.Null,
+                    "Re-entry queues a fresh release check."
+                );
+                Assert.That(
+                    placement.GetType().GetMethod("TryAcceptStay").Invoke(
                         placement,
                         new[] { secondCollider }
                     ),

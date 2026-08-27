@@ -798,8 +798,6 @@ namespace SignVR.Interaction.PhaseAdapters
         , IInteractionOwnedStateTeardown
 #endif
     {
-        private const double ErrorResetDelaySeconds = 0.6d;
-
         [SerializeField]
         private InteractionPhaseCoordinator coordinator;
 
@@ -867,7 +865,9 @@ namespace SignVR.Interaction.PhaseAdapters
             plannedKeys;
         public InteractionPhaseCoordinator Coordinator => coordinator;
 
-        public double FeedbackResetDelaySeconds => ErrorResetDelaySeconds;
+        public double FeedbackResetDelaySeconds =>
+            InteractionPhaseFeedbackTiming
+                .PhaseFiveErrorResetDelaySeconds;
 
 #if UNITY_INCLUDE_TESTS
         public InteractionSubscriptionDiagnostic SubscriptionDiagnostic =>
@@ -1028,6 +1028,7 @@ namespace SignVR.Interaction.PhaseAdapters
         public void ResetPresentation()
         {
             phaseFiveErrorResetPending = false;
+            phaseFiveErrorResetAt = 0d;
             safeDoor.Reset();
             chestLid.Reset();
             cabinetLeftDoor.Reset();
@@ -1191,12 +1192,20 @@ namespace SignVR.Interaction.PhaseAdapters
             {
                 return;
             }
+            if (result.PhaseId == 5 && result.Accepted &&
+                phaseFiveErrorResetPending)
+            {
+                phaseFiveErrorResetPending = false;
+                ResetStates(cabinetButtons);
+            }
+
             if (result.PhaseId == 5 && result.ProgressReset &&
                 !result.PhaseGivenUp)
             {
                 ShowPhaseFiveError(result.TargetId);
                 phaseFiveErrorResetAt = feedbackClockSeconds +
-                    ErrorResetDelaySeconds;
+                    InteractionPhaseFeedbackTiming
+                        .PhaseFiveErrorResetDelaySeconds;
                 phaseFiveErrorResetPending = true;
             }
             else if (result.ProgressReset || result.PhaseGivenUp)

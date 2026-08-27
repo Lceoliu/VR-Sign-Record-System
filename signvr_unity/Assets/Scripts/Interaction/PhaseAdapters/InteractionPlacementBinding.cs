@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Oculus.Interaction;
 using SignVR.Interaction.Core;
 using UnityEngine;
 
@@ -47,6 +48,13 @@ namespace SignVR.Interaction.PhaseAdapters
         private readonly Dictionary<InteractionTargetBinding, HashSet<Collider>>
             overlappingCoinColliders =
                 new Dictionary<InteractionTargetBinding, HashSet<Collider>>();
+        private readonly HashSet<InteractionTargetBinding>
+            attemptedOverlappingCoins =
+                new HashSet<InteractionTargetBinding>();
+        private readonly Dictionary<InteractionTargetBinding,
+            IInteractableView[]> coinSelectionViews =
+                new Dictionary<InteractionTargetBinding,
+                    IInteractableView[]>();
 
 #if UNITY_INCLUDE_TESTS
         private readonly InteractionSubscriptionDiagnostic
@@ -169,6 +177,10 @@ namespace SignVR.Interaction.PhaseAdapters
             {
                 return null;
             }
+            if (IsSelectedByInteractor(coinBinding))
+            {
+                return null;
+            }
 
             ValidationResult result = AcceptPlacement(coinBinding.TargetId);
             if (result != null && result.Accepted && snapPoint != null)
@@ -228,12 +240,42 @@ namespace SignVR.Interaction.PhaseAdapters
                 return null;
             }
 
+            CacheSelectionViews(coin);
+            return null;
+        }
+
+        public ValidationResult TryAcceptStay(Collider other)
+        {
+            if (!isActiveAndEnabled || other == null || adapter == null ||
+                !adapter.IsEnabled)
+            {
+                return null;
+            }
+
+            InteractionTargetBinding coin =
+                other.GetComponentInParent<InteractionTargetBinding>();
+            if (coin == null || !overlappingCoinColliders.TryGetValue(
+                    coin,
+                    out HashSet<Collider> colliders) ||
+                !colliders.Contains(other) ||
+                attemptedOverlappingCoins.Contains(coin) ||
+                IsSelectedByInteractor(coin))
+            {
+                return null;
+            }
+
+            attemptedOverlappingCoins.Add(coin);
             return AcceptPlacement(coin);
         }
 
         private void OnTriggerEnter(Collider other)
         {
             AcceptTrigger(other);
+        }
+
+        private void OnTriggerStay(Collider other)
+        {
+            TryAcceptStay(other);
         }
 
         private void OnTriggerExit(Collider other)
@@ -259,7 +301,70 @@ namespace SignVR.Interaction.PhaseAdapters
             if (colliders.Count == 0)
             {
                 overlappingCoinColliders.Remove(coin);
+                attemptedOverlappingCoins.Remove(coin);
+                coinSelectionViews.Remove(coin);
             }
+        }
+
+        private bool IsSelectedByInteractor(
+            InteractionTargetBinding coin)
+        {
+            CacheSelectionViews(coin);
+            if (!coinSelectionViews.TryGetValue(
+                    coin,
+                    out IInteractableView[] views))
+            {
+                return false;
+            }
+
+            for (int index = 0; index < views.Length; index++)
+            {
+                IInteractableView view = views[index];
+                if (view == null)
+                {
+                    continue;
+                }
+                foreach (IInteractorView ignored in
+                    view.SelectingInteractorViews)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void CacheSelectionViews(InteractionTargetBinding coin)
+        {
+            if (coin == null || coinSelectionViews.ContainsKey(coin))
+            {
+                return;
+            }
+
+            var views = new List<IInteractableView>();
+            IReadOnlyList<Behaviour> configuredBehaviours =
+                coin.InteractionBehaviours;
+            for (int index = 0; index < configuredBehaviours.Count; index++)
+            {
+                if (configuredBehaviours[index] is IInteractableView view &&
+                    !views.Contains(view))
+                {
+                    views.Add(view);
+                }
+            }
+            if (views.Count == 0)
+            {
+                MonoBehaviour[] components =
+                    coin.GetComponentsInChildren<MonoBehaviour>(true);
+                for (int index = 0; index < components.Length; index++)
+                {
+                    if (components[index] is IInteractableView view &&
+                        !views.Contains(view))
+                    {
+                        views.Add(view);
+                    }
+                }
+            }
+            coinSelectionViews.Add(coin, views.ToArray());
         }
 
         private void BindAvailability()
@@ -320,6 +425,8 @@ namespace SignVR.Interaction.PhaseAdapters
         private void ClearOverlaps()
         {
             overlappingCoinColliders.Clear();
+            attemptedOverlappingCoins.Clear();
+            coinSelectionViews.Clear();
         }
 
         private void CapturePlacementOwnership()

@@ -14,6 +14,16 @@ namespace SignVR.Interaction.PhaseAdapters
         , IInteractionOwnedStateTeardown
 #endif
     {
+        [Flags]
+        private enum ContactSource
+        {
+            None = 0,
+            TriggerRelay = 1 << 0,
+            Poke = 1 << 1,
+            Trigger = 1 << 2,
+            Grab = 1 << 3
+        }
+
         [SerializeField]
         private string targetId = string.Empty;
 
@@ -36,7 +46,7 @@ namespace SignVR.Interaction.PhaseAdapters
         private float sameTargetCooldownSeconds = 0.3f;
 
         private float lastAcceptedInputTime = float.NegativeInfinity;
-        private bool contactCycleActive;
+        private ContactSource activeContactSources = ContactSource.None;
         private bool contactCycleLatched;
 
         private bool availabilitySubscribed;
@@ -262,7 +272,8 @@ namespace SignVR.Interaction.PhaseAdapters
                 return null;
             }
 
-            if (contactCycleActive && contactCycleLatched)
+            if (activeContactSources != ContactSource.None &&
+                contactCycleLatched)
             {
                 return null;
             }
@@ -276,7 +287,7 @@ namespace SignVR.Interaction.PhaseAdapters
             if (result != null)
             {
                 lastAcceptedInputTime = Time.unscaledTime;
-                if (contactCycleActive)
+                if (activeContactSources != ContactSource.None)
                 {
                     contactCycleLatched = true;
                 }
@@ -293,28 +304,47 @@ namespace SignVR.Interaction.PhaseAdapters
 
         public ValidationResult BeginContactCycle()
         {
-            if (contactCycleActive)
+            return BeginContact(ContactSource.TriggerRelay);
+        }
+
+        public void EndContactCycle()
+        {
+            EndContact(ContactSource.TriggerRelay);
+        }
+
+        private void ResetInputGate()
+        {
+            activeContactSources = ContactSource.None;
+            contactCycleLatched = false;
+            lastAcceptedInputTime = float.NegativeInfinity;
+        }
+
+        private ValidationResult BeginContact(ContactSource source)
+        {
+            if ((activeContactSources & source) != 0)
             {
                 return null;
             }
 
-            contactCycleActive = true;
+            bool isFirstSource = activeContactSources == ContactSource.None;
+            activeContactSources |= source;
+            if (!isFirstSource)
+            {
+                return null;
+            }
+
             ValidationResult result = AcceptInput();
             contactCycleLatched = true;
             return result;
         }
 
-        public void EndContactCycle()
+        private void EndContact(ContactSource source)
         {
-            contactCycleActive = false;
-            contactCycleLatched = false;
-        }
-
-        private void ResetInputGate()
-        {
-            contactCycleActive = false;
-            contactCycleLatched = false;
-            lastAcceptedInputTime = float.NegativeInfinity;
+            activeContactSources &= ~source;
+            if (activeContactSources == ContactSource.None)
+            {
+                contactCycleLatched = false;
+            }
         }
 
 #if UNITY_EDITOR || UNITY_INCLUDE_TESTS
@@ -327,17 +357,32 @@ namespace SignVR.Interaction.PhaseAdapters
         // Void entry points remain visible to Meta/UnityEvent wrappers.
         public void Poke()
         {
-            AcceptInput();
+            BeginContact(ContactSource.Poke);
+        }
+
+        public void PokeEnded()
+        {
+            EndContact(ContactSource.Poke);
         }
 
         public void Trigger()
         {
-            AcceptInput();
+            BeginContact(ContactSource.Trigger);
+        }
+
+        public void TriggerEnded()
+        {
+            EndContact(ContactSource.Trigger);
         }
 
         public void Grab()
         {
-            AcceptInput();
+            BeginContact(ContactSource.Grab);
+        }
+
+        public void GrabEnded()
+        {
+            EndContact(ContactSource.Grab);
         }
 
         private void BindAdapterEvents()
