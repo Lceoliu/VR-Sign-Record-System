@@ -39,14 +39,18 @@ namespace SignVR.Editor.Interaction.Qa
         public InteractionQaSnapshot ReadSnapshot()
         {
             bool playing = isPlaying();
+            InteractionStudyFlowController liveFlowController =
+                flowController != null ? flowController : null;
+            InteractionPhaseCoordinator livePhaseCoordinator =
+                phaseCoordinator != null ? phaseCoordinator : null;
             InteractionStudyFlowSnapshot flowSnapshot =
-                flowController?.Snapshot;
-            RunPlan plan = phaseCoordinator?.Plan ??
-                flowController?.RunController?.Plan;
+                liveFlowController?.Snapshot;
+            RunPlan plan = livePhaseCoordinator?.Plan ??
+                liveFlowController?.RunController?.Plan;
             int? phaseId = flowSnapshot?.PhaseId ??
-                phaseCoordinator?.CurrentPhaseId ??
-                flowController?.RunController?.CurrentPhaseId;
-            ValidationResult lastResult = phaseCoordinator?.LastResult;
+                livePhaseCoordinator?.CurrentPhaseId ??
+                liveFlowController?.RunController?.CurrentPhaseId;
+            ValidationResult lastResult = livePhaseCoordinator?.LastResult;
 
             IReadOnlyList<string> plannedTargets =
                 ResolvePlannedTargets(plan, phaseId);
@@ -58,13 +62,13 @@ namespace SignVR.Editor.Interaction.Qa
                 lastResult?.RequiredProgress ?? plannedTargets.Count;
             RunState? runState = flowSnapshot != null
                 ? flowSnapshot.RunState
-                : flowController?.RunController?.State;
+                : liveFlowController?.RunController?.State;
             string status = flowSnapshot?.Status;
             if (string.IsNullOrWhiteSpace(status))
             {
                 status = !playing
                     ? "Enter Play Mode to operate the Interaction Run."
-                    : flowController == null
+                    : liveFlowController == null
                         ? "InteractionStudyFlowController was not found."
                         : "Study Flow has not produced a snapshot yet.";
             }
@@ -294,8 +298,10 @@ namespace SignVR.Editor.Interaction.Qa
 
         private IReadOnlyList<string> ResolveAcceptedTargets(int? phaseId)
         {
+            InteractionPhaseCoordinator livePhaseCoordinator =
+                phaseCoordinator != null ? phaseCoordinator : null;
             InteractionTaskPresentationSnapshot snapshot =
-                phaseCoordinator?.PresentationSnapshot;
+                livePhaseCoordinator?.PresentationSnapshot;
             if (snapshot == null || !phaseId.HasValue)
             {
                 return Array.Empty<string>();

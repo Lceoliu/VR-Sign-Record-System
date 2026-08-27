@@ -888,6 +888,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void OnEnable()
         {
+            feedbackClockSeconds = Time.realtimeSinceStartupAsDouble;
             Bind();
             RebuildFromAuthority();
         }

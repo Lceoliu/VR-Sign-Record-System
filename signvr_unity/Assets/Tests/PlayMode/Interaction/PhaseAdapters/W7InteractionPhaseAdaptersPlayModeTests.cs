@@ -259,6 +259,62 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         }
 
         [UnityTest]
+        public IEnumerator SameDirectSourceRequiresEveryContactToEnd()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "SameDirectSourceContactCount"
+            );
+            Component phaseFive = fixture.Adapters[4];
+            ActivatePhase(fixture, 2);
+            ActivatePhase(fixture, 3);
+            ActivatePhase(fixture, 4);
+            ActivatePhase(fixture, 5);
+
+            GameObject targetObject = new GameObject("W7Target_button_a");
+            targetObject.transform.SetParent(fixture.Root.transform, false);
+            Component binding = targetObject.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                binding,
+                "Configure",
+                "button_a",
+                phaseFive,
+                Array.Empty<Behaviour>(),
+                Array.Empty<Collider>()
+            );
+            InvokePublic(binding, "ConfigureSameTargetCooldown", 0f);
+
+            var results = new EventCounter();
+            SubscribeGenericEvent(
+                fixture.Coordinator,
+                "ResultProduced",
+                results
+            );
+
+            InvokePublic(binding, "Poke");
+            InvokePublic(binding, "Poke");
+            Assert.That(results.Count, Is.EqualTo(1));
+
+            InvokePublic(binding, "PokeEnded");
+            Assert.That(
+                InvokePublic(binding, "AcceptInput"),
+                Is.Null,
+                "One same-source contact remains and must keep the target " +
+                "latched."
+            );
+
+            InvokePublic(binding, "PokeEnded");
+            Assert.That(
+                InvokePublic(binding, "AcceptInput"),
+                Is.Not.Null,
+                "The target must rearm only after both Poke contacts end."
+            );
+            Assert.That(results.Count, Is.EqualTo(2));
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator PhaseFiveErrorFeedbackBlocksInputForResetWindow()
         {
             RuntimeFixture fixture = CreateRuntimeFixture(
@@ -308,6 +364,106 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 "button_b"
             ));
             Assert.That(results.Count, Is.EqualTo(3));
+        }
+
+        [UnityTest]
+        public IEnumerator PhaseFiveRejectsSynchronousReentryAndResetWins()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "PhaseFiveSynchronousReentry"
+            );
+            Component phaseFive = fixture.Adapters[4];
+            ActivatePhase(fixture, 2);
+            ActivatePhase(fixture, 3);
+            ActivatePhase(fixture, 4);
+            ActivatePhase(fixture, 5);
+
+            AssertAccepted(InvokePublic(
+                phaseFive,
+                "AcceptTarget",
+                "button_a"
+            ));
+            var probe = new PhaseFiveResetAndReentryProbe(phaseFive);
+            SubscribeGenericEvent(
+                phaseFive,
+                "TaskProgressReset",
+                probe,
+                nameof(PhaseFiveResetAndReentryProbe.Observe)
+            );
+
+            object repeated = InvokePublic(
+                phaseFive,
+                "AcceptTarget",
+                "button_a"
+            );
+            Assert.That(repeated, Is.Not.Null);
+            Assert.That(probe.ReentrantResult, Is.Null);
+
+            InvokePublic(phaseFive, "Enable");
+            AssertAccepted(InvokePublic(
+                phaseFive,
+                "AcceptTarget",
+                "button_b"
+            ));
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator ReenabledPresentationStartsAFreshFeedbackClock()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "PhaseFiveReenableFeedbackClock"
+            );
+            Component phaseFive = fixture.Adapters[4];
+            ActivatePhase(fixture, 2);
+            ActivatePhase(fixture, 3);
+            ActivatePhase(fixture, 4);
+            ActivatePhase(fixture, 5);
+
+            GameObject button = new GameObject("button_a");
+            button.transform.SetParent(fixture.Root.transform, false);
+            object state = CreateTargetStateBinding(
+                "button_a",
+                button.transform
+            );
+            Component presentation = fixture.Root.AddComponent(
+                RuntimeType("InteractionDeterministicPresentation")
+            );
+            ConfigurePhaseFivePresentation(
+                presentation,
+                fixture.Coordinator,
+                state
+            );
+
+            ((Behaviour)presentation).enabled = false;
+            yield return new WaitForSecondsRealtime(0.7f);
+            ((Behaviour)presentation).enabled = true;
+
+            AssertAccepted(InvokePublic(
+                phaseFive,
+                "AcceptTarget",
+                "button_a"
+            ));
+            object repeated = InvokePublic(
+                phaseFive,
+                "AcceptTarget",
+                "button_a"
+            );
+            Assert.That(repeated, Is.Not.Null);
+            Assert.That(
+                state.GetType().GetProperty("VisualState").GetValue(state)
+                    .ToString(),
+                Is.EqualTo("Error")
+            );
+
+            yield return null;
+
+            Assert.That(
+                state.GetType().GetProperty("VisualState").GetValue(state)
+                    .ToString(),
+                Is.EqualTo("Error"),
+                "The first Update after re-enable cleared fresh red feedback."
+            );
         }
 
         [UnityTest]
@@ -512,6 +668,196 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 ),
                 Is.LessThan(0.0001f)
             );
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator DestroyedSelectionViewDoesNotPoisonPlacement()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "DestroyedCoinSelectionView"
+            );
+            Component phaseTwo = fixture.Adapters[1];
+            ActivatePhase(fixture, 2);
+
+            GameObject coin = new GameObject("coin_dragon");
+            coin.transform.SetParent(fixture.Root.transform, false);
+            Rigidbody body = coin.AddComponent<Rigidbody>();
+            body.isKinematic = false;
+            body.useGravity = false;
+            Collider coinCollider = coin.AddComponent<BoxCollider>();
+            FakeSelectionInteractableView selection =
+                coin.AddComponent<FakeSelectionInteractableView>();
+            Component coinBinding = coin.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                coinBinding,
+                "Configure",
+                "coin_dragon",
+                phaseTwo,
+                new Behaviour[] { selection },
+                new[] { coinCollider }
+            );
+
+            GameObject plate = new GameObject("plate_dragon");
+            plate.transform.SetParent(fixture.Root.transform, false);
+            Collider placementCollider = plate.AddComponent<BoxCollider>();
+            GameObject snap = new GameObject("SnapPoint");
+            snap.transform.SetParent(plate.transform, false);
+            Component placement = plate.AddComponent(
+                RuntimeType("InteractionPlacementBinding")
+            );
+            InvokePublic(
+                placement,
+                "Configure",
+                "plate_dragon",
+                phaseTwo,
+                placementCollider,
+                snap.transform
+            );
+
+            InvokePublic(placement, "AcceptTrigger", coinCollider);
+            UnityEngine.Object.DestroyImmediate(selection);
+
+            AssertAccepted(InvokePublic(
+                placement,
+                "TryAcceptStay",
+                coinCollider
+            ));
+            Assert.That(body.isKinematic, Is.True);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator ResetDuringPlacementPreventsStaleSnapAndLock()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "PlacementSynchronousReset"
+            );
+            Component phaseTwo = fixture.Adapters[1];
+            ActivatePhase(fixture, 2);
+
+            GameObject coin = new GameObject("coin_dragon");
+            coin.transform.SetParent(fixture.Root.transform, false);
+            coin.transform.position = new Vector3(1f, 2f, 3f);
+            Vector3 authoredPosition = coin.transform.position;
+            Rigidbody body = coin.AddComponent<Rigidbody>();
+            body.isKinematic = false;
+            body.useGravity = false;
+            Collider coinCollider = coin.AddComponent<BoxCollider>();
+            Component coinBinding = coin.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                coinBinding,
+                "Configure",
+                "coin_dragon",
+                phaseTwo,
+                Array.Empty<Behaviour>(),
+                new[] { coinCollider }
+            );
+
+            GameObject plate = new GameObject("plate_dragon");
+            plate.transform.SetParent(fixture.Root.transform, false);
+            Collider placementCollider = plate.AddComponent<BoxCollider>();
+            GameObject snap = new GameObject("SnapPoint");
+            snap.transform.SetParent(plate.transform, false);
+            snap.transform.position = new Vector3(8f, 9f, 10f);
+            Component placement = plate.AddComponent(
+                RuntimeType("InteractionPlacementBinding")
+            );
+            InvokePublic(
+                placement,
+                "Configure",
+                "plate_dragon",
+                phaseTwo,
+                placementCollider,
+                snap.transform
+            );
+
+            var probe = new AdapterResetProbe(phaseTwo);
+            SubscribeGenericEvent(
+                phaseTwo,
+                "InputAccepted",
+                probe,
+                nameof(AdapterResetProbe.Observe)
+            );
+            InvokePublic(placement, "AcceptTrigger", coinCollider);
+
+            AssertAccepted(InvokePublic(
+                placement,
+                "TryAcceptStay",
+                coinCollider
+            ));
+            Assert.That(probe.Count, Is.EqualTo(1));
+            Assert.That(
+                Vector3.Distance(coin.transform.position, authoredPosition),
+                Is.LessThan(0.0001f),
+                "The old placement call snapped after its authority reset."
+            );
+            Assert.That(body.isKinematic, Is.False);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator DestroyDuringPlacementDoesNotAccessDeadCoin()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "PlacementSynchronousDestroy"
+            );
+            Component phaseTwo = fixture.Adapters[1];
+            ActivatePhase(fixture, 2);
+
+            GameObject coin = new GameObject("coin_dragon");
+            coin.transform.SetParent(fixture.Root.transform, false);
+            Collider coinCollider = coin.AddComponent<BoxCollider>();
+            Component coinBinding = coin.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                coinBinding,
+                "Configure",
+                "coin_dragon",
+                phaseTwo,
+                Array.Empty<Behaviour>(),
+                new[] { coinCollider }
+            );
+
+            GameObject plate = new GameObject("plate_dragon");
+            plate.transform.SetParent(fixture.Root.transform, false);
+            Collider placementCollider = plate.AddComponent<BoxCollider>();
+            GameObject snap = new GameObject("SnapPoint");
+            snap.transform.SetParent(plate.transform, false);
+            Component placement = plate.AddComponent(
+                RuntimeType("InteractionPlacementBinding")
+            );
+            InvokePublic(
+                placement,
+                "Configure",
+                "plate_dragon",
+                phaseTwo,
+                placementCollider,
+                snap.transform
+            );
+
+            var probe = new DestroyGameObjectProbe(coin);
+            SubscribeGenericEvent(
+                phaseTwo,
+                "InputAccepted",
+                probe,
+                nameof(DestroyGameObjectProbe.Observe)
+            );
+            InvokePublic(placement, "AcceptTrigger", coinCollider);
+
+            object result = null;
+            Assert.DoesNotThrow(() => result = InvokePublic(
+                placement,
+                "TryAcceptStay",
+                coinCollider
+            ));
+            AssertAccepted(result);
+            Assert.That(coin == null, Is.True);
             yield return null;
         }
 
@@ -3174,6 +3520,33 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
         }
 
+        private static void ConfigurePhaseFivePresentation(
+            Component presentation,
+            Component coordinator,
+            object cabinetStateBinding)
+        {
+            Type hingeType = RuntimeType("DeterministicHingeBinding");
+            Type stateType = RuntimeType("DeterministicTargetStateBinding");
+            Type keyType = RuntimeType("PlannedKeyReleaseBinding");
+            Array noStates = Array.CreateInstance(stateType, 0);
+            Array cabinetStates = Array.CreateInstance(stateType, 1);
+            cabinetStates.SetValue(cabinetStateBinding, 0);
+            InvokePublic(
+                presentation,
+                "Configure",
+                coordinator,
+                Activator.CreateInstance(hingeType),
+                Activator.CreateInstance(hingeType),
+                Activator.CreateInstance(hingeType),
+                Activator.CreateInstance(hingeType),
+                Activator.CreateInstance(hingeType),
+                noStates,
+                cabinetStates,
+                noStates,
+                Array.CreateInstance(keyType, 0)
+            );
+        }
+
         private static void ConfigurePresentationWithKeyOnly(
             Component presentation,
             Component coordinator,
@@ -3307,16 +3680,33 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             string eventName,
             EventCounter counter)
         {
+            SubscribeGenericEvent(
+                publisher,
+                eventName,
+                counter,
+                nameof(EventCounter.Observe)
+            );
+        }
+
+        private static void SubscribeGenericEvent(
+            object publisher,
+            string eventName,
+            object observerTarget,
+            string genericMethodName)
+        {
             EventInfo eventInfo = publisher.GetType().GetEvent(eventName);
             Assert.That(eventInfo, Is.Not.Null);
             Type argumentType = eventInfo.EventHandlerType
                 .GetGenericArguments()[0];
-            MethodInfo observer = typeof(EventCounter).GetMethod(
-                nameof(EventCounter.Observe)
-            ).MakeGenericMethod(argumentType);
+            MethodInfo observer = observerTarget.GetType().GetMethod(
+                genericMethodName,
+                BindingFlags.Instance | BindingFlags.Public
+            );
+            Assert.That(observer, Is.Not.Null);
+            observer = observer.MakeGenericMethod(argumentType);
             Delegate handler = Delegate.CreateDelegate(
                 eventInfo.EventHandlerType,
-                counter,
+                observerTarget,
                 observer
             );
             eventInfo.AddEventHandler(publisher, handler);
@@ -3607,6 +3997,65 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             }
         }
 
+        private sealed class PhaseFiveResetAndReentryProbe
+        {
+            private readonly Component adapter;
+
+            public PhaseFiveResetAndReentryProbe(Component targetAdapter)
+            {
+                adapter = targetAdapter;
+            }
+
+            public object ReentrantResult { get; private set; }
+
+            public void Observe<T>(T result)
+            {
+                InvokePublic(adapter, "Reset");
+                InvokePublic(adapter, "Enable");
+                ReentrantResult = InvokePublic(
+                    adapter,
+                    "AcceptTarget",
+                    "button_b"
+                );
+            }
+        }
+
+        private sealed class AdapterResetProbe
+        {
+            private readonly Component adapter;
+
+            public AdapterResetProbe(Component targetAdapter)
+            {
+                adapter = targetAdapter;
+            }
+
+            public int Count { get; private set; }
+
+            public void Observe<T>(T result)
+            {
+                Count++;
+                InvokePublic(adapter, "Reset");
+            }
+        }
+
+        private sealed class DestroyGameObjectProbe
+        {
+            private readonly GameObject target;
+
+            public DestroyGameObjectProbe(GameObject targetObject)
+            {
+                target = targetObject;
+            }
+
+            public void Observe<T>(T result)
+            {
+                if (target != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(target);
+                }
+            }
+        }
+
         private sealed class PlacementProbe
         {
             private readonly GameObject coin;
@@ -3878,7 +4327,28 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         MonoBehaviour,
         IInteractableView
     {
-        public bool IsSelected { get; set; }
+        private bool isSelected;
+
+        public bool IsSelected
+        {
+            get => isSelected;
+            set
+            {
+                if (isSelected == value)
+                {
+                    return;
+                }
+                isSelected = value;
+                if (isSelected)
+                {
+                    WhenSelectingInteractorViewAdded.Invoke(null);
+                }
+                else
+                {
+                    WhenSelectingInteractorViewRemoved.Invoke(null);
+                }
+            }
+        }
 
         public object Data => null;
 

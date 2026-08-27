@@ -46,7 +46,10 @@ namespace SignVR.Interaction.PhaseAdapters
         private float sameTargetCooldownSeconds = 0.3f;
 
         private float lastAcceptedInputTime = float.NegativeInfinity;
-        private ContactSource activeContactSources = ContactSource.None;
+        private int triggerRelayContactCount;
+        private int pokeContactCount;
+        private int triggerContactCount;
+        private int grabContactCount;
         private bool contactCycleLatched;
 
         private bool availabilitySubscribed;
@@ -272,8 +275,7 @@ namespace SignVR.Interaction.PhaseAdapters
                 return null;
             }
 
-            if (activeContactSources != ContactSource.None &&
-                contactCycleLatched)
+            if (ActiveContactCount > 0 && contactCycleLatched)
             {
                 return null;
             }
@@ -287,7 +289,7 @@ namespace SignVR.Interaction.PhaseAdapters
             if (result != null)
             {
                 lastAcceptedInputTime = Time.unscaledTime;
-                if (activeContactSources != ContactSource.None)
+                if (ActiveContactCount > 0)
                 {
                     contactCycleLatched = true;
                 }
@@ -314,20 +316,18 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void ResetInputGate()
         {
-            activeContactSources = ContactSource.None;
+            triggerRelayContactCount = 0;
+            pokeContactCount = 0;
+            triggerContactCount = 0;
+            grabContactCount = 0;
             contactCycleLatched = false;
             lastAcceptedInputTime = float.NegativeInfinity;
         }
 
         private ValidationResult BeginContact(ContactSource source)
         {
-            if ((activeContactSources & source) != 0)
-            {
-                return null;
-            }
-
-            bool isFirstSource = activeContactSources == ContactSource.None;
-            activeContactSources |= source;
+            bool isFirstSource = ActiveContactCount == 0;
+            IncrementContactCount(source);
             if (!isFirstSource)
             {
                 return null;
@@ -340,10 +340,62 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void EndContact(ContactSource source)
         {
-            activeContactSources &= ~source;
-            if (activeContactSources == ContactSource.None)
+            DecrementContactCount(source);
+            if (ActiveContactCount == 0)
             {
                 contactCycleLatched = false;
+            }
+        }
+
+        private int ActiveContactCount =>
+            triggerRelayContactCount + pokeContactCount +
+            triggerContactCount + grabContactCount;
+
+        private void IncrementContactCount(ContactSource source)
+        {
+            switch (source)
+            {
+                case ContactSource.TriggerRelay:
+                    triggerRelayContactCount++;
+                    break;
+                case ContactSource.Poke:
+                    pokeContactCount++;
+                    break;
+                case ContactSource.Trigger:
+                    triggerContactCount++;
+                    break;
+                case ContactSource.Grab:
+                    grabContactCount++;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(source));
+            }
+        }
+
+        private void DecrementContactCount(ContactSource source)
+        {
+            switch (source)
+            {
+                case ContactSource.TriggerRelay:
+                    triggerRelayContactCount = Math.Max(
+                        0,
+                        triggerRelayContactCount - 1
+                    );
+                    break;
+                case ContactSource.Poke:
+                    pokeContactCount = Math.Max(0, pokeContactCount - 1);
+                    break;
+                case ContactSource.Trigger:
+                    triggerContactCount = Math.Max(
+                        0,
+                        triggerContactCount - 1
+                    );
+                    break;
+                case ContactSource.Grab:
+                    grabContactCount = Math.Max(0, grabContactCount - 1);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(source));
             }
         }
 

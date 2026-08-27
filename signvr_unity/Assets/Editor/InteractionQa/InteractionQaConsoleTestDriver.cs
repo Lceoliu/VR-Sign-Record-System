@@ -176,6 +176,45 @@ namespace SignVR.Editor.Interaction.Qa
             AssertEveryActionFailsSafely(missingComponents);
         }
 
+        public static void DestroyedSceneReferencesReadAsMissingSafely()
+        {
+            var root = new GameObject("Interaction QA destroyed references");
+            InteractionStudyFlowController flow =
+                root.AddComponent<InteractionStudyFlowController>();
+            InteractionPhaseCoordinator coordinator =
+                root.AddComponent<InteractionPhaseCoordinator>();
+            InteractionDeterministicPresentation presentation =
+                root.AddComponent<InteractionDeterministicPresentation>();
+            GhostPointingDetector detector =
+                root.AddComponent<GhostPointingDetector>();
+            var port = new UnityInteractionQaAuthorityPort(
+                flow,
+                coordinator,
+                presentation,
+                () => true,
+                detector
+            );
+
+            UnityEngine.Object.DestroyImmediate(root);
+
+            InteractionQaSnapshot snapshot = port.ReadSnapshot();
+            Require(
+                snapshot.RunState == null &&
+                snapshot.CurrentPhaseId == null,
+                "Destroyed authorities produced retained run state."
+            );
+            Require(
+                snapshot.Status.Contains(
+                    "InteractionStudyFlowController was not found"
+                ),
+                "Destroyed flow authority did not normalize to missing."
+            );
+            Require(
+                !snapshot.Pointing.ComponentPresent,
+                "Destroyed pointing diagnostics remained present."
+            );
+        }
+
         public static void InputInjectionCannotBypassTheLifecycleGate()
         {
             var root = new GameObject("Interaction QA lifecycle gate");

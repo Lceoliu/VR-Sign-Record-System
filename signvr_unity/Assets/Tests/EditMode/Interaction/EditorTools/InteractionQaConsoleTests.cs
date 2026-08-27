@@ -40,6 +40,14 @@ namespace SignVR.Interaction.Editor.Tests.EditorTools
         }
 
         [Test]
+        public void DestroyedSceneReferencesReadAsMissingSafely()
+        {
+            InvokeDriver(nameof(
+                DestroyedSceneReferencesReadAsMissingSafely
+            ));
+        }
+
+        [Test]
         public void InputInjectionCannotBypassTheLifecycleGate()
         {
             InvokeDriver(nameof(InputInjectionCannotBypassTheLifecycleGate));

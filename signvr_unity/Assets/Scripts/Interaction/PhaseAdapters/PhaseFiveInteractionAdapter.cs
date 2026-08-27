@@ -11,26 +11,38 @@ namespace SignVR.Interaction.PhaseAdapters
     public sealed class PhaseFiveInteractionAdapter : InteractionPhaseAdapter
     {
         private double inputBlockedUntil = double.NegativeInfinity;
+        private bool inputInFlight;
+        private uint inputGateGeneration;
 
         public override int PhaseId => 5;
 
         public override ValidationResult AcceptInput(PhaseInput input)
         {
             double now = Time.realtimeSinceStartupAsDouble;
-            if (now < inputBlockedUntil)
+            if (inputInFlight || now < inputBlockedUntil)
             {
                 return null;
             }
 
-            ValidationResult result = base.AcceptInput(input);
-            if (result != null && result.ProgressReset &&
-                !result.PhaseGivenUp)
+            uint generation = inputGateGeneration;
+            inputInFlight = true;
+            try
             {
-                inputBlockedUntil = now +
-                    InteractionPhaseFeedbackTiming
-                        .PhaseFiveErrorResetDelaySeconds;
+                ValidationResult result = base.AcceptInput(input);
+                if (generation == inputGateGeneration &&
+                    result != null && result.ProgressReset &&
+                    !result.PhaseGivenUp)
+                {
+                    inputBlockedUntil = now +
+                        InteractionPhaseFeedbackTiming
+                            .PhaseFiveErrorResetDelaySeconds;
+                }
+                return result;
             }
-            return result;
+            finally
+            {
+                inputInFlight = false;
+            }
         }
 
         public override void Reset()
@@ -50,6 +62,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void ClearInputBlock()
         {
+            inputGateGeneration++;
             inputBlockedUntil = double.NegativeInfinity;
         }
     }

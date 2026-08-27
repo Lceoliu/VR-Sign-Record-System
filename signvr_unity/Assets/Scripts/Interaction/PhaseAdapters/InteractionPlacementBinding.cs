@@ -52,9 +52,190 @@ namespace SignVR.Interaction.PhaseAdapters
             attemptedOverlappingCoins =
                 new HashSet<InteractionTargetBinding>();
         private readonly Dictionary<InteractionTargetBinding,
-            IInteractableView[]> coinSelectionViews =
+            CoinSelectionState> coinSelectionStates =
                 new Dictionary<InteractionTargetBinding,
-                    IInteractableView[]>();
+                    CoinSelectionState>();
+        private uint acceptanceGeneration;
+
+        private sealed class CoinSelectionState : IDisposable
+        {
+            private readonly List<SelectionViewSubscription> views =
+                new List<SelectionViewSubscription>();
+
+            public int Count => views.Count;
+
+            public bool Contains(IInteractableView view)
+            {
+                for (int index = 0; index < views.Count; index++)
+                {
+                    if (ReferenceEquals(views[index].View, view))
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            public void Add(IInteractableView view)
+            {
+                if (!IsUnityObjectAlive(view) || Contains(view))
+                {
+                    return;
+                }
+                SelectionViewSubscription subscription =
+                    SelectionViewSubscription.TryCreate(view);
+                if (subscription != null)
+                {
+                    views.Add(subscription);
+                }
+            }
+
+            public bool IsSelected()
+            {
+                for (int index = views.Count - 1; index >= 0; index--)
+                {
+                    SelectionViewSubscription subscription = views[index];
+                    if (!IsUnityObjectAlive(subscription.View))
+                    {
+                        subscription.Dispose();
+                        views.RemoveAt(index);
+                        continue;
+                    }
+                    if (subscription.IsSelected())
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            public void Dispose()
+            {
+                for (int index = views.Count - 1; index >= 0; index--)
+                {
+                    views[index].Dispose();
+                }
+                views.Clear();
+            }
+        }
+
+        private sealed class SelectionViewSubscription : IDisposable
+        {
+            private readonly List<IInteractorView> selectingInteractors =
+                new List<IInteractorView>();
+            private readonly Action<IInteractorView> addedHandler;
+            private readonly Action<IInteractorView> removedHandler;
+            private int anonymousSelectionCount;
+            private bool subscribed;
+
+            private SelectionViewSubscription(IInteractableView view)
+            {
+                View = view;
+                addedHandler = HandleAdded;
+                removedHandler = HandleRemoved;
+            }
+
+            public IInteractableView View { get; }
+
+            public static SelectionViewSubscription TryCreate(
+                IInteractableView view)
+            {
+                if (!IsUnityObjectAlive(view))
+                {
+                    return null;
+                }
+
+                var subscription = new SelectionViewSubscription(view);
+                try
+                {
+                    IEnumerable<IInteractorView> current =
+                        view.SelectingInteractorViews;
+                    if (current != null)
+                    {
+                        foreach (IInteractorView interactor in current)
+                        {
+                            subscription.HandleAdded(interactor);
+                        }
+                    }
+                    view.WhenSelectingInteractorViewAdded +=
+                        subscription.addedHandler;
+                    subscription.subscribed = true;
+                    view.WhenSelectingInteractorViewRemoved +=
+                        subscription.removedHandler;
+                    return subscription;
+                }
+                catch (MissingReferenceException)
+                {
+                    subscription.Dispose();
+                    return null;
+                }
+            }
+
+            public bool IsSelected()
+            {
+                if (anonymousSelectionCount > 0)
+                {
+                    return true;
+                }
+                for (int index = selectingInteractors.Count - 1;
+                    index >= 0;
+                    index--)
+                {
+                    if (!IsUnityObjectAlive(selectingInteractors[index]))
+                    {
+                        selectingInteractors.RemoveAt(index);
+                    }
+                }
+                return selectingInteractors.Count > 0;
+            }
+
+            public void Dispose()
+            {
+                if (subscribed && IsUnityObjectAlive(View))
+                {
+                    try
+                    {
+                        View.WhenSelectingInteractorViewAdded -= addedHandler;
+                        View.WhenSelectingInteractorViewRemoved -=
+                            removedHandler;
+                    }
+                    catch (MissingReferenceException)
+                    {
+                        // The Unity component was destroyed between the
+                        // liveness check and event removal.
+                    }
+                }
+                subscribed = false;
+                selectingInteractors.Clear();
+                anonymousSelectionCount = 0;
+            }
+
+            private void HandleAdded(IInteractorView interactor)
+            {
+                if (ReferenceEquals(interactor, null))
+                {
+                    anonymousSelectionCount++;
+                    return;
+                }
+                if (!selectingInteractors.Contains(interactor))
+                {
+                    selectingInteractors.Add(interactor);
+                }
+            }
+
+            private void HandleRemoved(IInteractorView interactor)
+            {
+                if (ReferenceEquals(interactor, null))
+                {
+                    anonymousSelectionCount = Math.Max(
+                        0,
+                        anonymousSelectionCount - 1
+                    );
+                    return;
+                }
+                selectingInteractors.Remove(interactor);
+            }
+        }
 
 #if UNITY_INCLUDE_TESTS
         private readonly InteractionSubscriptionDiagnostic
@@ -126,6 +307,7 @@ namespace SignVR.Interaction.PhaseAdapters
             {
                 ReleasePlacementOwnership();
             }
+            InvalidatePendingAcceptance();
             ClearOverlaps();
             plateTargetId = nextPlateTargetId;
             adapter = nextAdapter;
@@ -182,8 +364,11 @@ namespace SignVR.Interaction.PhaseAdapters
                 return null;
             }
 
+            uint generation = acceptanceGeneration;
             ValidationResult result = AcceptPlacement(coinBinding.TargetId);
-            if (result != null && result.Accepted && snapPoint != null)
+            if (result != null && result.Accepted &&
+                generation == acceptanceGeneration &&
+                coinBinding != null && snapPoint != null)
             {
                 Rigidbody[] bodies =
                     coinBinding.GetComponentsInChildren<Rigidbody>(true);
@@ -302,7 +487,7 @@ namespace SignVR.Interaction.PhaseAdapters
             {
                 overlappingCoinColliders.Remove(coin);
                 attemptedOverlappingCoins.Remove(coin);
-                coinSelectionViews.Remove(coin);
+                ReleaseSelectionState(coin);
             }
         }
 
@@ -310,61 +495,69 @@ namespace SignVR.Interaction.PhaseAdapters
             InteractionTargetBinding coin)
         {
             CacheSelectionViews(coin);
-            if (!coinSelectionViews.TryGetValue(
+            if (!coinSelectionStates.TryGetValue(
                     coin,
-                    out IInteractableView[] views))
+                    out CoinSelectionState state))
             {
                 return false;
             }
-
-            for (int index = 0; index < views.Length; index++)
-            {
-                IInteractableView view = views[index];
-                if (view == null)
-                {
-                    continue;
-                }
-                foreach (IInteractorView ignored in
-                    view.SelectingInteractorViews)
-                {
-                    return true;
-                }
-            }
-            return false;
+            return state.IsSelected();
         }
 
         private void CacheSelectionViews(InteractionTargetBinding coin)
         {
-            if (coin == null || coinSelectionViews.ContainsKey(coin))
+            if (coin == null || coinSelectionStates.ContainsKey(coin))
             {
                 return;
             }
 
-            var views = new List<IInteractableView>();
+            var state = new CoinSelectionState();
             IReadOnlyList<Behaviour> configuredBehaviours =
                 coin.InteractionBehaviours;
             for (int index = 0; index < configuredBehaviours.Count; index++)
             {
                 if (configuredBehaviours[index] is IInteractableView view &&
-                    !views.Contains(view))
+                    IsUnityObjectAlive(view))
                 {
-                    views.Add(view);
+                    state.Add(view);
                 }
             }
-            if (views.Count == 0)
+            if (state.Count == 0)
             {
                 MonoBehaviour[] components =
                     coin.GetComponentsInChildren<MonoBehaviour>(true);
                 for (int index = 0; index < components.Length; index++)
                 {
                     if (components[index] is IInteractableView view &&
-                        !views.Contains(view))
+                        IsUnityObjectAlive(view))
                     {
-                        views.Add(view);
+                        state.Add(view);
                     }
                 }
             }
-            coinSelectionViews.Add(coin, views.ToArray());
+            coinSelectionStates.Add(coin, state);
+        }
+
+        private void ReleaseSelectionState(InteractionTargetBinding coin)
+        {
+            if (!ReferenceEquals(coin, null) &&
+                coinSelectionStates.TryGetValue(
+                    coin,
+                    out CoinSelectionState state))
+            {
+                state.Dispose();
+                coinSelectionStates.Remove(coin);
+            }
+        }
+
+        private static bool IsUnityObjectAlive(object value)
+        {
+            if (ReferenceEquals(value, null))
+            {
+                return false;
+            }
+            return !(value is UnityEngine.Object unityObject) ||
+                unityObject != null;
         }
 
         private void BindAvailability()
@@ -407,6 +600,7 @@ namespace SignVR.Interaction.PhaseAdapters
 #if UNITY_INCLUDE_TESTS
             subscriptionDiagnostic.RecordResetPerformed();
 #endif
+            InvalidatePendingAcceptance();
             ClearOverlaps();
         }
 
@@ -424,9 +618,18 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void ClearOverlaps()
         {
+            foreach (CoinSelectionState state in coinSelectionStates.Values)
+            {
+                state.Dispose();
+            }
             overlappingCoinColliders.Clear();
             attemptedOverlappingCoins.Clear();
-            coinSelectionViews.Clear();
+            coinSelectionStates.Clear();
+        }
+
+        private void InvalidatePendingAcceptance()
+        {
+            acceptanceGeneration++;
         }
 
         private void CapturePlacementOwnership()
@@ -456,6 +659,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void OnDisable()
         {
+            InvalidatePendingAcceptance();
             ApplyAvailability(false);
             UnbindAvailability();
             ClearOverlaps();
@@ -463,6 +667,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void OnDestroy()
         {
+            InvalidatePendingAcceptance();
             UnbindAvailability();
             ClearOverlaps();
             ReleasePlacementOwnership();
