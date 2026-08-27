@@ -284,16 +284,21 @@ namespace SignVR.Interaction.Core.Tests
         }
 
         [Test]
-        public void PhaseFour_UsesStrictOrderAndReleasesOnlyPlannedKey()
+        public void PhaseFour_AcceptsPlannedKeyDirectlyAndReleasesOnlyIt()
         {
             var harness = new SessionHarness(
                 CreatePlan("001", "004", "013", "018", "019", "026")
             );
             AdvanceToPhase(harness, 4);
 
-            ValidationResult completed = FinishPhaseFourTask(harness.Session);
+            ValidationResult completed = harness.Session.AcceptInput(
+                4,
+                PhaseInput.Target("motorbike_key")
+            );
 
             Assert.That(completed.PhaseCompleted, Is.True);
+            Assert.That(completed.Progress, Is.EqualTo(1));
+            Assert.That(completed.RequiredProgress, Is.EqualTo(1));
             Assert.That(completed.FeedbackCue, Is.EqualTo(
                 PhaseFeedbackCue.ChestOpened
             ));
@@ -302,50 +307,59 @@ namespace SignVR.Interaction.Core.Tests
         }
 
         [Test]
-        public void PhaseFour_AnyWrongButtonClearsEntireOrder()
+        public void PhaseFour_WrongKeyCanBeRetriedWithPlannedKey()
         {
             var harness = new SessionHarness(CreatePlan());
             AdvanceToPhase(harness, 4);
-            harness.Session.AcceptInput(4, PhaseInput.Target("blue"));
-            harness.Session.AcceptInput(4, PhaseInput.Target("red"));
 
             ValidationResult wrong = harness.Session.AcceptInput(
                 4,
-                PhaseInput.Target("green")
+                PhaseInput.Target("key_b")
             );
-            ValidationResult provesReset = harness.Session.AcceptInput(
+            ValidationResult retried = harness.Session.AcceptInput(
                 4,
-                PhaseInput.Target("red")
+                PhaseInput.Target("key_a")
             );
 
-            Assert.That(wrong.ProgressReset, Is.True);
+            Assert.That(wrong.Accepted, Is.False);
+            Assert.That(wrong.InteractionError, Is.True);
+            Assert.That(wrong.ProgressReset, Is.False);
             Assert.That(wrong.Progress, Is.Zero);
-            Assert.That(provesReset.Accepted, Is.False);
-            Assert.That(provesReset.ProgressReset, Is.True);
+            Assert.That(wrong.RequiredProgress, Is.EqualTo(1));
+            Assert.That(retried.Accepted, Is.True);
+            Assert.That(retried.PhaseCompleted, Is.True);
+            Assert.That(retried.ReleasedTargetId, Is.EqualTo("key_a"));
         }
 
         [Test]
-        public void PhaseFive_UsesPlannedKeyThenCompletesSetInAnyOrder()
+        public void PhaseFive_AcceptsPlannedButtonSetDirectlyWithoutKeyGate()
         {
             var harness = new SessionHarness(
                 CreatePlan("001", "004", "013", "017", "025", "026")
             );
             AdvanceToPhase(harness, 5);
 
-            ValidationResult unlock = harness.Session.AcceptInput(
+            ValidationResult formerKeyGate = harness.Session.AcceptInput(
                 5,
                 PhaseInput.Target("key_b")
             );
-            harness.Session.AcceptInput(5, PhaseInput.Target("button_c"));
+            ValidationResult first = harness.Session.AcceptInput(
+                5,
+                PhaseInput.Target("button_c")
+            );
             harness.Session.AcceptInput(5, PhaseInput.Target("button_a"));
             ValidationResult completed = harness.Session.AcceptInput(
                 5,
                 PhaseInput.Target("button_b")
             );
 
-            Assert.That(unlock.FeedbackCue, Is.EqualTo(
-                PhaseFeedbackCue.CabinetUnlocked
-            ));
+            Assert.That(harness.Session.PresentationSnapshot.CabinetUnlocked,
+                Is.True);
+            Assert.That(formerKeyGate.Accepted, Is.False);
+            Assert.That(formerKeyGate.ProgressReset, Is.True);
+            Assert.That(first.Accepted, Is.True);
+            Assert.That(first.Progress, Is.EqualTo(1));
+            Assert.That(first.RequiredProgress, Is.EqualTo(3));
             Assert.That(completed.PhaseCompleted, Is.True);
             Assert.That(completed.FeedbackCue, Is.EqualTo(
                 PhaseFeedbackCue.CabinetTaskCompleted
@@ -354,9 +368,12 @@ namespace SignVR.Interaction.Core.Tests
         }
 
         [Test]
-        public void PhaseFive_SupportsSingleDoubleAndTripleButtonSets()
+        public void PhaseFive_SupportsAllSevenExistingButtonSets()
         {
-            string[] sentenceIds = { "019", "022", "025" };
+            string[] sentenceIds =
+            {
+                "019", "020", "021", "022", "023", "024", "025"
+            };
 
             foreach (string sentenceId in sentenceIds)
             {
@@ -370,11 +387,17 @@ namespace SignVR.Interaction.Core.Tests
                 );
 
                 Assert.That(completed.PhaseCompleted, Is.True, sentenceId);
+                Assert.That(completed.Progress, Is.EqualTo(
+                    harness.Session.Plan.Phases[4].TaskVariant.TargetIds.Count
+                ), sentenceId);
+                Assert.That(completed.RequiredProgress, Is.EqualTo(
+                    harness.Session.Plan.Phases[4].TaskVariant.TargetIds.Count
+                ), sentenceId);
             }
         }
 
         [Test]
-        public void PhaseFive_WrongOrRepeatedButtonClearsSubsetButKeepsKey()
+        public void PhaseFive_WrongOrRepeatedButtonClearsEntireSet()
         {
             AssertPhaseFiveButtonReset(
                 "022",
@@ -759,21 +782,10 @@ namespace SignVR.Interaction.Core.Tests
                 harness.Session.PresentationSnapshot;
 
             Assert.That(partial.ChestOpened, Is.False);
-            Assert.That(
-                partial.ChestButtonTargetIds,
-                Is.EqualTo(new[] { "blue" })
-            );
+            Assert.That(partial.ChestButtonTargetIds, Is.Empty);
 
-            foreach (string targetId in
-                     new[] { "red", "yellow", "green" })
-            {
-                harness.Session.AcceptInput(
-                    4,
-                    PhaseInput.Target(targetId)
-                );
-            }
+            FinishPhaseFourTask(harness.Session);
             harness.AdvanceCompletedPhase();
-            harness.Session.AcceptInput(5, PhaseInput.Target("key_a"));
             harness.Session.AcceptInput(5, PhaseInput.Target("button_a"));
             harness.Session.AcceptInput(5, PhaseInput.Target("button_b"));
 
@@ -785,7 +797,7 @@ namespace SignVR.Interaction.Core.Tests
             Assert.That(completed.ReleasedKeyTargetId, Is.EqualTo("key_a"));
             Assert.That(
                 completed.ChestButtonTargetIds,
-                Is.EqualTo(new[] { "blue", "red", "yellow", "green" })
+                Is.Empty
             );
             Assert.That(completed.CabinetUnlocked, Is.True);
             Assert.That(
@@ -811,9 +823,6 @@ namespace SignVR.Interaction.Core.Tests
                 "001", "004", "013", "016", sentenceId, "026"
             ));
             AdvanceToPhase(harness, 5);
-            string key = harness.Session.Plan.Phases[3]
-                .TaskVariant.TargetIds[0];
-            harness.Session.AcceptInput(5, PhaseInput.Target(key));
             harness.Session.AcceptInput(5, PhaseInput.Target(initiallyCorrect));
 
             ValidationResult wrong = harness.Session.AcceptInput(
@@ -824,7 +833,7 @@ namespace SignVR.Interaction.Core.Tests
             Assert.That(wrong.Accepted, Is.False);
             Assert.That(wrong.InteractionError, Is.True);
             Assert.That(wrong.ProgressReset, Is.True);
-            Assert.That(wrong.Progress, Is.EqualTo(1));
+            Assert.That(wrong.Progress, Is.Zero);
 
             ValidationResult result = null;
             for (int index = 0; index < requiredAfterReset.Count; index++)
@@ -909,19 +918,13 @@ namespace SignVR.Interaction.Core.Tests
         private static ValidationResult FinishPhaseFourTask(
             InteractionPhaseSession session)
         {
-            ValidationResult result = null;
-            foreach (string button in session.Plan.ChestButtonOrder.ButtonIds)
-            {
-                result = session.AcceptInput(4, PhaseInput.Target(button));
-            }
-            return result;
+            string key = session.Plan.Phases[3].TaskVariant.TargetIds[0];
+            return session.AcceptInput(4, PhaseInput.Target(key));
         }
 
         private static ValidationResult FinishPhaseFiveTask(
             InteractionPhaseSession session)
         {
-            string key = session.Plan.Phases[3].TaskVariant.TargetIds[0];
-            session.AcceptInput(5, PhaseInput.Target(key));
             ValidationResult result = null;
             foreach (string button in session.Plan.Phases[4]
                          .TaskVariant.TargetIds.Reverse())
