@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using SignVR.Interaction.Core;
+using SignVR.Interaction.Orchestration;
 using SignVR.Interaction.PhaseAdapters;
 using SignVR.Interaction.Presentation;
 using UnityEditor;
@@ -47,6 +48,39 @@ namespace SignVR.Editor.Interaction.Qa
                 string.Equals(actual, expected, StringComparison.Ordinal),
                 $"Unexpected authority calls: {actual}"
             );
+        }
+
+        public static void ConfirmResultDelegatesToPublicFlowAuthority()
+        {
+            var root = new GameObject("QA Confirm Flow");
+            try
+            {
+                InteractionStudyFlowController flow =
+                    root.AddComponent<InteractionStudyFlowController>();
+                var port = new UnityInteractionQaAuthorityPort(
+                    flow,
+                    phaseCoordinator: null,
+                    presentation: null,
+                    isPlaying: () => true
+                );
+
+                InteractionQaActionResult result = port.TryConfirmResult();
+
+                Require(
+                    !result.Succeeded &&
+                    result.Message.Contains("Study Flow is not initialized"),
+                    "Confirm did not delegate to the public Study Flow " +
+                    "authority."
+                );
+                Require(
+                    !result.Message.Contains("not wired"),
+                    "Confirm still uses the temporary QA placeholder."
+                );
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
         }
 
         public static void CorrectAndWrongTargetResolutionCoversAllSixPhases()

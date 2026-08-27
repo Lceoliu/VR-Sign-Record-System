@@ -18,6 +18,14 @@ namespace SignVR.Interaction.Editor.Tests.EditorTools
         }
 
         [Test]
+        public void ConfirmResultDelegatesToPublicFlowAuthority()
+        {
+            InvokeDriver(nameof(
+                ConfirmResultDelegatesToPublicFlowAuthority
+            ));
+        }
+
+        [Test]
         public void CorrectAndWrongTargetResolutionCoversAllSixPhases()
         {
             InvokeDriver(nameof(

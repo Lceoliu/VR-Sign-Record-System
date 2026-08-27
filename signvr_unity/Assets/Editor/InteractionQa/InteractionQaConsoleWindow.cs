@@ -223,7 +223,7 @@ namespace SignVR.Editor.Interaction.Qa
             {
                 Dispatch(() => actions.Abort());
             }
-            if (GUILayout.Button("Confirm Result (API hook)"))
+            if (GUILayout.Button("Confirm Result"))
             {
                 Dispatch(actions.ConfirmResult);
             }
@@ -233,9 +233,9 @@ namespace SignVR.Editor.Interaction.Qa
                  snapshot.RunState.Value == RunState.Aborted))
             {
                 EditorGUILayout.HelpBox(
-                    "Result confirmation is shown above. If the current " +
-                    "runtime has no public Confirm API, the button returns a " +
-                    "clear failure and leaves terminal ownership unchanged.",
+                    "This QA action delegates to the same public confirmation " +
+                    "authority as the in-headset button. Final acceptance " +
+                    "still uses physical hand interaction.",
                     MessageType.Info
                 );
             }

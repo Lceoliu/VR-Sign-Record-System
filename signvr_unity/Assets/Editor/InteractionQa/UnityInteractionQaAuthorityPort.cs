@@ -122,23 +122,9 @@ namespace SignVR.Editor.Interaction.Qa
 
         public InteractionQaActionResult TryConfirmResult()
         {
-            if (!TryRequirePlayMode(out InteractionQaActionResult failure))
-            {
-                return failure;
-            }
-            if (flowController == null)
-            {
-                return Missing("InteractionStudyFlowController");
-            }
-
-            // Parallel Result Review integration point. Once the confirmed
-            // public API is present, this method should delegate with:
-            // ExecuteFlow("Confirm Result",
-            //     controller => controller.TryAcknowledgeResult()).
-            return InteractionQaActionResult.Failure(
-                "TryAcknowledgeResult is not wired in this checkout. This " +
-                "adapter method is the single integration point; the Study " +
-                "Flow still owns terminal reset."
+            return ExecuteFlow(
+                "Confirm Result",
+                controller => controller.TryAcknowledgeResult()
             );
         }
 
