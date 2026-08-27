@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
 using SignVR.Interaction.Orchestration;
 using SignVR.Interaction.PhaseAdapters;
@@ -213,6 +214,60 @@ namespace SignVR.Editor.Interaction.Qa
                 !snapshot.Pointing.ComponentPresent,
                 "Destroyed pointing diagnostics remained present."
             );
+
+            var flowRoot = new GameObject(
+                "Interaction QA live flow with destroyed run"
+            );
+            var runRoot = new GameObject(
+                "Interaction QA nested run authority"
+            );
+            try
+            {
+                InteractionStudyFlowController liveFlow =
+                    flowRoot.AddComponent<InteractionStudyFlowController>();
+                InteractionRunController nestedRun =
+                    runRoot.AddComponent<InteractionRunController>();
+                var serializedFlow = new SerializedObject(liveFlow);
+                SerializedProperty runProperty =
+                    serializedFlow.FindProperty("runController");
+                Require(
+                    runProperty != null,
+                    "Flow runController serialization field was not found."
+                );
+                runProperty.objectReferenceValue = nestedRun;
+                serializedFlow.ApplyModifiedPropertiesWithoutUndo();
+
+                var nestedPort = new UnityInteractionQaAuthorityPort(
+                    liveFlow,
+                    phaseCoordinator: null,
+                    presentation: null,
+                    isPlaying: () => true
+                );
+                Require(
+                    nestedPort.ReadSnapshot().RunState == RunState.PreStart,
+                    "Live nested run authority was not observed before destroy."
+                );
+
+                UnityEngine.Object.DestroyImmediate(runRoot);
+                runRoot = null;
+
+                InteractionQaSnapshot nestedSnapshot =
+                    nestedPort.ReadSnapshot();
+                Require(
+                    nestedSnapshot.RunState == null &&
+                    nestedSnapshot.CurrentPhaseId == null &&
+                    nestedSnapshot.Plan == null,
+                    "Destroyed nested run authority retained stale QA state."
+                );
+            }
+            finally
+            {
+                if (runRoot != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(runRoot);
+                }
+                UnityEngine.Object.DestroyImmediate(flowRoot);
+            }
         }
 
         public static void InputInjectionCannotBypassTheLifecycleGate()

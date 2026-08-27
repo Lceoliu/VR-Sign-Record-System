@@ -88,9 +88,11 @@ namespace SignVR.Interaction.Orchestration
                 {
                     return snapshot;
                 }
+                InteractionRunController liveRunController =
+                    runController != null ? runController : null;
                 return snapshot.WithResultReviewSummary(
                     InteractionStudyResultReviewSummary.FromCapture(
-                        runController?.LastSealedSummary
+                        liveRunController?.LastSealedSummary
                     )
                 );
             }

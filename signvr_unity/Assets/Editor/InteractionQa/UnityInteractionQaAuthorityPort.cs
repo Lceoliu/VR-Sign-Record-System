@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
 using SignVR.Interaction.Orchestration;
 using SignVR.Interaction.PhaseAdapters;
@@ -43,13 +44,21 @@ namespace SignVR.Editor.Interaction.Qa
                 flowController != null ? flowController : null;
             InteractionPhaseCoordinator livePhaseCoordinator =
                 phaseCoordinator != null ? phaseCoordinator : null;
+            InteractionRunController referencedRunController =
+                liveFlowController != null
+                    ? liveFlowController.RunController
+                    : null;
+            InteractionRunController liveRunController =
+                referencedRunController != null
+                    ? referencedRunController
+                    : null;
             InteractionStudyFlowSnapshot flowSnapshot =
                 liveFlowController?.Snapshot;
             RunPlan plan = livePhaseCoordinator?.Plan ??
-                liveFlowController?.RunController?.Plan;
+                liveRunController?.Plan;
             int? phaseId = flowSnapshot?.PhaseId ??
                 livePhaseCoordinator?.CurrentPhaseId ??
-                liveFlowController?.RunController?.CurrentPhaseId;
+                liveRunController?.CurrentPhaseId;
             ValidationResult lastResult = livePhaseCoordinator?.LastResult;
 
             IReadOnlyList<string> plannedTargets =
@@ -62,7 +71,7 @@ namespace SignVR.Editor.Interaction.Qa
                 lastResult?.RequiredProgress ?? plannedTargets.Count;
             RunState? runState = flowSnapshot != null
                 ? flowSnapshot.RunState
-                : liveFlowController?.RunController?.State;
+                : liveRunController?.State;
             string status = flowSnapshot?.Status;
             if (string.IsNullOrWhiteSpace(status))
             {
