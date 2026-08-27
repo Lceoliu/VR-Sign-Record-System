@@ -1,3 +1,15 @@
+> [!CAUTION]
+> **SUPERSEDED / ERRATA — do not use V1 as the current local-study runbook.**
+> Use [Interaction Contract V2](./INTERACTION_CONTRACT_V2.md) and
+> [Quest Human Gate](./QUEST-HUMAN-GATE.md). The current Quest-local flow has
+> no Host or webcam dependency; Completed and Aborted Runs seal exactly five
+> local files. Phase 4 is direct selection among three keys through their
+> Touch Target Proxies, and Phase 5 is direct button-combination input without
+> a key prerequisite. In `summary.json`, `first_attempt_correct` is retained
+> only as the legacy alias of `first_action_correct`; consumers should also
+> read `first_attempt_success`. Structured `capture_quality` is analytical
+> quality and remains independent from structural `data_completeness`.
+
 # Interaction Contract V1
 
 Status: frozen for the 2026-08-26 internal pilot. Additive implementation detail is allowed; incompatible changes require an Orchestrator decision and an explicit schema-version change.
