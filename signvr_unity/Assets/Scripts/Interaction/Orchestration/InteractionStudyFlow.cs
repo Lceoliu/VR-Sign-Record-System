@@ -66,6 +66,11 @@ namespace SignVR.Interaction.Orchestration
                 bool commandIdle = !suspended && !disposed &&
                     pendingPresentation == null && activePlayback == null &&
                     !abortInProgress && !lifecycleAbortPending;
+                bool isResultVisible = IsResultTerminal(state);
+                bool canAcknowledgeResult = isResultVisible &&
+                    !suspended && !disposed && !abortInProgress &&
+                    !lifecycleAbortPending &&
+                    terminalPresentationCleanupComplete && terminalTaskCleaned;
                 bool canStart = false;
                 string preStartReadiness = null;
                 if (commandIdle && state == RunState.PreStart)
@@ -110,6 +115,9 @@ namespace SignVR.Interaction.Orchestration
                         phase != null && phase.GiveUpAvailable,
                     abortInProgress || lifecycleAbortPending ||
                         state == RunState.Aborting,
+                    isResultVisible,
+                    canAcknowledgeResult,
+                    ResolveTerminalOutcome(state),
                     resolvedStatus
                 );
             }
@@ -245,6 +253,72 @@ namespace SignVR.Interaction.Orchestration
             return BeginAbort(reason.Trim());
         }
 
+        public InteractionStudyFlowCommandResult TryAcknowledgeResult()
+        {
+            if (disposed)
+            {
+                return Fail("The Study Flow is disposed.");
+            }
+            if (suspended)
+            {
+                return Fail("The Study Flow is suspended.");
+            }
+
+            RunState state = run.State;
+            if (!IsResultTerminal(state))
+            {
+                return Fail(
+                    "Only a completed or safely aborted Run has a result to " +
+                    "acknowledge."
+                );
+            }
+            if (abortInProgress ||
+                !string.IsNullOrEmpty(pendingLifecycleAbortReason) ||
+                !terminalPresentationCleanupComplete || !terminalTaskCleaned)
+            {
+                return Fail(
+                    "The result cannot be acknowledged until terminal " +
+                    "cleanup and local sealing are complete."
+                );
+            }
+
+            bool resetAccepted;
+            try
+            {
+                resetAccepted = run.TryResetToPreStart();
+            }
+            catch (Exception exception)
+            {
+                RecordTerminalCleanupWarning(
+                    "W6 terminal reset failed: " + exception.Message
+                );
+                return Fail(
+                    "The result could not return to PreStart: " +
+                    exception.Message
+                );
+            }
+            if (!resetAccepted)
+            {
+                return Fail(
+                    "The result cannot return to PreStart until W6 local " +
+                    "seal cleanup is complete."
+                );
+            }
+
+            abortInProgress = false;
+            ClearPendingLifecycleAbort();
+            ResetTerminalCleanupAttempts();
+            lastRequestSequence = 0L;
+            lastRequestRunId = string.Empty;
+            status = terminalWarnings.IsEmpty
+                ? "PreStart"
+                : "PreStart after terminal cleanup warning: " +
+                    terminalWarnings.Value;
+            terminalWarnings.Clear();
+            NotifyChanged();
+            return InteractionStudyFlowCommandResult.Success();
+        }
+
         public void Tick()
         {
             if (disposed || suspended)
@@ -317,6 +391,34 @@ namespace SignVR.Interaction.Orchestration
                     lastHandledResult = null;
                     outcomeHandledPhaseId = null;
                 }
+            }
+
+            if (IsResultTerminal(state))
+            {
+                bool resultWasReady = !abortInProgress &&
+                    string.IsNullOrEmpty(pendingLifecycleAbortReason) &&
+                    terminalPresentationCleanupComplete && terminalTaskCleaned;
+                abortInProgress = false;
+                ClearPendingLifecycleAbort();
+                string resultStatus = state == RunState.Completed
+                    ? "Completed result is ready for acknowledgement."
+                    : "Safely aborted result is ready for acknowledgement.";
+                if (!terminalWarnings.IsEmpty)
+                {
+                    resultStatus += " Terminal cleanup warning: " +
+                        terminalWarnings.Value;
+                }
+                bool statusChanged = !string.Equals(
+                    status,
+                    resultStatus,
+                    StringComparison.Ordinal
+                );
+                status = resultStatus;
+                if (!resultWasReady || statusChanged)
+                {
+                    NotifyChanged();
+                }
+                return;
             }
 
             bool resetAccepted;
@@ -1308,6 +1410,24 @@ namespace SignVR.Interaction.Orchestration
             return state == RunState.Completed ||
                 state == RunState.Aborted ||
                 state == RunState.Faulted;
+        }
+
+        private static bool IsResultTerminal(RunState state)
+        {
+            return state == RunState.Completed || state == RunState.Aborted;
+        }
+
+        private static RunResult? ResolveTerminalOutcome(RunState state)
+        {
+            switch (state)
+            {
+                case RunState.Completed:
+                    return RunResult.Completed;
+                case RunState.Aborted:
+                    return RunResult.Aborted;
+                default:
+                    return null;
+            }
         }
     }
 

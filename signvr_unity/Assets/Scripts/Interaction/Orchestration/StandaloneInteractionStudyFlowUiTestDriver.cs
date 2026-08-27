@@ -137,6 +137,10 @@ namespace SignVR.Interaction.Orchestration
                 Require(controller.TryStart().Succeeded, "First Start failed.");
                 fixture.Run.MarkCompleted();
                 fixture.Flow.Tick();
+                Require(
+                    controller.TryAcknowledgeResult().Succeeded,
+                    "Completed result acknowledgement failed."
+                );
                 Require(controller.TryStart().Succeeded, "Second Start failed.");
 
                 Require(
@@ -167,6 +171,10 @@ namespace SignVR.Interaction.Orchestration
             string firstRunId = fixture.Run.Plan.RunId;
             fixture.Run.MarkCompleted();
             fixture.Flow.Tick();
+            Require(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                "First result acknowledgement failed."
+            );
             Require(fixture.Flow.TryStart().Succeeded, "Second Start failed.");
             string secondRunId = fixture.Run.Plan.RunId;
 
@@ -369,14 +377,156 @@ namespace SignVR.Interaction.Orchestration
             fixture.Flow.Tick();
 
             Require(
-                fixture.Run.State == RunState.PreStart,
-                "Terminal cleanup did not restore PreStart."
+                fixture.Run.State == RunState.Completed,
+                "Completed result did not remain visible before acknowledgement."
             );
             Require(
+                fixture.Run.ResetCount == 0,
+                "Repeated Tick reset the unacknowledged result."
+            );
+            Require(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                "Ready result acknowledgement was rejected."
+            );
+            Require(
+                fixture.Run.State == RunState.PreStart &&
+                    fixture.Run.ResetCount == 1,
+                "Acknowledgement did not restore PreStart exactly once."
+            );
+            Require(
+                !fixture.Flow.TryAcknowledgeResult().Succeeded,
+                "Repeated acknowledgement was accepted."
+            );
+            fixture.Flow.Tick();
+            Require(
                 fixture.Run.ResetCount == 1,
-                "Terminal cleanup restored PreStart more than once."
+                "Repeated acknowledgement or Tick reset more than once."
             );
             fixture.Flow.Dispose();
+        }
+
+        public static void ResultPageRoutesCompletedAndAbortedAcknowledgement()
+        {
+            var fixture = new FlowFixture();
+            GameObject root = NewInactiveOwner("Standalone Result Review UI");
+            try
+            {
+                InteractionStudyFlowController controller =
+                    NewReadyController(root.transform, fixture.Flow);
+                InteractionStudyFlowControls controls =
+                    root.AddComponent<InteractionStudyFlowControls>();
+                var instruction =
+                    root.AddComponent<InteractionInstructionControls>();
+                GameObject startSurface = NewChild(
+                    root.transform,
+                    "Start Surface"
+                );
+                Button start = NewUiComponent<Button>(
+                    root.transform,
+                    "Start"
+                );
+                GameObject resultSurface = NewChild(
+                    root.transform,
+                    "Result Surface"
+                );
+                TMP_Text outcome = NewUiComponent<TextMeshProUGUI>(
+                    resultSurface.transform,
+                    "Outcome"
+                );
+                TMP_Text saveStatus = NewUiComponent<TextMeshProUGUI>(
+                    resultSurface.transform,
+                    "Save Status"
+                );
+                Button acknowledge = NewUiComponent<Button>(
+                    resultSurface.transform,
+                    "Acknowledge"
+                );
+                root.SetActive(true);
+                controls.Configure(
+                    controller,
+                    instruction,
+                    startSurface,
+                    start,
+                    NewUiComponent<TextMeshProUGUI>(
+                        root.transform,
+                        "Status"
+                    ),
+                    NewUiComponent<TextMeshProUGUI>(
+                        root.transform,
+                        "Progress"
+                    ),
+                    resultSurface,
+                    outcome,
+                    saveStatus,
+                    acknowledge
+                );
+
+                Require(start.interactable, "Ready Start button is disabled.");
+                start.onClick.Invoke();
+                fixture.Run.MarkCompleted();
+                fixture.Presentation.EndPhaseFailuresRemaining = 1;
+                fixture.Flow.Tick();
+
+                Require(
+                    !startSurface.activeSelf && resultSurface.activeSelf,
+                    "Completed did not replace Start with the result page."
+                );
+                Require(
+                    outcome.text == "本次体验已完成。",
+                    "Completed result text was not explicit."
+                );
+                Require(
+                    saveStatus.text == "正在安全保存数据，请稍候…" &&
+                        !acknowledge.interactable,
+                    "Result confirmation was enabled before cleanup converged."
+                );
+                fixture.Flow.Tick();
+                Require(
+                    saveStatus.text == "数据已安全保存。" &&
+                        acknowledge.interactable,
+                    "Completed result was not confirmable after cleanup."
+                );
+
+                typeof(InteractionStudyFlowController).GetField(
+                    "automaticIdentityConfigured",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).SetValue(controller, false);
+                acknowledge.onClick.Invoke();
+                Require(
+                    fixture.Run.State == RunState.PreStart &&
+                        fixture.Run.ResetCount == 1,
+                    "Result acknowledgement was incorrectly identity-gated."
+                );
+
+                Require(
+                    fixture.Flow.TryStart().Succeeded,
+                    "Second direct Run start failed."
+                );
+                Require(
+                    fixture.Flow.TryAbort("participant_requested_abort").Succeeded,
+                    "Second Run abort failed."
+                );
+                fixture.Run.MarkAborted();
+                fixture.Flow.Tick();
+                Require(
+                    resultSurface.activeSelf &&
+                        outcome.text == "本次体验已安全结束。" &&
+                        acknowledge.interactable,
+                    "Aborted did not show a confirmable safe-result page."
+                );
+                acknowledge.onClick.Invoke();
+                acknowledge.onClick.Invoke();
+                Require(
+                    fixture.Run.State == RunState.PreStart &&
+                        fixture.Run.ResetCount == 2,
+                    "Aborted result acknowledgement was not exactly once."
+                );
+            }
+            finally
+            {
+                fixture.Flow.Dispose();
+                UnityEngine.Object.DestroyImmediate(root);
+            }
         }
 
         public static void StartupRecoveryBlocksStartUntilItCompletes()
@@ -440,6 +590,30 @@ namespace SignVR.Interaction.Orchestration
                 controls.GetProperty("BuildIdentityInput") == null &&
                 controls.GetProperty("ApplyIdentityButton") == null,
                 "Standalone Controls still expose legacy identity widgets."
+            );
+        }
+
+        public static void LegacyConfigureSignatureRemainsAvailable()
+        {
+            MethodInfo legacyConfigure = typeof(InteractionStudyFlowControls)
+                .GetMethod(
+                    "Configure",
+                    BindingFlags.Instance | BindingFlags.Public,
+                    null,
+                    new[]
+                    {
+                        typeof(InteractionStudyFlowController),
+                        typeof(InteractionInstructionControls),
+                        typeof(GameObject),
+                        typeof(Button),
+                        typeof(TMP_Text),
+                        typeof(TMP_Text)
+                    },
+                    null
+                );
+            Require(
+                legacyConfigure != null,
+                "The legacy six-argument Configure public seam was removed."
             );
         }
 
@@ -2042,6 +2216,11 @@ namespace SignVR.Interaction.Orchestration
                 State = RunState.Completed;
             }
 
+            public void MarkAborted()
+            {
+                State = RunState.Aborted;
+            }
+
             private Guid NextRunGuid()
             {
                 guidSequence++;
@@ -2062,6 +2241,7 @@ namespace SignVR.Interaction.Orchestration
         private sealed class FakePresentationPort :
             IInteractionStudyPresentationPort
         {
+            public int EndPhaseFailuresRemaining { get; set; }
             public bool PhaseActive => false;
             public bool ReplayAvailable => false;
             public bool GiveUpAvailable => false;
@@ -2093,6 +2273,13 @@ namespace SignVR.Interaction.Orchestration
 
             public void EndPhase()
             {
+                if (EndPhaseFailuresRemaining > 0)
+                {
+                    EndPhaseFailuresRemaining--;
+                    throw new InvalidOperationException(
+                        "injected terminal presentation cleanup failure"
+                    );
+                }
             }
         }
 

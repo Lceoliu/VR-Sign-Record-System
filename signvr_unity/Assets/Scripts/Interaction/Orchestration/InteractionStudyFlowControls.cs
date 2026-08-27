@@ -17,6 +17,10 @@ namespace SignVR.Interaction.Orchestration
             "准备就绪，请点击“开始体验”。";
         internal const string PauseAborted =
             "上一次体验因头盔暂停已安全结束，可以开始新的体验。";
+        internal const string CompletedResult = "本次体验已完成。";
+        internal const string AbortedResult = "本次体验已安全结束。";
+        internal const string SavingResult = "正在安全保存数据，请稍候…";
+        internal const string SavedResult = "数据已安全保存。";
 
         internal static string ForFailure(string error)
         {
@@ -92,11 +96,11 @@ namespace SignVR.Interaction.Orchestration
                 case RunState.Completing:
                     return "正在保存本次体验，请稍候…";
                 case RunState.Completed:
-                    return "本次体验已完成。";
+                    return CompletedResult;
                 case RunState.Aborting:
                     return "正在安全结束本次体验，请稍候…";
                 case RunState.Aborted:
-                    return "本次体验已安全结束。";
+                    return AbortedResult;
                 case RunState.Faulted:
                     return "本次体验无法继续，请联系工作人员。";
                 default:
@@ -133,6 +137,18 @@ namespace SignVR.Interaction.Orchestration
         [SerializeField]
         private TMP_Text progressLabel;
 
+        [SerializeField]
+        private GameObject resultRoot;
+
+        [SerializeField]
+        private TMP_Text resultOutcomeLabel;
+
+        [SerializeField]
+        private TMP_Text resultSaveStatusLabel;
+
+        [SerializeField]
+        private Button acknowledgeResultButton;
+
         private bool bound;
         private string lastCommandFeedback = string.Empty;
         private string pauseAbortNotice = string.Empty;
@@ -146,6 +162,10 @@ namespace SignVR.Interaction.Orchestration
         public Button StartButton => startButton;
         public TMP_Text StatusLabel => statusLabel;
         public TMP_Text ProgressLabel => progressLabel;
+        public GameObject ResultRoot => resultRoot;
+        public TMP_Text ResultOutcomeLabel => resultOutcomeLabel;
+        public TMP_Text ResultSaveStatusLabel => resultSaveStatusLabel;
+        public Button AcknowledgeResultButton => acknowledgeResultButton;
 
         public bool CanReplay =>
             flowController?.Snapshot?.CanReplay == true;
@@ -170,6 +190,32 @@ namespace SignVR.Interaction.Orchestration
             TMP_Text status,
             TMP_Text progress)
         {
+            Configure(
+                flow,
+                existingInstructionControls,
+                startSurface,
+                start,
+                status,
+                progress,
+                null,
+                null,
+                null,
+                null
+            );
+        }
+
+        public void Configure(
+            InteractionStudyFlowController flow,
+            InteractionInstructionControls existingInstructionControls,
+            GameObject startSurface,
+            Button start,
+            TMP_Text status,
+            TMP_Text progress,
+            GameObject resultSurface,
+            TMP_Text resultOutcome,
+            TMP_Text resultSaveStatus,
+            Button acknowledgeResult)
+        {
             InteractionStudyFlowController validatedFlow = flow ??
                 throw new ArgumentNullException(nameof(flow));
             InteractionInstructionControls validatedInstructionControls =
@@ -185,6 +231,17 @@ namespace SignVR.Interaction.Orchestration
                 throw new ArgumentNullException(nameof(status));
             TMP_Text validatedProgress = progress ??
                 throw new ArgumentNullException(nameof(progress));
+            bool hasAnyResultBinding = resultSurface != null ||
+                resultOutcome != null || resultSaveStatus != null ||
+                acknowledgeResult != null;
+            if (hasAnyResultBinding && (resultSurface == null ||
+                resultOutcome == null || resultSaveStatus == null ||
+                acknowledgeResult == null))
+            {
+                throw new ArgumentException(
+                    "Result page bindings must be supplied together."
+                );
+            }
             if (!validatedInstructionControls.CanInstallCommandSink(this))
             {
                 throw new InvalidOperationException(
@@ -200,6 +257,10 @@ namespace SignVR.Interaction.Orchestration
             Button oldStartButton = startButton;
             TMP_Text oldStatus = statusLabel;
             TMP_Text oldProgress = progressLabel;
+            GameObject oldResultRoot = resultRoot;
+            TMP_Text oldResultOutcome = resultOutcomeLabel;
+            TMP_Text oldResultSaveStatus = resultSaveStatusLabel;
+            Button oldAcknowledgeResult = acknowledgeResultButton;
             bool restoreBinding = bound;
 
             Unbind();
@@ -209,6 +270,10 @@ namespace SignVR.Interaction.Orchestration
             startButton = validatedStart;
             statusLabel = validatedStatus;
             progressLabel = validatedProgress;
+            resultRoot = resultSurface;
+            resultOutcomeLabel = resultOutcome;
+            resultSaveStatusLabel = resultSaveStatus;
+            acknowledgeResultButton = acknowledgeResult;
             try
             {
                 Bind();
@@ -223,6 +288,10 @@ namespace SignVR.Interaction.Orchestration
                 startButton = oldStartButton;
                 statusLabel = oldStatus;
                 progressLabel = oldProgress;
+                resultRoot = oldResultRoot;
+                resultOutcomeLabel = oldResultOutcome;
+                resultSaveStatusLabel = oldResultSaveStatus;
+                acknowledgeResultButton = oldAcknowledgeResult;
                 if (restoreBinding)
                 {
                     Bind();
@@ -279,6 +348,9 @@ namespace SignVR.Interaction.Orchestration
             {
                 flowController.StateChanged += Refresh;
                 startButton.onClick.AddListener(HandleStart);
+                acknowledgeResultButton?.onClick.AddListener(
+                    HandleAcknowledgeResult
+                );
                 bound = true;
             }
             catch
@@ -297,6 +369,9 @@ namespace SignVR.Interaction.Orchestration
                     flowController.StateChanged -= Refresh;
                 }
                 startButton?.onClick.RemoveListener(HandleStart);
+                acknowledgeResultButton?.onClick.RemoveListener(
+                    HandleAcknowledgeResult
+                );
                 bound = false;
             }
             if (instructionControls != null)
@@ -325,11 +400,25 @@ namespace SignVR.Interaction.Orchestration
             Refresh();
         }
 
+        private void HandleAcknowledgeResult()
+        {
+            InteractionStudyFlowCommandResult result =
+                flowController?.TryAcknowledgeResult() ??
+                InteractionStudyFlowCommandResult.Failure(
+                    "Study Flow controller is missing."
+                );
+            lastCommandFeedback = result.Succeeded
+                ? string.Empty
+                : InteractionStudyParticipantText.ForFailure(result.Error);
+            Refresh();
+        }
+
         private void Refresh()
         {
             InteractionStudyFlowSnapshot snapshot = flowController?.Snapshot;
             bool preStart = snapshot == null ||
                 snapshot.RunState == RunState.PreStart;
+            bool resultVisible = snapshot?.IsResultVisible == true;
             if (flowController?.TryConsumePauseAbortNotice() == true)
             {
                 pauseAbortNotice = InteractionStudyParticipantText.PauseAborted;
@@ -337,6 +426,10 @@ namespace SignVR.Interaction.Orchestration
             if (preStartRoot != null && preStartRoot != gameObject)
             {
                 preStartRoot.SetActive(preStart);
+            }
+            if (resultRoot != null && resultRoot != gameObject)
+            {
+                resultRoot.SetActive(resultVisible);
             }
             if (startButton != null)
             {
@@ -408,6 +501,35 @@ namespace SignVR.Interaction.Orchestration
                     ? "阶段 " + snapshot.PhaseId.Value + " 进度 " +
                         snapshot.Progress + "/" + snapshot.RequiredProgress
                     : string.Empty;
+            }
+            if (resultOutcomeLabel != null)
+            {
+                resultOutcomeLabel.text = snapshot?.TerminalOutcome switch
+                {
+                    RunResult.Completed =>
+                        InteractionStudyParticipantText.CompletedResult,
+                    RunResult.Aborted =>
+                        InteractionStudyParticipantText.AbortedResult,
+                    _ => string.Empty
+                };
+            }
+            if (resultSaveStatusLabel != null)
+            {
+                resultSaveStatusLabel.text =
+                    snapshot?.CanAcknowledgeResult == true
+                        ? InteractionStudyParticipantText.SavedResult
+                        : InteractionStudyParticipantText.SavingResult;
+            }
+            if (acknowledgeResultButton != null)
+            {
+                acknowledgeResultButton.interactable = resultVisible &&
+                    snapshot?.CanAcknowledgeResult == true;
+                TMP_Text acknowledgeLabel = acknowledgeResultButton
+                    .GetComponentInChildren<TMP_Text>(true);
+                if (acknowledgeLabel != null)
+                {
+                    acknowledgeLabel.text = "确认返回";
+                }
             }
             StateChanged?.Invoke();
         }

@@ -219,6 +219,15 @@ namespace SignVR.Interaction.Orchestration
                 : flow.TryAbort(reason);
         }
 
+        public InteractionStudyFlowCommandResult TryAcknowledgeResult()
+        {
+            return flow == null
+                ? InteractionStudyFlowCommandResult.Failure(
+                    "Study Flow is not initialized."
+                )
+                : flow.TryAcknowledgeResult();
+        }
+
         public void RetryManifestLoad()
         {
             if (!Application.isPlaying || manifestReady ||
@@ -703,6 +712,9 @@ namespace SignVR.Interaction.Orchestration
                 snapshot.Progress + "|" + snapshot.RequiredProgress + "|" +
                 snapshot.CanStart + "|" + snapshot.CanReplay + "|" +
                 snapshot.CanGiveUp + "|" + snapshot.AbortInProgress + "|" +
+                snapshot.IsResultVisible + "|" +
+                snapshot.CanAcknowledgeResult + "|" +
+                snapshot.TerminalOutcome + "|" +
                 snapshot.Status;
         }
 

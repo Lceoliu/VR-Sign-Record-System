@@ -52,6 +52,13 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         }
 
         [Test]
+        public void ResultPageRoutesCompletedAndAbortedAcknowledgement()
+        {
+            InvokeDriver(nameof(
+                ResultPageRoutesCompletedAndAbortedAcknowledgement));
+        }
+
+        [Test]
         public void StartupRecoveryBlocksStartUntilItCompletes()
         {
             InvokeDriver(nameof(StartupRecoveryBlocksStartUntilItCompletes));
@@ -61,6 +68,12 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         public void LegacyIdentityWidgetsAreAbsentFromStandaloneControls()
         {
             InvokeDriver(nameof(LegacyIdentityWidgetsAreAbsentFromStandaloneControls));
+        }
+
+        [Test]
+        public void LegacyConfigureSignatureRemainsAvailable()
+        {
+            InvokeDriver(nameof(LegacyConfigureSignatureRemainsAvailable));
         }
 
         [Test]

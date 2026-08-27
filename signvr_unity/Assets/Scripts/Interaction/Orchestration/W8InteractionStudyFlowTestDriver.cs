@@ -18,6 +18,11 @@ namespace SignVR.Interaction.Orchestration
         {
             var fixture = new FlowFixture();
 
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.False,
+                "PreStart must not expose a result acknowledgement."
+            );
             Assert.That(fixture.Flow.TryStart().Succeeded, Is.True);
             RunPlan frozenPlan = fixture.Run.Plan;
             Assert.That(frozenPlan, Is.Not.Null);
@@ -57,6 +62,14 @@ namespace SignVR.Interaction.Orchestration
                 );
                 Assert.That(fixture.Run.CurrentPhase.PhaseId, Is.EqualTo(phaseId));
                 Assert.That(fixture.Tasks.CurrentPhaseId, Is.EqualTo(phaseId));
+                if (phaseId == 1)
+                {
+                    Assert.That(
+                        fixture.Flow.TryAcknowledgeResult().Succeeded,
+                        Is.False,
+                        "Running must not expose a result acknowledgement."
+                    );
+                }
 
                 ValidationResult completed = CompleteCurrentTask(
                     fixture.Tasks,
@@ -81,18 +94,47 @@ namespace SignVR.Interaction.Orchestration
             Assert.That(fixture.Run.State, Is.EqualTo(RunState.Completing));
             Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(6));
             Assert.That(fixture.Run.RecordedResults.Count, Is.GreaterThan(6));
+            Assert.That(fixture.Flow.Snapshot.IsResultVisible, Is.False);
+            Assert.That(fixture.Flow.Snapshot.CanAcknowledgeResult, Is.False);
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.False
+            );
+            Assert.That(fixture.Run.ResetAttemptCount, Is.Zero);
 
-            fixture.Run.ResetRejectionsRemaining = 2;
             fixture.Run.MarkCompleted();
+            Assert.That(fixture.Flow.Snapshot.IsResultVisible, Is.True);
+            Assert.That(
+                fixture.Flow.Snapshot.TerminalOutcome,
+                Is.EqualTo(RunResult.Completed)
+            );
+            Assert.That(fixture.Flow.Snapshot.CanAcknowledgeResult, Is.False);
             fixture.Flow.Tick();
             fixture.Flow.Tick();
             fixture.Flow.Tick();
 
-            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
-            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(3));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Completed));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.Zero);
             Assert.That(fixture.Tasks.ResetCount, Is.EqualTo(1));
             Assert.That(fixture.Tasks.AbortCount, Is.Zero);
             Assert.That(fixture.Run.StartCount, Is.EqualTo(1));
+            Assert.That(fixture.Flow.Snapshot.IsResultVisible, Is.True);
+            Assert.That(fixture.Flow.Snapshot.CanAcknowledgeResult, Is.True);
+            Assert.That(fixture.Flow.TryStart().Succeeded, Is.False);
+
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.True
+            );
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
+            Assert.That(fixture.Flow.Snapshot.IsResultVisible, Is.False);
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.False
+            );
+            fixture.Flow.Tick();
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
         }
 
         public static void ReplayUsesOneW6TokenAndCannotStartTwice()
@@ -247,13 +289,42 @@ namespace SignVR.Interaction.Orchestration
 
             fixture.Flow.Tick();
             Assert.That(fixture.Tasks.AbortCount, Is.Zero);
+            Assert.That(fixture.Flow.Snapshot.IsResultVisible, Is.False);
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.False
+            );
 
             fixture.Run.MarkAborted();
+            Assert.That(fixture.Flow.Snapshot.IsResultVisible, Is.True);
+            Assert.That(fixture.Flow.Snapshot.CanAcknowledgeResult, Is.False);
             fixture.Flow.Tick();
 
             Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
+            Assert.That(
+                fixture.Flow.Snapshot.TerminalOutcome,
+                Is.EqualTo(RunResult.Aborted)
+            );
+            Assert.That(fixture.Flow.Snapshot.CanAcknowledgeResult, Is.True);
+            Assert.That(fixture.Run.ResetAttemptCount, Is.Zero);
+            fixture.Flow.Tick();
+            Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.Zero);
+            Assert.That(log.Contains("w6.reset"), Is.False);
+
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.True
+            );
             Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
             Assert.That(log.IndexOf("w7.abort"), Is.LessThan(log.IndexOf("w6.reset")));
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.False
+            );
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
         }
 
         public static void TerminalAdapterFailuresStillConvergeToPreStart()
@@ -270,12 +341,18 @@ namespace SignVR.Interaction.Orchestration
 
             fixture.Flow.Tick();
 
-            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
             Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
+            Assert.That(fixture.Flow.Snapshot.CanAcknowledgeResult, Is.True);
             Assert.That(
                 fixture.Flow.Snapshot.Status,
-                Does.Contain("terminal cleanup warning")
+                Does.Contain("Terminal cleanup warning")
             );
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.True
+            );
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
         }
 
         public static void TerminalAdaptersRunOnceWhileW6ResetWaits()
@@ -295,10 +372,26 @@ namespace SignVR.Interaction.Orchestration
             fixture.Flow.Tick();
             fixture.Flow.Tick();
 
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.Zero);
+            Assert.That(fixture.Presentation.EndPhaseAttemptCount, Is.EqualTo(2));
+            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
+            Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.False
+            );
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.False
+            );
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.True
+            );
             Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
             Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(3));
             Assert.That(fixture.Presentation.EndPhaseAttemptCount, Is.EqualTo(2));
-            Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
             Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
             Assert.That(
                 CountOccurrences(
@@ -326,11 +419,25 @@ namespace SignVR.Interaction.Orchestration
             Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
             fixture.Flow.Tick();
 
-            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
-            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(2));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.Zero);
             Assert.That(fixture.Presentation.EndPhaseAttemptCount, Is.EqualTo(2));
             Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
             Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.False
+            );
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
+            fixture.Flow.Tick();
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.True
+            );
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(2));
             Assert.That(
                 CountOccurrences(
                     fixture.Flow.Snapshot.Status,
@@ -357,10 +464,15 @@ namespace SignVR.Interaction.Orchestration
             fixture.Flow.Resume();
             fixture.Flow.Tick();
 
-            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
             Assert.That(fixture.Run.SubscriberCount, Is.EqualTo(1));
             Assert.That(fixture.Tasks.SubscriberCount, Is.EqualTo(1));
             Assert.That(fixture.Presentation.SubscriberCount, Is.EqualTo(1));
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.True
+            );
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
         }
 
         public static void AbortFailureRetriesW5WithoutRepeatingItsCompletedWork()
@@ -431,8 +543,13 @@ namespace SignVR.Interaction.Orchestration
 
             fixture.Run.MarkAborted();
             fixture.Flow.Tick();
-            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
             Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.False);
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.True
+            );
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
         }
 
         public static void LifecycleAbortRetryIsBackedOffAndEventuallyConverges()
@@ -545,8 +662,8 @@ namespace SignVR.Interaction.Orchestration
             fixture.Run.MarkAborted();
             fixture.Flow.Tick();
 
-            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
-            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborted));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.Zero);
             Assert.That(fixture.Tasks.DisableCount, Is.EqualTo(1));
             Assert.That(fixture.Tasks.AbortCount, Is.EqualTo(1));
             Assert.That(fixture.Flow.Snapshot.AbortInProgress, Is.False);
@@ -554,6 +671,12 @@ namespace SignVR.Interaction.Orchestration
                 fixture.Flow.Snapshot.Status,
                 Does.Contain("W7 abort Disable failed")
             );
+            Assert.That(
+                fixture.Flow.TryAcknowledgeResult().Succeeded,
+                Is.True
+            );
+            Assert.That(fixture.Run.State, Is.EqualTo(RunState.PreStart));
+            Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
         }
 
         public static void SuspendedPendingAbortDisposeRetriesAndDetaches()
@@ -595,6 +718,11 @@ namespace SignVR.Interaction.Orchestration
             );
             original.Run.MarkAborted();
             original.Flow.Tick();
+            Assert.That(original.Run.State, Is.EqualTo(RunState.Aborted));
+            Assert.That(
+                original.Flow.TryAcknowledgeResult().Succeeded,
+                Is.True
+            );
             Assert.That(original.Run.State, Is.EqualTo(RunState.PreStart));
 
             var replacement = new FlowFixture(createFlow: false);
@@ -1676,9 +1804,17 @@ namespace SignVR.Interaction.Orchestration
                 pause.Invoke(controller, new object[] { false });
                 Assert.That(
                     authoritative.Run.State,
-                    Is.EqualTo(RunState.PreStart)
+                    Is.EqualTo(RunState.Aborted)
                 );
                 Assert.That(authoritative.Run.SubscriberCount, Is.EqualTo(1));
+                Assert.That(
+                    controller.TryAcknowledgeResult().Succeeded,
+                    Is.True
+                );
+                Assert.That(
+                    authoritative.Run.State,
+                    Is.EqualTo(RunState.PreStart)
+                );
 
                 Assert.That(
                     authoritative.Flow.TryStart().Succeeded,
@@ -2007,18 +2143,14 @@ namespace SignVR.Interaction.Orchestration
                     );
                     break;
                 case 4:
-                    foreach (string target in plan.ChestButtonOrder.ButtonIds)
-                    {
-                        result = tasks.AcceptInput(4, PhaseInput.Target(target));
-                    }
-                    break;
-                case 5:
                     result = tasks.AcceptInput(
-                        5,
+                        4,
                         PhaseInput.Target(
                             plan.Phases[3].TaskVariant.TargetIds[0]
                         )
                     );
+                    break;
+                case 5:
                     foreach (string target in
                         plan.Phases[4].TaskVariant.TargetIds)
                     {
