@@ -1594,6 +1594,323 @@ namespace SignVR.Interaction.CaptureHost
             );
         }
 
+        public static void SummarySeparatesFirstActionFromWholeAttemptSuccess()
+        {
+            var tracker = new InteractionSummaryTracker(
+                "run_attempt_semantics_test"
+            );
+            tracker.BeginRun(0d, FixedUtc);
+
+            tracker.BeginPhase(1, 0d);
+            tracker.RecordAttempt(1, true, 0.1d);
+            tracker.RecordError(1, 0.2d);
+            tracker.FinishPhase(1, true, false, 0.3d);
+
+            for (int phaseId = 2; phaseId <= 6; phaseId++)
+            {
+                tracker.BeginPhase(phaseId, phaseId);
+                tracker.RecordAttempt(phaseId, true, phaseId + 0.1d);
+                tracker.FinishPhase(
+                    phaseId,
+                    completed: true,
+                    stuck: false,
+                    monotonicTimeSeconds: phaseId + 0.2d
+                );
+            }
+
+            InteractionRunSummary summary = tracker.SealCompleted(
+                7d,
+                FixedUtc.AddSeconds(7),
+                new InteractionDataCompleteness(
+                    true,
+                    true,
+                    true,
+                    true,
+                    true,
+                    0L
+                )
+            );
+            InteractionPhaseSummary first = summary.Phases[0];
+            Require(
+                first.FirstAttemptCorrect == true &&
+                first.FirstActionCorrect == true &&
+                first.FirstAttemptSuccess == false,
+                "A correct first action must remain distinct from a later-error " +
+                "whole-attempt result."
+            );
+            Require(
+                summary.Phases[1].FirstAttemptSuccess == true,
+                "A completed phase without errors or reset must be a first-attempt success."
+            );
+
+            string json = InteractionSummaryJson.Serialize(summary);
+            Require(
+                json.Contains("\"first_attempt_correct\":true") &&
+                json.Contains("\"first_action_correct\":true") &&
+                json.Contains("\"first_attempt_success\":false") &&
+                json.Contains(
+                    "\"first_attempt_correct_semantics\":" +
+                    "\"legacy_alias_of_first_action_correct\""
+                ),
+                "Summary JSON did not preserve and label the legacy accuracy field."
+            );
+        }
+
+        public static void FirstAttemptSuccessRequiresACorrectFirstAction()
+        {
+            var tracker = new InteractionSummaryTracker(
+                "run_attempt_first_action_guard"
+            );
+            tracker.BeginRun(0d, FixedUtc);
+            for (int phaseId = 1; phaseId <= 6; phaseId++)
+            {
+                tracker.BeginPhase(phaseId, phaseId);
+                tracker.RecordAttempt(
+                    phaseId,
+                    correct: phaseId != 1,
+                    monotonicTimeSeconds: phaseId + 0.1d
+                );
+                tracker.FinishPhase(
+                    phaseId,
+                    completed: true,
+                    stuck: false,
+                    monotonicTimeSeconds: phaseId + 0.2d
+                );
+            }
+            InteractionRunSummary summary = tracker.SealCompleted(
+                7d,
+                FixedUtc.AddSeconds(7),
+                new InteractionDataCompleteness(
+                    true,
+                    true,
+                    true,
+                    true,
+                    true,
+                    0L
+                )
+            );
+            Require(
+                summary.Phases[0].FirstActionCorrect == false &&
+                summary.Phases[0].FirstAttemptSuccess == false &&
+                summary.Phases[1].FirstAttemptSuccess == true,
+                "A wrong first action cannot become a clean first-attempt success."
+            );
+        }
+
+        public static void CaptureQualityThresholdsClassifyPassWarningAndFail()
+        {
+            var thresholds = new InteractionCaptureQualityThresholds(
+                targetSampleRateHz: 20d,
+                passMinimumSampleRateHz: 18d,
+                warningMinimumSampleRateHz: 15d,
+                passMinimumTrackingValidityRate: 0.95d,
+                warningMinimumTrackingValidityRate: 0.8d,
+                passMinimumRequiredProbeCoverageRate: 0.99d,
+                warningMinimumRequiredProbeCoverageRate: 0.9d,
+                passMaximumCaptureGapCount: 0L,
+                warningMaximumCaptureGapCount: 2L
+            );
+
+            InteractionCaptureQuality pass = thresholds.Evaluate(
+                actualSampleRateHz: 20d,
+                hmdValidityRate: 1d,
+                leftHandValidityRate: 0.95d,
+                rightHandValidityRate: 1d,
+                requiredProbeCoverageRate: 1d,
+                requiredProbeCount: 6,
+                captureGapCount: 0L
+            );
+            InteractionCaptureQuality warning = thresholds.Evaluate(
+                actualSampleRateHz: 16d,
+                hmdValidityRate: 0.9d,
+                leftHandValidityRate: 0.85d,
+                rightHandValidityRate: 1d,
+                requiredProbeCoverageRate: 0.95d,
+                requiredProbeCount: 6,
+                captureGapCount: 1L
+            );
+            InteractionCaptureQuality fail = thresholds.Evaluate(
+                actualSampleRateHz: 14d,
+                hmdValidityRate: 1d,
+                leftHandValidityRate: 1d,
+                rightHandValidityRate: 1d,
+                requiredProbeCoverageRate: 1d,
+                requiredProbeCount: 6,
+                captureGapCount: 0L
+            );
+
+            Require(
+                pass.Overall == InteractionCaptureQualityLevel.Pass &&
+                warning.Overall == InteractionCaptureQualityLevel.Warning &&
+                fail.Overall == InteractionCaptureQualityLevel.Fail,
+                "Central quality thresholds did not classify Pass/Warning/Fail."
+            );
+            Require(
+                warning.SampleRate == InteractionCaptureQualityLevel.Warning &&
+                warning.TrackingValidity ==
+                    InteractionCaptureQualityLevel.Warning &&
+                warning.RequiredProbeCoverage ==
+                    InteractionCaptureQualityLevel.Warning &&
+                warning.CaptureGaps == InteractionCaptureQualityLevel.Warning,
+                "Quality component levels were not retained independently."
+            );
+        }
+
+        public static void LowQualityCaptureStillSealsWithStructuredQuality()
+        {
+            string root = CreateTemporaryRoot();
+            try
+            {
+                RunPlan plan = CreatePlan(141, "P991");
+                byte[] manifest = InteractionRunManifestContractV1.SerializeUtf8(
+                    plan
+                );
+                var thresholds = new InteractionCaptureQualityThresholds(
+                    targetSampleRateHz: 20d,
+                    passMinimumSampleRateHz: 18d,
+                    warningMinimumSampleRateHz: 15d,
+                    passMinimumTrackingValidityRate: 0.95d,
+                    warningMinimumTrackingValidityRate: 0.8d,
+                    passMinimumRequiredProbeCoverageRate: 0.99d,
+                    warningMinimumRequiredProbeCoverageRate: 0.9d,
+                    passMaximumCaptureGapCount: 0L,
+                    warningMaximumCaptureGapCount: 1L
+                );
+                InteractionCaptureWriter writer =
+                    InteractionCaptureWriter.CreateNew(
+                        root,
+                        plan,
+                        manifest,
+                        InteractionCaptureWriter.DefaultQueueCapacity,
+                        InteractionCaptureWriter.DefaultGapThresholdSeconds,
+                        new InteractionJsonlChannelFactory(),
+                        qualityThresholds: thresholds
+                    );
+                writer.RecordEvent(
+                    InteractionEventNames.RunCreated,
+                    null,
+                    0d,
+                    FixedUtc,
+                    0
+                );
+                writer.BeginCapture();
+                Require(
+                    writer.TryWritePose(CreateQualityPose(
+                        sequence: 1L,
+                        time: 0d,
+                        frame: 0,
+                        hmdValid: true,
+                        leftHandValid: true,
+                        rightHandValid: true
+                    )),
+                    "First quality fixture pose was rejected."
+                );
+                Require(
+                    writer.TryWritePose(CreateQualityPose(
+                        sequence: 2L,
+                        time: 1d,
+                        frame: 1,
+                        hmdValid: false,
+                        leftHandValid: false,
+                        rightHandValid: true
+                    )),
+                    "Second quality fixture pose was rejected."
+                );
+
+                string oneRequiredProbeId = plan.Phases
+                    .SelectMany(phase => phase.TaskVariant.TargetIds)
+                    .First();
+                Require(
+                    writer.TryWriteObject(new InteractionObjectSample(
+                        phaseId: 1,
+                        sampleSequence: 1L,
+                        monotonicTimeSeconds: 1d,
+                        utcTime: FixedUtc.AddSeconds(1),
+                        frame: 1,
+                        objectId: oneRequiredProbeId,
+                        stateJson: "{\"observed\":true}"
+                    )),
+                    "Quality fixture object row was rejected."
+                );
+
+                InteractionSummaryTracker tracker = CreateCompletedSummary(
+                    plan.RunId
+                );
+                InteractionCaptureSealResult result = Await(writer.BeginSeal(
+                    InteractionCaptureTerminalKind.Completed,
+                    completeness => tracker.SealCompleted(
+                        7d,
+                        FixedUtc.AddSeconds(7),
+                        completeness
+                    )
+                ));
+
+                AssertFinalFiles(writer.RunDirectory);
+                InteractionCaptureQuality quality = result.Summary.CaptureQuality;
+                int requiredProbeCount = plan.Phases
+                    .SelectMany(phase => phase.TaskVariant.TargetIds)
+                    .Distinct(StringComparer.Ordinal)
+                    .Count();
+                Require(
+                    result.Completeness.QuestArtifactsComplete &&
+                    quality.MeasurementAvailable &&
+                    quality.Overall == InteractionCaptureQualityLevel.Fail,
+                    "Low quality blocked sealing or was not retained as Fail."
+                );
+                Require(
+                    Math.Abs(quality.ActualSampleRateHz - 1d) < 0.000001d &&
+                    Math.Abs(quality.HmdValidityRate - 0.5d) < 0.000001d &&
+                    Math.Abs(quality.LeftHandValidityRate - 0.5d) < 0.000001d &&
+                    Math.Abs(quality.RightHandValidityRate - 1d) < 0.000001d &&
+                    quality.RequiredProbeCount == requiredProbeCount &&
+                    Math.Abs(
+                        quality.RequiredProbeCoverageRate -
+                        1d / (2d * requiredProbeCount)
+                    ) < 0.000001d &&
+                    quality.CaptureGapCount == 1L,
+                    "Writer quality measurements did not match accepted capture rows."
+                );
+
+                IDictionary<string, object> summary = InteractionJson.ParseObject(
+                    InteractionAtomicFile.ReadUtf8(Path.Combine(
+                        writer.RunDirectory,
+                        InteractionStoragePaths.SummaryFileName
+                    ))
+                );
+                IDictionary<string, object> jsonQuality =
+                    InteractionJson.RequireObject(summary, "capture_quality");
+                Require(
+                    InteractionJson.OptionalBoolean(
+                        jsonQuality,
+                        "measurement_available"
+                    ) == true &&
+                    InteractionJson.RequireString(jsonQuality, "overall") ==
+                        "Fail" &&
+                    InteractionJson.RequireObject(
+                        jsonQuality,
+                        "sample_rate"
+                    ).ContainsKey("actual_hz") &&
+                    InteractionJson.RequireObject(
+                        jsonQuality,
+                        "tracking_validity"
+                    ).ContainsKey("left_hand_rate") &&
+                    InteractionJson.RequireObject(
+                        jsonQuality,
+                        "required_probe_coverage"
+                    ).ContainsKey("rate") &&
+                    InteractionJson.RequireObject(
+                        jsonQuality,
+                        "gaps"
+                    ).ContainsKey("count"),
+                    "summary.json omitted structured capture_quality fields."
+                );
+            }
+            finally
+            {
+                DeleteTemporaryRoot(root);
+            }
+        }
+
         public static void InstructionManifestReaderMapsExactArtifacts()
         {
             var builder = new StringBuilder();
@@ -1766,6 +2083,39 @@ namespace SignVR.Interaction.CaptureHost
                 new InteractionQuaternionSample(0d, 0d, 0d, 1d),
                 hand,
                 hand
+            );
+        }
+
+        private static InteractionPoseSample CreateQualityPose(
+            long sequence,
+            double time,
+            int frame,
+            bool hmdValid,
+            bool leftHandValid,
+            bool rightHandValid)
+        {
+            return new InteractionPoseSample(
+                phaseId: 1,
+                sampleSequence: sequence,
+                monotonicTimeSeconds: time,
+                utcTime: FixedUtc.AddSeconds(time),
+                frame: frame,
+                hmdValid: hmdValid,
+                hmdPosition: new InteractionVector3Sample(0d, 1.6d, 0d),
+                hmdRotation: new InteractionQuaternionSample(0d, 0d, 0d, 1d),
+                leftHand: CreateQualityHand(leftHandValid),
+                rightHand: CreateQualityHand(rightHandValid)
+            );
+        }
+
+        private static InteractionHandSample CreateQualityHand(bool valid)
+        {
+            return new InteractionHandSample(
+                tracked: valid,
+                dataValid: valid,
+                highConfidence: valid,
+                poseSourceInferred: false,
+                joints: Array.Empty<InteractionJointSample>()
             );
         }
 

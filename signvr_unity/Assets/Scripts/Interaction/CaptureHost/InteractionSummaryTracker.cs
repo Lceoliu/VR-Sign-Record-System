@@ -51,6 +51,11 @@ namespace SignVR.Interaction.CaptureHost
         {
             PhaseId = source.PhaseId;
             FirstAttemptCorrect = source.FirstAttemptCorrect;
+            FirstActionCorrect = source.FirstAttemptCorrect;
+            FirstAttemptSuccess = source.Finished
+                ? source.PhaseCompleted && source.ErrorCount == 0 &&
+                    source.FirstAttemptCorrect == true
+                : (bool?)null;
             PhaseCompleted = source.PhaseCompleted;
             PhaseStuck = source.PhaseStuck;
             ErrorCount = source.ErrorCount;
@@ -65,7 +70,13 @@ namespace SignVR.Interaction.CaptureHost
         }
 
         public int PhaseId { get; }
+        /// <summary>
+        /// Legacy compatibility alias whose historical meaning is whether the
+        /// participant's first recorded action was correct.
+        /// </summary>
         public bool? FirstAttemptCorrect { get; }
+        public bool? FirstActionCorrect { get; }
+        public bool? FirstAttemptSuccess { get; }
         public bool PhaseCompleted { get; }
         public bool PhaseStuck { get; }
         public int ErrorCount { get; }
@@ -89,7 +100,8 @@ namespace SignVR.Interaction.CaptureHost
             double totalDurationSeconds,
             IReadOnlyList<InteractionPhaseSummary> phases,
             string abortReason,
-            InteractionDataCompleteness dataCompleteness)
+            InteractionDataCompleteness dataCompleteness,
+            InteractionCaptureQuality captureQuality = null)
         {
             RunId = runId;
             Status = status;
@@ -98,7 +110,12 @@ namespace SignVR.Interaction.CaptureHost
             TotalDurationSeconds = totalDurationSeconds;
             Phases = phases;
             AbortReason = abortReason;
-            DataCompleteness = dataCompleteness;
+            DataCompleteness = dataCompleteness ??
+                throw new ArgumentNullException(nameof(dataCompleteness));
+            CaptureQuality = captureQuality ??
+                InteractionCaptureQuality.CreateUnavailable(
+                    DataCompleteness.CaptureGapCount
+                );
             TotalErrorCount = phases.Sum(phase => phase.ErrorCount);
             TotalReplayCount = phases.Count(phase => phase.ReplayUsed);
             TotalStuckCount = phases.Count(phase => phase.PhaseStuck);
@@ -117,6 +134,25 @@ namespace SignVR.Interaction.CaptureHost
         public int CompletedPhaseCount { get; }
         public string AbortReason { get; }
         public InteractionDataCompleteness DataCompleteness { get; }
+        public InteractionCaptureQuality CaptureQuality { get; }
+
+        internal InteractionRunSummary WithCaptureQuality(
+            InteractionCaptureQuality captureQuality)
+        {
+            return new InteractionRunSummary(
+                RunId,
+                Status,
+                StartedUtc,
+                EndedUtc,
+                TotalDurationSeconds,
+                Phases,
+                AbortReason,
+                DataCompleteness,
+                captureQuality ?? throw new ArgumentNullException(
+                    nameof(captureQuality)
+                )
+            );
+        }
     }
 
     public sealed class InteractionSummaryTracker
@@ -603,6 +639,8 @@ namespace SignVR.Interaction.CaptureHost
                 AppendPhase(builder, value.Phases[index]);
             }
             builder.Append(']');
+            InteractionRunManifestContractV1.AppendSeparatorAndName(builder, "capture_quality");
+            AppendCaptureQuality(builder, value.CaptureQuality);
             InteractionRunManifestContractV1.AppendSeparatorAndName(builder, "data_completeness");
             AppendCompleteness(builder, value.DataCompleteness);
             builder.Append('}');
@@ -619,6 +657,18 @@ namespace SignVR.Interaction.CaptureHost
             builder.Append(value.PhaseId.ToString(CultureInfo.InvariantCulture));
             InteractionRunManifestContractV1.AppendSeparatorAndName(builder, "first_attempt_correct");
             AppendNullableBoolean(builder, value.FirstAttemptCorrect);
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "first_attempt_correct_semantics"
+            );
+            InteractionJson.AppendQuoted(
+                builder,
+                "legacy_alias_of_first_action_correct"
+            );
+            InteractionRunManifestContractV1.AppendSeparatorAndName(builder, "first_action_correct");
+            AppendNullableBoolean(builder, value.FirstActionCorrect);
+            InteractionRunManifestContractV1.AppendSeparatorAndName(builder, "first_attempt_success");
+            AppendNullableBoolean(builder, value.FirstAttemptSuccess);
             InteractionRunManifestContractV1.AppendSeparatorAndName(builder, "phase_completed");
             InteractionCaptureJson.AppendBoolean(builder, value.PhaseCompleted);
             InteractionRunManifestContractV1.AppendSeparatorAndName(builder, "phase_stuck");
@@ -667,6 +717,128 @@ namespace SignVR.Interaction.CaptureHost
                 value.QuestArtifactsComplete
             );
             builder.Append('}');
+        }
+
+        private static void AppendCaptureQuality(
+            StringBuilder builder,
+            InteractionCaptureQuality value)
+        {
+            builder.Append('{');
+            InteractionRunManifestContractV1.AppendName(
+                builder,
+                "measurement_available"
+            );
+            InteractionCaptureJson.AppendBoolean(
+                builder,
+                value.MeasurementAvailable
+            );
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "overall"
+            );
+            AppendQualityLevel(builder, value.Overall);
+
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "sample_rate"
+            );
+            builder.Append('{');
+            InteractionRunManifestContractV1.AppendName(builder, "status");
+            AppendQualityLevel(builder, value.SampleRate);
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "target_hz"
+            );
+            InteractionJson.AppendFiniteDouble(builder, value.TargetSampleRateHz);
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "actual_hz"
+            );
+            InteractionJson.AppendFiniteDouble(builder, value.ActualSampleRateHz);
+            builder.Append('}');
+
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "tracking_validity"
+            );
+            builder.Append('{');
+            InteractionRunManifestContractV1.AppendName(builder, "status");
+            AppendQualityLevel(builder, value.TrackingValidity);
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "hmd_rate"
+            );
+            InteractionJson.AppendFiniteDouble(builder, value.HmdValidityRate);
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "left_hand_rate"
+            );
+            InteractionJson.AppendFiniteDouble(
+                builder,
+                value.LeftHandValidityRate
+            );
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "right_hand_rate"
+            );
+            InteractionJson.AppendFiniteDouble(
+                builder,
+                value.RightHandValidityRate
+            );
+            builder.Append('}');
+
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "required_probe_coverage"
+            );
+            builder.Append('{');
+            InteractionRunManifestContractV1.AppendName(builder, "status");
+            AppendQualityLevel(builder, value.RequiredProbeCoverage);
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "required_probe_count"
+            );
+            builder.Append(value.RequiredProbeCount.ToString(
+                CultureInfo.InvariantCulture
+            ));
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "rate"
+            );
+            InteractionJson.AppendFiniteDouble(
+                builder,
+                value.RequiredProbeCoverageRate
+            );
+            builder.Append('}');
+
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "gaps"
+            );
+            builder.Append('{');
+            InteractionRunManifestContractV1.AppendName(builder, "status");
+            AppendQualityLevel(builder, value.CaptureGaps);
+            InteractionRunManifestContractV1.AppendSeparatorAndName(
+                builder,
+                "count"
+            );
+            builder.Append(value.CaptureGapCount.ToString(
+                CultureInfo.InvariantCulture
+            ));
+            builder.Append('}');
+            builder.Append('}');
+        }
+
+        private static void AppendQualityLevel(
+            StringBuilder builder,
+            InteractionCaptureQualityLevel value)
+        {
+            if (value < InteractionCaptureQualityLevel.Pass ||
+                value > InteractionCaptureQualityLevel.Fail)
+            {
+                throw new ArgumentOutOfRangeException(nameof(value));
+            }
+            InteractionJson.AppendQuoted(builder, value.ToString());
         }
 
         private static void AppendNullableBoolean(

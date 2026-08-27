@@ -6,6 +6,367 @@ using System.Text;
 
 namespace SignVR.Interaction.CaptureHost
 {
+    public enum InteractionCaptureQualityLevel
+    {
+        Pass = 0,
+        Warning = 1,
+        Fail = 2
+    }
+
+    public sealed class InteractionCaptureQuality
+    {
+        internal InteractionCaptureQuality(
+            bool measurementAvailable,
+            double targetSampleRateHz,
+            double actualSampleRateHz,
+            double hmdValidityRate,
+            double leftHandValidityRate,
+            double rightHandValidityRate,
+            double requiredProbeCoverageRate,
+            int requiredProbeCount,
+            long captureGapCount,
+            InteractionCaptureQualityLevel sampleRate,
+            InteractionCaptureQualityLevel trackingValidity,
+            InteractionCaptureQualityLevel requiredProbeCoverage,
+            InteractionCaptureQualityLevel captureGaps)
+        {
+            MeasurementAvailable = measurementAvailable;
+            TargetSampleRateHz = targetSampleRateHz;
+            ActualSampleRateHz = actualSampleRateHz;
+            HmdValidityRate = hmdValidityRate;
+            LeftHandValidityRate = leftHandValidityRate;
+            RightHandValidityRate = rightHandValidityRate;
+            RequiredProbeCoverageRate = requiredProbeCoverageRate;
+            RequiredProbeCount = requiredProbeCount;
+            CaptureGapCount = captureGapCount;
+            SampleRate = sampleRate;
+            TrackingValidity = trackingValidity;
+            RequiredProbeCoverage = requiredProbeCoverage;
+            CaptureGaps = captureGaps;
+            Overall = Worst(
+                sampleRate,
+                trackingValidity,
+                requiredProbeCoverage,
+                captureGaps
+            );
+        }
+
+        public bool MeasurementAvailable { get; }
+        public double TargetSampleRateHz { get; }
+        public double ActualSampleRateHz { get; }
+        public double HmdValidityRate { get; }
+        public double LeftHandValidityRate { get; }
+        public double RightHandValidityRate { get; }
+        public double RequiredProbeCoverageRate { get; }
+        public int RequiredProbeCount { get; }
+        public long CaptureGapCount { get; }
+        public InteractionCaptureQualityLevel SampleRate { get; }
+        public InteractionCaptureQualityLevel TrackingValidity { get; }
+        public InteractionCaptureQualityLevel RequiredProbeCoverage { get; }
+        public InteractionCaptureQualityLevel CaptureGaps { get; }
+        public InteractionCaptureQualityLevel Overall { get; }
+
+        internal static InteractionCaptureQuality CreateUnavailable(
+            long captureGapCount)
+        {
+            if (captureGapCount < 0L)
+            {
+                throw new ArgumentOutOfRangeException(nameof(captureGapCount));
+            }
+            return new InteractionCaptureQuality(
+                measurementAvailable: false,
+                targetSampleRateHz:
+                    InteractionCaptureQualityThresholds.DefaultTargetSampleRateHz,
+                actualSampleRateHz: 0d,
+                hmdValidityRate: 0d,
+                leftHandValidityRate: 0d,
+                rightHandValidityRate: 0d,
+                requiredProbeCoverageRate: 0d,
+                requiredProbeCount: 0,
+                captureGapCount: captureGapCount,
+                sampleRate: InteractionCaptureQualityLevel.Fail,
+                trackingValidity: InteractionCaptureQualityLevel.Fail,
+                requiredProbeCoverage: InteractionCaptureQualityLevel.Fail,
+                captureGaps: InteractionCaptureQualityLevel.Fail
+            );
+        }
+
+        private static InteractionCaptureQualityLevel Worst(
+            params InteractionCaptureQualityLevel[] values)
+        {
+            InteractionCaptureQualityLevel result =
+                InteractionCaptureQualityLevel.Pass;
+            for (int index = 0; index < values.Length; index++)
+            {
+                if (values[index] > result)
+                {
+                    result = values[index];
+                }
+            }
+            return result;
+        }
+    }
+
+    public sealed class InteractionCaptureQualityThresholds
+    {
+        public const double DefaultTargetSampleRateHz = 20d;
+        public const double DefaultPassMinimumSampleRateHz = 18d;
+        public const double DefaultWarningMinimumSampleRateHz = 15d;
+        public const double DefaultPassMinimumTrackingValidityRate = 0.95d;
+        public const double DefaultWarningMinimumTrackingValidityRate = 0.8d;
+        public const double DefaultPassMinimumRequiredProbeCoverageRate = 0.99d;
+        public const double DefaultWarningMinimumRequiredProbeCoverageRate = 0.9d;
+        public const long DefaultPassMaximumCaptureGapCount = 0L;
+        public const long DefaultWarningMaximumCaptureGapCount = 2L;
+
+        public InteractionCaptureQualityThresholds(
+            double targetSampleRateHz,
+            double passMinimumSampleRateHz,
+            double warningMinimumSampleRateHz,
+            double passMinimumTrackingValidityRate,
+            double warningMinimumTrackingValidityRate,
+            double passMinimumRequiredProbeCoverageRate,
+            double warningMinimumRequiredProbeCoverageRate,
+            long passMaximumCaptureGapCount,
+            long warningMaximumCaptureGapCount)
+        {
+            ValidatePositiveFinite(
+                targetSampleRateHz,
+                nameof(targetSampleRateHz)
+            );
+            ValidatePositiveFinite(
+                passMinimumSampleRateHz,
+                nameof(passMinimumSampleRateHz)
+            );
+            ValidatePositiveFinite(
+                warningMinimumSampleRateHz,
+                nameof(warningMinimumSampleRateHz)
+            );
+            if (warningMinimumSampleRateHz > passMinimumSampleRateHz ||
+                passMinimumSampleRateHz > targetSampleRateHz)
+            {
+                throw new ArgumentException(
+                    "Sample-rate thresholds must satisfy warning <= pass <= target."
+                );
+            }
+            ValidateRate(
+                passMinimumTrackingValidityRate,
+                nameof(passMinimumTrackingValidityRate)
+            );
+            ValidateRate(
+                warningMinimumTrackingValidityRate,
+                nameof(warningMinimumTrackingValidityRate)
+            );
+            ValidateRate(
+                passMinimumRequiredProbeCoverageRate,
+                nameof(passMinimumRequiredProbeCoverageRate)
+            );
+            ValidateRate(
+                warningMinimumRequiredProbeCoverageRate,
+                nameof(warningMinimumRequiredProbeCoverageRate)
+            );
+            if (warningMinimumTrackingValidityRate >
+                    passMinimumTrackingValidityRate ||
+                warningMinimumRequiredProbeCoverageRate >
+                    passMinimumRequiredProbeCoverageRate)
+            {
+                throw new ArgumentException(
+                    "Warning rate thresholds must not exceed pass thresholds."
+                );
+            }
+            if (passMaximumCaptureGapCount < 0L ||
+                warningMaximumCaptureGapCount < passMaximumCaptureGapCount)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(warningMaximumCaptureGapCount)
+                );
+            }
+
+            TargetSampleRateHz = targetSampleRateHz;
+            PassMinimumSampleRateHz = passMinimumSampleRateHz;
+            WarningMinimumSampleRateHz = warningMinimumSampleRateHz;
+            PassMinimumTrackingValidityRate =
+                passMinimumTrackingValidityRate;
+            WarningMinimumTrackingValidityRate =
+                warningMinimumTrackingValidityRate;
+            PassMinimumRequiredProbeCoverageRate =
+                passMinimumRequiredProbeCoverageRate;
+            WarningMinimumRequiredProbeCoverageRate =
+                warningMinimumRequiredProbeCoverageRate;
+            PassMaximumCaptureGapCount = passMaximumCaptureGapCount;
+            WarningMaximumCaptureGapCount = warningMaximumCaptureGapCount;
+        }
+
+        public double TargetSampleRateHz { get; }
+        public double PassMinimumSampleRateHz { get; }
+        public double WarningMinimumSampleRateHz { get; }
+        public double PassMinimumTrackingValidityRate { get; }
+        public double WarningMinimumTrackingValidityRate { get; }
+        public double PassMinimumRequiredProbeCoverageRate { get; }
+        public double WarningMinimumRequiredProbeCoverageRate { get; }
+        public long PassMaximumCaptureGapCount { get; }
+        public long WarningMaximumCaptureGapCount { get; }
+
+        public static InteractionCaptureQualityThresholds CreateDefault()
+        {
+            return new InteractionCaptureQualityThresholds(
+                targetSampleRateHz: DefaultTargetSampleRateHz,
+                passMinimumSampleRateHz: DefaultPassMinimumSampleRateHz,
+                warningMinimumSampleRateHz:
+                    DefaultWarningMinimumSampleRateHz,
+                passMinimumTrackingValidityRate:
+                    DefaultPassMinimumTrackingValidityRate,
+                warningMinimumTrackingValidityRate:
+                    DefaultWarningMinimumTrackingValidityRate,
+                passMinimumRequiredProbeCoverageRate:
+                    DefaultPassMinimumRequiredProbeCoverageRate,
+                warningMinimumRequiredProbeCoverageRate:
+                    DefaultWarningMinimumRequiredProbeCoverageRate,
+                passMaximumCaptureGapCount:
+                    DefaultPassMaximumCaptureGapCount,
+                warningMaximumCaptureGapCount:
+                    DefaultWarningMaximumCaptureGapCount
+            );
+        }
+
+        public InteractionCaptureQuality Evaluate(
+            double actualSampleRateHz,
+            double hmdValidityRate,
+            double leftHandValidityRate,
+            double rightHandValidityRate,
+            double requiredProbeCoverageRate,
+            int requiredProbeCount,
+            long captureGapCount)
+        {
+            InteractionEventSequencer.ValidateFiniteNonNegative(
+                actualSampleRateHz,
+                nameof(actualSampleRateHz)
+            );
+            ValidateRate(hmdValidityRate, nameof(hmdValidityRate));
+            ValidateRate(leftHandValidityRate, nameof(leftHandValidityRate));
+            ValidateRate(rightHandValidityRate, nameof(rightHandValidityRate));
+            ValidateRate(
+                requiredProbeCoverageRate,
+                nameof(requiredProbeCoverageRate)
+            );
+            if (requiredProbeCount < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(requiredProbeCount));
+            }
+            if (captureGapCount < 0L)
+            {
+                throw new ArgumentOutOfRangeException(nameof(captureGapCount));
+            }
+
+            InteractionCaptureQualityLevel hmd = ClassifyMinimum(
+                hmdValidityRate,
+                PassMinimumTrackingValidityRate,
+                WarningMinimumTrackingValidityRate
+            );
+            InteractionCaptureQualityLevel left = ClassifyMinimum(
+                leftHandValidityRate,
+                PassMinimumTrackingValidityRate,
+                WarningMinimumTrackingValidityRate
+            );
+            InteractionCaptureQualityLevel right = ClassifyMinimum(
+                rightHandValidityRate,
+                PassMinimumTrackingValidityRate,
+                WarningMinimumTrackingValidityRate
+            );
+            InteractionCaptureQualityLevel tracking = hmd;
+            if (left > tracking)
+            {
+                tracking = left;
+            }
+            if (right > tracking)
+            {
+                tracking = right;
+            }
+
+            return new InteractionCaptureQuality(
+                measurementAvailable: true,
+                TargetSampleRateHz,
+                actualSampleRateHz,
+                hmdValidityRate,
+                leftHandValidityRate,
+                rightHandValidityRate,
+                requiredProbeCoverageRate,
+                requiredProbeCount,
+                captureGapCount,
+                ClassifyMinimum(
+                    actualSampleRateHz,
+                    PassMinimumSampleRateHz,
+                    WarningMinimumSampleRateHz
+                ),
+                tracking,
+                ClassifyMinimum(
+                    requiredProbeCoverageRate,
+                    PassMinimumRequiredProbeCoverageRate,
+                    WarningMinimumRequiredProbeCoverageRate
+                ),
+                ClassifyMaximum(
+                    captureGapCount,
+                    PassMaximumCaptureGapCount,
+                    WarningMaximumCaptureGapCount
+                )
+            );
+        }
+
+        private static InteractionCaptureQualityLevel ClassifyMinimum(
+            double value,
+            double passMinimum,
+            double warningMinimum)
+        {
+            if (value >= passMinimum)
+            {
+                return InteractionCaptureQualityLevel.Pass;
+            }
+            return value >= warningMinimum
+                ? InteractionCaptureQualityLevel.Warning
+                : InteractionCaptureQualityLevel.Fail;
+        }
+
+        private static InteractionCaptureQualityLevel ClassifyMaximum(
+            long value,
+            long passMaximum,
+            long warningMaximum)
+        {
+            if (value <= passMaximum)
+            {
+                return InteractionCaptureQualityLevel.Pass;
+            }
+            return value <= warningMaximum
+                ? InteractionCaptureQualityLevel.Warning
+                : InteractionCaptureQualityLevel.Fail;
+        }
+
+        private static void ValidatePositiveFinite(
+            double value,
+            string parameterName)
+        {
+            InteractionEventSequencer.ValidateFiniteNonNegative(
+                value,
+                parameterName
+            );
+            if (value <= 0d)
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+        }
+
+        private static void ValidateRate(double value, string parameterName)
+        {
+            InteractionEventSequencer.ValidateFiniteNonNegative(
+                value,
+                parameterName
+            );
+            if (value > 1d)
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+        }
+    }
+
     public static class InteractionEventNames
     {
         public const string RunCreated = "run_created";

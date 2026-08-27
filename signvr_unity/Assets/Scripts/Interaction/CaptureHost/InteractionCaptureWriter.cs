@@ -54,6 +54,8 @@ namespace SignVR.Interaction.CaptureHost
         private readonly InteractionCaptureBudgetPolicy budgetPolicy;
         private readonly InteractionDiskBudgetGuard diskBudget;
         private readonly InteractionSerialBackgroundScheduler ioScheduler;
+        private readonly InteractionCaptureQualityThresholds qualityThresholds;
+        private readonly Dictionary<string, long> requiredProbeSampleCounts;
 
         private bool captureActive;
         private volatile bool sealedCapture;
@@ -64,6 +66,13 @@ namespace SignVR.Interaction.CaptureHost
         private double lastPoseMonotonic = -1d;
         private int lastPoseFrame = -1;
         private long captureGapCount;
+        private long poseAttemptCount;
+        private long acceptedPoseSampleCount;
+        private long hmdValidSampleCount;
+        private long leftHandValidSampleCount;
+        private long rightHandValidSampleCount;
+        private double firstAcceptedPoseMonotonic = -1d;
+        private double lastAcceptedPoseMonotonic = -1d;
 
         private InteractionCaptureWriter(
             string runDirectory,
@@ -73,7 +82,9 @@ namespace SignVR.Interaction.CaptureHost
             double gapThresholdSeconds,
             IInteractionJsonlChannelFactory channelFactory,
             InteractionCaptureBudgetPolicy budgetPolicy,
-            InteractionDiskBudgetGuard diskBudget)
+            InteractionDiskBudgetGuard diskBudget,
+            InteractionCaptureQualityThresholds qualityThresholds,
+            IReadOnlyCollection<string> requiredProbeIds)
         {
             if (queueCapacity < 1)
             {
@@ -96,6 +107,30 @@ namespace SignVR.Interaction.CaptureHost
                 throw new ArgumentNullException(nameof(budgetPolicy));
             this.diskBudget = diskBudget ??
                 throw new ArgumentNullException(nameof(diskBudget));
+            this.qualityThresholds = qualityThresholds ??
+                throw new ArgumentNullException(nameof(qualityThresholds));
+            if (requiredProbeIds == null || requiredProbeIds.Count == 0)
+            {
+                throw new ArgumentException(
+                    "At least one Run Plan target probe is required.",
+                    nameof(requiredProbeIds)
+                );
+            }
+            requiredProbeSampleCounts = new Dictionary<string, long>(
+                StringComparer.Ordinal
+            );
+            foreach (string requiredProbeId in requiredProbeIds)
+            {
+                if (string.IsNullOrWhiteSpace(requiredProbeId) ||
+                    requiredProbeSampleCounts.ContainsKey(requiredProbeId))
+                {
+                    throw new ArgumentException(
+                        "Required probe IDs must be unique and non-empty.",
+                        nameof(requiredProbeIds)
+                    );
+                }
+                requiredProbeSampleCounts.Add(requiredProbeId, 0L);
+            }
             eventSequencer = new InteractionEventSequencer(runId);
             channelFactory = channelFactory ??
                 throw new ArgumentNullException(nameof(channelFactory));
@@ -161,7 +196,8 @@ namespace SignVR.Interaction.CaptureHost
             byte[] exactManifestBytes,
             int queueCapacity = DefaultQueueCapacity,
             double gapThresholdSeconds = DefaultGapThresholdSeconds,
-            InteractionCaptureBudgetPolicy budgetPolicy = null)
+            InteractionCaptureBudgetPolicy budgetPolicy = null,
+            InteractionCaptureQualityThresholds qualityThresholds = null)
         {
             byte[] frozenManifest = exactManifestBytes == null
                 ? null
@@ -174,7 +210,9 @@ namespace SignVR.Interaction.CaptureHost
                     queueCapacity,
                     gapThresholdSeconds,
                     new InteractionJsonlChannelFactory(),
-                    budgetPolicy ?? InteractionCaptureBudgetPolicy.CreateDefault()
+                    budgetPolicy ?? InteractionCaptureBudgetPolicy.CreateDefault(),
+                    qualityThresholds ??
+                        InteractionCaptureQualityThresholds.CreateDefault()
                 ));
         }
 
@@ -185,7 +223,8 @@ namespace SignVR.Interaction.CaptureHost
             int queueCapacity,
             double gapThresholdSeconds,
             IInteractionJsonlChannelFactory channelFactory,
-            InteractionCaptureBudgetPolicy budgetPolicy = null)
+            InteractionCaptureBudgetPolicy budgetPolicy = null,
+            InteractionCaptureQualityThresholds qualityThresholds = null)
         {
             return CreateNewOnWorker(
                 persistentDataPath,
@@ -194,7 +233,9 @@ namespace SignVR.Interaction.CaptureHost
                 queueCapacity,
                 gapThresholdSeconds,
                 channelFactory,
-                budgetPolicy ?? InteractionCaptureBudgetPolicy.CreateDefault()
+                budgetPolicy ?? InteractionCaptureBudgetPolicy.CreateDefault(),
+                qualityThresholds ??
+                    InteractionCaptureQualityThresholds.CreateDefault()
             );
         }
 
@@ -205,7 +246,8 @@ namespace SignVR.Interaction.CaptureHost
             int queueCapacity,
             double gapThresholdSeconds,
             IInteractionJsonlChannelFactory channelFactory,
-            InteractionCaptureBudgetPolicy budgetPolicy)
+            InteractionCaptureBudgetPolicy budgetPolicy,
+            InteractionCaptureQualityThresholds qualityThresholds)
         {
             if (plan == null)
             {
@@ -265,7 +307,9 @@ namespace SignVR.Interaction.CaptureHost
                     gapThresholdSeconds,
                     channelFactory,
                     budgetPolicy,
-                    diskBudget
+                    diskBudget,
+                    qualityThresholds,
+                    CollectRequiredProbeIds(plan)
                 );
             }
             catch
@@ -274,6 +318,32 @@ namespace SignVR.Interaction.CaptureHost
                 // partial stream is evidence needed for restart recovery.
                 throw;
             }
+        }
+
+        private static IReadOnlyCollection<string> CollectRequiredProbeIds(
+            RunPlan plan)
+        {
+            var result = new HashSet<string>(StringComparer.Ordinal);
+            for (int phaseIndex = 0;
+                phaseIndex < plan.Phases.Count;
+                phaseIndex++)
+            {
+                IReadOnlyList<string> targetIds =
+                    plan.Phases[phaseIndex].TaskVariant.TargetIds;
+                for (int targetIndex = 0;
+                    targetIndex < targetIds.Count;
+                    targetIndex++)
+                {
+                    result.Add(targetIds[targetIndex]);
+                }
+            }
+            if (result.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    "Run Plan contains no required target probes."
+                );
+            }
+            return result;
         }
 
         public void BeginCapture()
@@ -348,12 +418,17 @@ namespace SignVR.Interaction.CaptureHost
             }
 
             nextPoseSequence = checked(nextPoseSequence + 1L);
+            poseAttemptCount = checked(poseAttemptCount + 1L);
             lastPoseMonotonic = sample.MonotonicTimeSeconds;
             lastPoseFrame = sample.Frame;
             bool accepted = poses.TryWrite(
                 InteractionCaptureJson.SerializePose(runId, sample)
             );
-            if (!accepted)
+            if (accepted)
+            {
+                RecordAcceptedPoseQuality(sample);
+            }
+            else
             {
                 RecordCaptureGap(
                     sample.PhaseId,
@@ -389,7 +464,18 @@ namespace SignVR.Interaction.CaptureHost
             bool accepted = objects.TryWrite(
                 InteractionCaptureJson.SerializeObject(runId, sample)
             );
-            if (!accepted)
+            if (accepted)
+            {
+                if (requiredProbeSampleCounts.TryGetValue(
+                        sample.ObjectId,
+                        out long acceptedRequiredSamples))
+                {
+                    requiredProbeSampleCounts[sample.ObjectId] = checked(
+                        acceptedRequiredSamples + 1L
+                    );
+                }
+            }
+            else
             {
                 RecordCaptureGap(
                     sample.PhaseId,
@@ -545,6 +631,7 @@ namespace SignVR.Interaction.CaptureHost
                         "Summary factory returned no summary or the wrong Run ID."
                     );
                 }
+                summary = summary.WithCaptureQuality(BuildCaptureQuality());
                 byte[] summaryBytes = new UTF8Encoding(false).GetBytes(
                     InteractionSummaryJson.Serialize(summary)
                 );
@@ -584,6 +671,90 @@ namespace SignVR.Interaction.CaptureHost
             events.RequestCloseLeavingPartial();
             poses.RequestCloseLeavingPartial();
             objects.RequestCloseLeavingPartial();
+        }
+
+        private void RecordAcceptedPoseQuality(InteractionPoseSample sample)
+        {
+            if (acceptedPoseSampleCount == 0L)
+            {
+                firstAcceptedPoseMonotonic = sample.MonotonicTimeSeconds;
+            }
+            lastAcceptedPoseMonotonic = sample.MonotonicTimeSeconds;
+            acceptedPoseSampleCount = checked(acceptedPoseSampleCount + 1L);
+            if (sample.HmdValid)
+            {
+                hmdValidSampleCount = checked(hmdValidSampleCount + 1L);
+            }
+            if (sample.LeftHand.Tracked && sample.LeftHand.DataValid)
+            {
+                leftHandValidSampleCount = checked(
+                    leftHandValidSampleCount + 1L
+                );
+            }
+            if (sample.RightHand.Tracked && sample.RightHand.DataValid)
+            {
+                rightHandValidSampleCount = checked(
+                    rightHandValidSampleCount + 1L
+                );
+            }
+        }
+
+        private InteractionCaptureQuality BuildCaptureQuality()
+        {
+            double actualSampleRateHz = 0d;
+            if (acceptedPoseSampleCount > 1L &&
+                lastAcceptedPoseMonotonic > firstAcceptedPoseMonotonic)
+            {
+                actualSampleRateHz = (acceptedPoseSampleCount - 1L) /
+                    (lastAcceptedPoseMonotonic - firstAcceptedPoseMonotonic);
+            }
+
+            double hmdValidityRate = Rate(
+                hmdValidSampleCount,
+                acceptedPoseSampleCount
+            );
+            double leftHandValidityRate = Rate(
+                leftHandValidSampleCount,
+                acceptedPoseSampleCount
+            );
+            double rightHandValidityRate = Rate(
+                rightHandValidSampleCount,
+                acceptedPoseSampleCount
+            );
+
+            double acceptedRequiredProbeSamples = 0d;
+            foreach (long acceptedSamples in
+                     requiredProbeSampleCounts.Values)
+            {
+                acceptedRequiredProbeSamples += Math.Min(
+                    acceptedSamples,
+                    poseAttemptCount
+                );
+            }
+            double expectedRequiredProbeSamples =
+                poseAttemptCount * (double)requiredProbeSampleCounts.Count;
+            double requiredProbeCoverageRate =
+                expectedRequiredProbeSamples <= 0d
+                    ? 0d
+                    : acceptedRequiredProbeSamples /
+                        expectedRequiredProbeSamples;
+
+            return qualityThresholds.Evaluate(
+                actualSampleRateHz,
+                hmdValidityRate,
+                leftHandValidityRate,
+                rightHandValidityRate,
+                requiredProbeCoverageRate,
+                requiredProbeSampleCounts.Count,
+                captureGapCount
+            );
+        }
+
+        private static double Rate(long numerator, long denominator)
+        {
+            return denominator <= 0L
+                ? 0d
+                : numerator / (double)denominator;
         }
 
         private void RecordCaptureGap(
