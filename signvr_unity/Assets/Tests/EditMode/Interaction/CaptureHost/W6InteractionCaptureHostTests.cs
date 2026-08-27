@@ -528,6 +528,30 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void SummarySeparatesFirstActionFromWholeAttemptSuccess()
+        {
+            Invoke(nameof(SummarySeparatesFirstActionFromWholeAttemptSuccess));
+        }
+
+        [Test]
+        public void FirstAttemptSuccessRequiresACorrectFirstAction()
+        {
+            Invoke(nameof(FirstAttemptSuccessRequiresACorrectFirstAction));
+        }
+
+        [Test]
+        public void CaptureQualityThresholdsClassifyPassWarningAndFail()
+        {
+            Invoke(nameof(CaptureQualityThresholdsClassifyPassWarningAndFail));
+        }
+
+        [Test]
+        public void LowQualityCaptureStillSealsWithStructuredQuality()
+        {
+            Invoke(nameof(LowQualityCaptureStillSealsWithStructuredQuality));
+        }
+
+        [Test]
         public void InstructionManifestReaderMapsExactArtifacts()
         {
             Invoke(nameof(InstructionManifestReaderMapsExactArtifacts));
