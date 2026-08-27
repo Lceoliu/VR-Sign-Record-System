@@ -6,6 +6,18 @@ using UnityEngine.Rendering;
 
 namespace SignVR.Interaction.Presentation
 {
+    public enum GhostPointingDiagnosticStatus
+    {
+        PhaseNotConfigured = 0,
+        ConditionDoesNotIncludePointing = 1,
+        IncompleteFingerRig = 2,
+        NoEligibleTargets = 3,
+        PlaybackNotConfigured = 4,
+        PlaybackNotActive = 5,
+        NoHit = 6,
+        Hit = 7
+    }
+
     /// <summary>
     /// Infers pointing from the replayed signer's two index distal-to-tip rays.
     /// Only the current Task Variant's resolved logical targets are considered.
@@ -25,6 +37,8 @@ namespace SignVR.Interaction.Presentation
             public string TargetId;
             public Transform Root;
             public Renderer[] Renderers;
+            public Collider[] Colliders;
+            public Transform[] HighlightRoots;
         }
 
         [Header("Playback source")]
@@ -89,6 +103,11 @@ namespace SignVR.Interaction.Presentation
         private bool playerBound;
         private bool pointingStateBound;
         private string visualTargetId = string.Empty;
+        private string[] eligibleTargetIds = Array.Empty<string>();
+        private GhostPointingDiagnosticStatus diagnosticStatus =
+            GhostPointingDiagnosticStatus.PhaseNotConfigured;
+        private string diagnosticTargetId = string.Empty;
+        private double lastMonotonicTime = double.NaN;
 
         public event Action<string, double> HitStarted;
         public event Action<string, double> HitEnded;
@@ -115,6 +134,18 @@ namespace SignVR.Interaction.Presentation
         public IReadOnlyList<GhostPointingTargetBinding> TargetBindings =>
             targetBindings;
 
+        public IReadOnlyList<string> EligibleTargetIds => eligibleTargetIds;
+
+        public GhostPointingDiagnosticStatus DiagnosticStatus =>
+            diagnosticStatus;
+
+        public string DiagnosticTargetId => diagnosticTargetId;
+
+        public string DiagnosticSummary => diagnosticStatus ==
+            GhostPointingDiagnosticStatus.Hit
+                ? "hit:" + diagnosticTargetId
+                : diagnosticStatus.ToString();
+
 #if UNITY_EDITOR || UNITY_INCLUDE_TESTS
         internal bool LifecycleSubscriptionsBoundForTests =>
             playerBound || pointingStateBound;
@@ -125,6 +156,7 @@ namespace SignVR.Interaction.Presentation
             UnbindPlayer();
             ghostPlayer = player;
             BindPlayer();
+            RefreshConfigurationDiagnostic();
         }
 
         public void ConfigureFingerBones(
@@ -137,6 +169,7 @@ namespace SignVR.Interaction.Presentation
             leftIndexTip = leftTip;
             rightIndexDistal = rightDistal;
             rightIndexTip = rightTip;
+            RefreshConfigurationDiagnostic();
         }
 
         public bool TryConfigureFingerBones(Animator animator)
@@ -249,6 +282,7 @@ namespace SignVR.Interaction.Presentation
             targetBindings = bindings ??
                 Array.Empty<GhostPointingTargetBinding>();
             RebuildGeometryCache();
+            RefreshConfigurationDiagnostic();
         }
 
         public void ConfigureHighlight(
@@ -279,15 +313,15 @@ namespace SignVR.Interaction.Presentation
                 throw new ArgumentNullException(nameof(taskVariant));
             }
 
-            double now = Time.realtimeSinceStartupAsDouble;
+            double now = GetSystemMonotonicTime();
             StopAndClear(now);
             condition = assistanceCondition;
             assistanceCondition.IncludesText();
             assistanceCondition.IncludesPointing();
 
             IReadOnlyList<string> targetIds = taskVariant.TargetIds;
-            pointingState.ResetPhase(targetIds, now);
             activeTargetCount = 0;
+            var resolvedTargetIds = new List<string>(targetIds.Count);
             for (int index = 0;
                 index < targetIds.Count && index < activeTargets.Length;
                 index++)
@@ -297,6 +331,7 @@ namespace SignVR.Interaction.Presentation
                         out TargetGeometry geometry))
                 {
                     activeTargets[activeTargetCount++] = geometry;
+                    resolvedTargetIds.Add(geometry.TargetId);
                 }
                 else if (assistanceCondition.IncludesPointing())
                 {
@@ -314,23 +349,30 @@ namespace SignVR.Interaction.Presentation
             {
                 activeTargets[index] = null;
             }
+            eligibleTargetIds = resolvedTargetIds.ToArray();
+            pointingState.ResetPhase(eligibleTargetIds, now);
             phaseConfigured = true;
+            RefreshConfigurationDiagnostic();
         }
 
         public void StopPointing()
         {
             try
             {
-                StopAndClear(Time.realtimeSinceStartupAsDouble);
+                StopAndClear(GetSystemMonotonicTime());
             }
             finally
             {
                 phaseConfigured = false;
                 activeTargetCount = 0;
+                eligibleTargetIds = Array.Empty<string>();
                 for (int index = 0; index < activeTargets.Length; index++)
                 {
                     activeTargets[index] = null;
                 }
+                SetDiagnostic(
+                    GhostPointingDiagnosticStatus.PhaseNotConfigured
+                );
             }
         }
 
@@ -338,25 +380,40 @@ namespace SignVR.Interaction.Presentation
         internal bool TryPresentPointingHitForTests(
             string targetId,
             Vector3 rayStart,
-            Vector3 hitPoint)
+            Vector3 rayEnd)
         {
             if (!phaseConfigured || !PointingAllowed ||
-                !pointingStateBound ||
-                !geometryById.ContainsKey(targetId))
+                !geometryById.TryGetValue(
+                    targetId,
+                    out TargetGeometry geometry) ||
+                !TryCalculateBounds(geometry, out Bounds bounds))
+            {
+                return false;
+            }
+            Vector3 direction = rayEnd - rayStart;
+            if (direction.sqrMagnitude < 0.000001f)
+            {
+                return false;
+            }
+            var ray = new Ray(rayStart, direction.normalized);
+            if (!bounds.IntersectRay(ray, out float distance) ||
+                distance < 0f || distance > maximumRayDistance)
             {
                 return false;
             }
 
-            double now = Time.realtimeSinceStartupAsDouble;
+            double now = GetSystemMonotonicTime();
             if (!pointingState.PlaybackActive)
             {
-                pointingState.BeginPlayback(now);
+                SynchronizePlayback(true, now);
             }
             if (!pointingState.ObserveHit(targetId, now))
             {
                 return false;
             }
-            ShowRay(rayStart, hitPoint);
+            Vector3 actualHitPoint = ray.GetPoint(distance);
+            ShowRay(rayStart, actualHitPoint);
+            SetDiagnostic(GhostPointingDiagnosticStatus.Hit, targetId);
             return true;
         }
 #endif
@@ -378,20 +435,48 @@ namespace SignVR.Interaction.Presentation
         {
             BindPointingState();
             BindPlayer();
+            RefreshConfigurationDiagnostic();
         }
 
         private void LateUpdate()
         {
-            if (!pointingState.PlaybackActive)
+            EvaluatePointing(GetSystemMonotonicTime());
+        }
+
+        public void SynchronizePlayback(
+            bool playbackActive,
+            double monotonicTime)
+        {
+            BindPointingState();
+            lastMonotonicTime = monotonicTime;
+            if (playbackActive)
             {
+                if (PointingAllowed)
+                {
+                    pointingState.BeginPlayback(monotonicTime);
+                }
+                RefreshConfigurationDiagnostic();
                 return;
             }
 
-            double now = Time.realtimeSinceStartupAsDouble;
+            StopAndClear(monotonicTime);
+            RefreshConfigurationDiagnostic();
+        }
+
+        public void EvaluatePointing(double monotonicTime)
+        {
+            lastMonotonicTime = monotonicTime;
+            if (!pointingState.PlaybackActive)
+            {
+                RefreshConfigurationDiagnostic();
+                return;
+            }
+
             if (!PointingAllowed || !HasCompleteFingerRig ||
                 activeTargetCount == 0)
             {
-                pointingState.ObserveNoHit(now);
+                pointingState.ObserveNoHit(monotonicTime);
+                RefreshConfigurationDiagnostic();
                 return;
             }
 
@@ -400,15 +485,23 @@ namespace SignVR.Interaction.Presentation
                     out Vector3 rayStart,
                     out Vector3 hitPoint))
             {
-                pointingState.ObserveHit(target.TargetId, now);
+                pointingState.ObserveHit(
+                    target.TargetId,
+                    monotonicTime
+                );
                 if (pointingState.VisualVisible)
                 {
                     ShowRay(rayStart, hitPoint);
                 }
+                SetDiagnostic(
+                    GhostPointingDiagnosticStatus.Hit,
+                    target.TargetId
+                );
             }
             else
             {
-                pointingState.ObserveNoHit(now);
+                pointingState.ObserveNoHit(monotonicTime);
+                SetDiagnostic(GhostPointingDiagnosticStatus.NoHit);
             }
         }
 
@@ -506,6 +599,25 @@ namespace SignVR.Interaction.Presentation
                 }
             }
 
+            for (int index = 0; index < geometry.Colliders.Length; index++)
+            {
+                Collider collider = geometry.Colliders[index];
+                if (collider == null || !collider.enabled ||
+                    !collider.gameObject.activeInHierarchy)
+                {
+                    continue;
+                }
+                if (!hasBounds)
+                {
+                    bounds = collider.bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(collider.bounds);
+                }
+            }
+
             if (!hasBounds)
             {
                 bounds = new Bounds(
@@ -527,25 +639,34 @@ namespace SignVR.Interaction.Presentation
 
         private void HandlePlaybackStarted(InstructionPlaybackPass _)
         {
-            if (PointingAllowed)
-            {
-                pointingState.BeginPlayback(Time.realtimeSinceStartupAsDouble);
-            }
+            SynchronizePlayback(
+                true,
+                GetSystemMonotonicTime()
+            );
         }
 
         private void HandlePlaybackEnded(InstructionPlaybackPass _)
         {
-            StopAndClear(Time.realtimeSinceStartupAsDouble);
+            SynchronizePlayback(
+                false,
+                GetSystemMonotonicTime()
+            );
         }
 
         private void HandlePlayerStopped()
         {
-            StopAndClear(Time.realtimeSinceStartupAsDouble);
+            SynchronizePlayback(
+                false,
+                GetSystemMonotonicTime()
+            );
         }
 
         private void HandlePlayerFailed(string _)
         {
-            StopAndClear(Time.realtimeSinceStartupAsDouble);
+            SynchronizePlayback(
+                false,
+                GetSystemMonotonicTime()
+            );
         }
 
         private void HandleHitStarted(string targetId, double time)
@@ -561,7 +682,10 @@ namespace SignVR.Interaction.Presentation
                 {
                     visualTargetId = targetId;
                 }
-                targetHighlight?.Show(geometry.Root);
+                targetHighlight?.Show(
+                    geometry.Root,
+                    geometry.HighlightRoots
+                );
             }
 
             HitStarted?.Invoke(targetId, time);
@@ -646,13 +770,101 @@ namespace SignVR.Interaction.Presentation
                     }
                 }
 
+                Transform[] highlightRoots = new Transform[
+                    binding.HighlightRoots.Count
+                ];
+                for (int rootIndex = 0;
+                    rootIndex < highlightRoots.Length;
+                    rootIndex++)
+                {
+                    highlightRoots[rootIndex] =
+                        binding.HighlightRoots[rootIndex];
+                }
+
                 geometryById.Add(id, new TargetGeometry
                 {
                     TargetId = id,
                     Root = binding.TargetRoot,
-                    Renderers = renderers.ToArray()
+                    Renderers = renderers.ToArray(),
+                    Colliders = binding.TargetRoot
+                        .GetComponentsInChildren<Collider>(true),
+                    HighlightRoots = highlightRoots
                 });
             }
+        }
+
+        private void RefreshConfigurationDiagnostic()
+        {
+            if (!phaseConfigured)
+            {
+                SetDiagnostic(
+                    GhostPointingDiagnosticStatus.PhaseNotConfigured
+                );
+                return;
+            }
+            if (!condition.IncludesPointing())
+            {
+                SetDiagnostic(
+                    GhostPointingDiagnosticStatus
+                        .ConditionDoesNotIncludePointing
+                );
+                return;
+            }
+            if (!HasCompleteFingerRig)
+            {
+                SetDiagnostic(
+                    GhostPointingDiagnosticStatus.IncompleteFingerRig
+                );
+                return;
+            }
+            if (activeTargetCount == 0)
+            {
+                SetDiagnostic(
+                    GhostPointingDiagnosticStatus.NoEligibleTargets
+                );
+                return;
+            }
+            if (!pointingState.PlaybackActive)
+            {
+                SetDiagnostic(
+                    ghostPlayer == null
+                        ? GhostPointingDiagnosticStatus
+                            .PlaybackNotConfigured
+                        : GhostPointingDiagnosticStatus.PlaybackNotActive
+                );
+                return;
+            }
+            if (pointingState.VisualVisible)
+            {
+                SetDiagnostic(
+                    GhostPointingDiagnosticStatus.Hit,
+                    pointingState.ActiveTargetId
+                );
+                return;
+            }
+            SetDiagnostic(GhostPointingDiagnosticStatus.NoHit);
+        }
+
+        private void SetDiagnostic(
+            GhostPointingDiagnosticStatus status,
+            string targetId = null)
+        {
+            diagnosticStatus = status;
+            diagnosticTargetId = status ==
+                GhostPointingDiagnosticStatus.Hit
+                    ? targetId ?? string.Empty
+                    : string.Empty;
+        }
+
+        private double GetSystemMonotonicTime()
+        {
+            double now = Time.realtimeSinceStartupAsDouble;
+            if (!double.IsNaN(lastMonotonicTime) && now < lastMonotonicTime)
+            {
+                return lastMonotonicTime;
+            }
+            lastMonotonicTime = now;
+            return now;
         }
 
         private void EnsureRayRenderer()

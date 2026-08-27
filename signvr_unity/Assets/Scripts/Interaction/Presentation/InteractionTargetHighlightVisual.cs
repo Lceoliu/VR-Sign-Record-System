@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -43,6 +44,7 @@ namespace SignVR.Interaction.Presentation
         private readonly LineRenderer[] edges = new LineRenderer[EdgeCount];
         private readonly Vector3[] corners = new Vector3[8];
         private Transform targetRoot;
+        private Transform[] highlightedRoots = Array.Empty<Transform>();
         private Renderer[] targetRenderers = Array.Empty<Renderer>();
         private Material overlayMaterial;
 
@@ -50,7 +52,21 @@ namespace SignVR.Interaction.Presentation
 
         public Transform TargetRoot => targetRoot;
 
+        public IReadOnlyList<Transform> HighlightedRoots => highlightedRoots;
+
         public void Show(Transform actualHitTarget)
+        {
+            Show(
+                actualHitTarget,
+                actualHitTarget != null
+                    ? new[] { actualHitTarget }
+                    : Array.Empty<Transform>()
+            );
+        }
+
+        public void Show(
+            Transform actualHitTarget,
+            IReadOnlyList<Transform> rootsToHighlight)
         {
             if (actualHitTarget == null)
             {
@@ -59,13 +75,38 @@ namespace SignVR.Interaction.Presentation
             }
 
             EnsureVisuals();
-            if (targetRoot != actualHitTarget)
+            targetRoot = actualHitTarget;
+            var uniqueRoots = new List<Transform>();
+            uniqueRoots.Add(actualHitTarget);
+            if (rootsToHighlight != null)
             {
-                targetRoot = actualHitTarget;
-                targetRenderers = targetRoot.GetComponentsInChildren<Renderer>(
-                    includeInactive: true
-                );
+                for (int index = 0; index < rootsToHighlight.Count; index++)
+                {
+                    Transform candidate = rootsToHighlight[index];
+                    if (candidate != null && !uniqueRoots.Contains(candidate))
+                    {
+                        uniqueRoots.Add(candidate);
+                    }
+                }
             }
+            highlightedRoots = uniqueRoots.ToArray();
+            var renderers = new List<Renderer>();
+            for (int index = 0; index < highlightedRoots.Length; index++)
+            {
+                Renderer[] candidates = highlightedRoots[index]
+                    .GetComponentsInChildren<Renderer>(true);
+                for (int rendererIndex = 0;
+                    rendererIndex < candidates.Length;
+                    rendererIndex++)
+                {
+                    Renderer candidate = candidates[rendererIndex];
+                    if (candidate != null && !renderers.Contains(candidate))
+                    {
+                        renderers.Add(candidate);
+                    }
+                }
+            }
+            targetRenderers = renderers.ToArray();
             IsVisible = true;
             SetEdgesEnabled(true);
             RefreshGeometry();
@@ -81,6 +122,7 @@ namespace SignVR.Interaction.Presentation
         {
             Hide();
             targetRoot = null;
+            highlightedRoots = Array.Empty<Transform>();
             targetRenderers = Array.Empty<Renderer>();
         }
 
@@ -203,6 +245,24 @@ namespace SignVR.Interaction.Presentation
                 else
                 {
                     bounds.Encapsulate(renderer.bounds);
+                }
+            }
+
+            for (int index = 0; index < highlightedRoots.Length; index++)
+            {
+                Transform root = highlightedRoots[index];
+                if (root == null || !root.gameObject.activeInHierarchy)
+                {
+                    continue;
+                }
+                if (!found)
+                {
+                    bounds = new Bounds(root.position, Vector3.zero);
+                    found = true;
+                }
+                else
+                {
+                    bounds.Encapsulate(root.position);
                 }
             }
 

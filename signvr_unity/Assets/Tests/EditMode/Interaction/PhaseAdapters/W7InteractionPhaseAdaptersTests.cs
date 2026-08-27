@@ -154,7 +154,10 @@ namespace SignVR.Interaction.Editor.Tests
                     );
                 Assert.That(
                     missingCritical.InnerException.Message,
-                    Does.Contain("Target 'box_stool' requires exactly one")
+                    Does.Contain(
+                        "Target 'box_stool' must use only its exact " +
+                        "'W7Target_box_stool'"
+                    )
                 );
             });
         }
@@ -1178,6 +1181,962 @@ namespace SignVR.Interaction.Editor.Tests
                     Has.Length.EqualTo(1)
                 );
             });
+        }
+
+        [Test]
+        public void AbsoluteHingeIgnoresCurrentPoseAndRebuildsIdempotently()
+        {
+            object root = CreateGameObject("W7AbsoluteHingeTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                object movingPart = CreateVisual(rootTransform, "MovingPart");
+                object hinge = CreateVisual(rootTransform, "Hinge");
+                movingPart.GetType().GetProperty("localEulerAngles").SetValue(
+                    movingPart,
+                    CreateVector3(135f, 0f, 0f)
+                );
+
+                Type bindingType = RuntimeType("DeterministicHingeBinding");
+                object binding = Activator.CreateInstance(bindingType);
+                bindingType.GetMethod("ConfigureAbsolute").Invoke(
+                    binding,
+                    new[]
+                    {
+                        movingPart,
+                        hinge,
+                        CreateVector3(1f, 0f, 0f),
+                        (object)50f,
+                        CreateVector3(0f, 0f, 0f),
+                        CreateVector3(10f, 0f, 0f)
+                    }
+                );
+
+                bindingType.GetMethod("Reset").Invoke(binding, null);
+                Assert.That(
+                    ReadVector3Component(
+                        movingPart.GetType().GetProperty("localEulerAngles")
+                            .GetValue(movingPart),
+                        "x"
+                    ),
+                    Is.EqualTo(10f).Within(0.01f),
+                    "Reset must use the explicit closed pose, not 135 degrees."
+                );
+
+                bindingType.GetMethod("Open").Invoke(binding, null);
+                Assert.That(
+                    ReadVector3Component(
+                        movingPart.GetType().GetProperty("localEulerAngles")
+                            .GetValue(movingPart),
+                        "x"
+                    ),
+                    Is.EqualTo(60f).Within(0.01f)
+                );
+
+                movingPart.GetType().GetProperty("localEulerAngles").SetValue(
+                    movingPart,
+                    CreateVector3(200f, 0f, 0f)
+                );
+                bindingType.GetMethod("Open").Invoke(binding, null);
+                Assert.That(
+                    ReadVector3Component(
+                        movingPart.GetType().GetProperty("localEulerAngles")
+                            .GetValue(movingPart),
+                        "x"
+                    ),
+                    Is.EqualTo(60f).Within(0.01f),
+                    "Repeated open must restore one absolute open pose."
+                );
+
+                bindingType.GetMethod("CaptureClosedPose").Invoke(
+                    binding,
+                    null
+                );
+                bindingType.GetMethod("Reset").Invoke(binding, null);
+                Assert.That(
+                    ReadVector3Component(
+                        movingPart.GetType().GetProperty("localEulerAngles")
+                            .GetValue(movingPart),
+                        "x"
+                    ),
+                    Is.EqualTo(10f).Within(0.01f),
+                    "Runtime capture must not replace an explicit baseline."
+                );
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void PhaseFourEntryOpensChestAndShowsVisualOnlyKeys()
+        {
+            object root = CreateGameObject("W7PhaseFourEntryPresentationTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                Type coordinatorType = RuntimeType(
+                    "InteractionPhaseCoordinator"
+                );
+                object coordinator = AddComponent(root, coordinatorType);
+                Array adapters = CreateSixAdapters(rootTransform);
+                coordinatorType.GetMethod("ConfigureAdapters").Invoke(
+                    coordinator,
+                    new object[] { adapters }
+                );
+
+                object lid = CreateVisual(rootTransform, "ChestLid");
+                object hinge = CreateVisual(rootTransform, "ChestHinge");
+                Type hingeType = RuntimeType("DeterministicHingeBinding");
+                object chestHinge = Activator.CreateInstance(hingeType);
+                hingeType.GetMethod("ConfigureAbsolute").Invoke(
+                    chestHinge,
+                    new[]
+                    {
+                        lid,
+                        hinge,
+                        CreateVector3(1f, 0f, 0f),
+                        (object)60f,
+                        CreateVector3(0f, 0f, 0f),
+                        CreateVector3(0f, 0f, 0f)
+                    }
+                );
+
+                object[] legacyButtons =
+                {
+                    CreateVisual(rootTransform, "blue"),
+                    CreateVisual(rootTransform, "red"),
+                    CreateVisual(rootTransform, "yellow"),
+                    CreateVisual(rootTransform, "green")
+                };
+                Array chestButtons = CreateTargetStateBindings(
+                    legacyButtons,
+                    new[] { "blue", "red", "yellow", "green" }
+                );
+
+                Type keyType = RuntimeType("PlannedKeyReleaseBinding");
+                Array keys = Array.CreateInstance(keyType, 3);
+                object[] keyModels = new object[3];
+                object[] keyProxies = new object[3];
+                object[] keyBodies = new object[3];
+                object[] keyColliders = new object[3];
+                string[] keyIds = { "key_a", "key_b", "motorbike_key" };
+                for (int index = 0; index < keyIds.Length; index++)
+                {
+                    keyModels[index] = CreateGameObject(keyIds[index]);
+                    SetParent(GetTransform(keyModels[index]), rootTransform);
+                    keyBodies[index] = AddComponent(
+                        keyModels[index],
+                        UnityPhysicsType("Rigidbody")
+                    );
+                    keyColliders[index] = AddComponent(
+                        keyModels[index],
+                        UnityPhysicsType("BoxCollider")
+                    );
+                    keyProxies[index] = CreateGameObject(
+                        "W7Target_" + keyIds[index]
+                    );
+                    SetParent(GetTransform(keyProxies[index]), rootTransform);
+
+                    object key = Activator.CreateInstance(keyType);
+                    keyType.GetMethod("ConfigureVisualOnly").Invoke(
+                        key,
+                        new[]
+                        {
+                            keyIds[index],
+                            keyModels[index],
+                            keyProxies[index],
+                            TypedArray(
+                                UnityPhysicsType("Rigidbody"),
+                                keyBodies[index]
+                            ),
+                            Array.CreateInstance(UnityType("Behaviour"), 0),
+                            TypedArray(
+                                UnityPhysicsType("Collider"),
+                                keyColliders[index]
+                            )
+                        }
+                    );
+                    keys.SetValue(key, index);
+                }
+
+                Type presentationType = RuntimeType(
+                    "InteractionDeterministicPresentation"
+                );
+                object presentation = AddComponent(root, presentationType);
+                Type stateType = RuntimeType(
+                    "DeterministicTargetStateBinding"
+                );
+                Array noStates = Array.CreateInstance(stateType, 0);
+                presentationType.GetMethod("Configure").Invoke(
+                    presentation,
+                    new object[]
+                    {
+                        coordinator,
+                        Activator.CreateInstance(hingeType),
+                        chestHinge,
+                        Activator.CreateInstance(hingeType),
+                        Activator.CreateInstance(hingeType),
+                        Activator.CreateInstance(hingeType),
+                        chestButtons,
+                        noStates,
+                        noStates,
+                        keys
+                    }
+                );
+
+                coordinatorType.GetMethod("Configure").Invoke(
+                    coordinator,
+                    new[] { CreateRunPlan() }
+                );
+                coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
+                SynchronizePhase(coordinator, 4);
+                presentationType.GetMethod("RebuildFromAuthority")
+                    .Invoke(presentation, null);
+
+                Assert.That(
+                    RotationAngleFromIdentity(lid),
+                    Is.EqualTo(60f).Within(0.01f),
+                    "Phase 4 entry must open from the explicit closed pose."
+                );
+                foreach (object legacyButton in legacyButtons)
+                {
+                    Assert.That(
+                        IsComponentGameObjectActive(legacyButton),
+                        Is.False,
+                        "Legacy colour controls must not participate in Phase 4."
+                    );
+                }
+                for (int index = 0; index < keyIds.Length; index++)
+                {
+                    Assert.That(
+                        IsComponentGameObjectActive(GetTransform(
+                            keyModels[index]
+                        )),
+                        Is.True
+                    );
+                    Assert.That(
+                        IsComponentGameObjectActive(GetTransform(
+                            keyProxies[index]
+                        )),
+                        Is.True
+                    );
+                    Assert.That(
+                        keyBodies[index].GetType().GetProperty("isKinematic")
+                            .GetValue(keyBodies[index]),
+                        Is.True
+                    );
+                    Assert.That(
+                        keyBodies[index].GetType().GetProperty("useGravity")
+                            .GetValue(keyBodies[index]),
+                        Is.False
+                    );
+                    Assert.That(
+                        keyColliders[index].GetType().GetProperty("enabled")
+                            .GetValue(keyColliders[index]),
+                        Is.False,
+                        "The key model is visual-only; only its proxy is input."
+                    );
+                }
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void PhaseFiveEntryAndFeedbackAreVisibleUntilTimedReset()
+        {
+            object root = CreateGameObject("W7PhaseFiveFeedbackTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                Type coordinatorType = RuntimeType(
+                    "InteractionPhaseCoordinator"
+                );
+                object coordinator = AddComponent(root, coordinatorType);
+                coordinatorType.GetMethod("ConfigureAdapters").Invoke(
+                    coordinator,
+                    new object[] { CreateSixAdapters(rootTransform) }
+                );
+
+                Type hingeType = RuntimeType("DeterministicHingeBinding");
+                object leftDoor = CreateVisual(rootTransform, "LeftDoor");
+                object leftHinge = CreateVisual(rootTransform, "LeftHinge");
+                object rightDoor = CreateVisual(rootTransform, "RightDoor");
+                object rightHinge = CreateVisual(rootTransform, "RightHinge");
+                object leftBinding = Activator.CreateInstance(hingeType);
+                object rightBinding = Activator.CreateInstance(hingeType);
+                MethodInfo configureHinge = hingeType.GetMethod(
+                    "ConfigureAbsolute"
+                );
+                configureHinge.Invoke(
+                    leftBinding,
+                    new[]
+                    {
+                        leftDoor,
+                        leftHinge,
+                        CreateVector3(0f, 1f, 0f),
+                        (object)70f,
+                        CreateVector3(0f, 0f, 0f),
+                        CreateVector3(0f, 0f, 0f)
+                    }
+                );
+                configureHinge.Invoke(
+                    rightBinding,
+                    new[]
+                    {
+                        rightDoor,
+                        rightHinge,
+                        CreateVector3(0f, 1f, 0f),
+                        (object)(-70f),
+                        CreateVector3(0f, 0f, 0f),
+                        CreateVector3(0f, 0f, 0f)
+                    }
+                );
+
+                Type stateType = RuntimeType(
+                    "DeterministicTargetStateBinding"
+                );
+                Type rendererType = UnityType("Renderer");
+                Type meshRendererType = UnityType("MeshRenderer");
+                Array cabinetBindings = Array.CreateInstance(stateType, 3);
+                object[] buttons = new object[3];
+                object[] renderers = new object[3];
+                string[] buttonIds = { "button_a", "button_b", "button_c" };
+                for (int index = 0; index < buttonIds.Length; index++)
+                {
+                    buttons[index] = CreateVisual(
+                        rootTransform,
+                        buttonIds[index]
+                    );
+                    renderers[index] = AddComponent(
+                        GetGameObject(buttons[index]),
+                        meshRendererType
+                    );
+                    object binding = Activator.CreateInstance(stateType);
+                    stateType.GetMethod("ConfigureFeedback").Invoke(
+                        binding,
+                        new[]
+                        {
+                            buttonIds[index],
+                            buttons[index],
+                            CreateVector3(0f, -0.01f, 0f),
+                            CreateVector3(-10f, 0f, 0f),
+                            TypedArray(rendererType, renderers[index]),
+                            CreateColor(0f, 1f, 0f, 1f),
+                            CreateColor(1f, 0f, 0f, 1f)
+                        }
+                    );
+                    cabinetBindings.SetValue(binding, index);
+                }
+
+                Type presentationType = RuntimeType(
+                    "InteractionDeterministicPresentation"
+                );
+                object presentation = AddComponent(root, presentationType);
+                Array noStates = Array.CreateInstance(stateType, 0);
+                Array noKeys = Array.CreateInstance(
+                    RuntimeType("PlannedKeyReleaseBinding"),
+                    0
+                );
+                presentationType.GetMethod("Configure").Invoke(
+                    presentation,
+                    new object[]
+                    {
+                        coordinator,
+                        Activator.CreateInstance(hingeType),
+                        Activator.CreateInstance(hingeType),
+                        leftBinding,
+                        rightBinding,
+                        Activator.CreateInstance(hingeType),
+                        noStates,
+                        cabinetBindings,
+                        noStates,
+                        noKeys
+                    }
+                );
+
+                coordinatorType.GetMethod("Configure").Invoke(
+                    coordinator,
+                    new[] { CreateRunPlan() }
+                );
+                coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
+                AdvanceToPhaseFive(coordinator);
+                presentationType.GetMethod("RebuildFromAuthority")
+                    .Invoke(presentation, null);
+
+                Assert.That(
+                    RotationAngleFromIdentity(leftDoor),
+                    Is.EqualTo(70f).Within(0.01f)
+                );
+                Assert.That(
+                    RotationAngleFromIdentity(rightDoor),
+                    Is.EqualTo(70f).Within(0.01f)
+                );
+
+                presentationType.GetMethod("TickFeedback").Invoke(
+                    presentation,
+                    new object[] { 100d }
+                );
+                object accepted = AcceptTarget(
+                    coordinator,
+                    5,
+                    "button_a"
+                );
+                presentationType.GetMethod("ApplyValidationResult").Invoke(
+                    presentation,
+                    new[] { accepted }
+                );
+                object firstBinding = cabinetBindings.GetValue(0);
+                Assert.That(
+                    stateType.GetProperty("VisualState")
+                        .GetValue(firstBinding).ToString(),
+                    Is.EqualTo("Accepted")
+                );
+                Assert.That(
+                    RotationAngleFromIdentity(buttons[0]),
+                    Is.GreaterThan(0.1f)
+                );
+                AssertColor(
+                    ReadRendererPropertyBlockColor(renderers[0]),
+                    0f,
+                    1f,
+                    0f
+                );
+
+                object reset = AcceptTarget(coordinator, 5, "button_a");
+                presentationType.GetMethod("ApplyValidationResult").Invoke(
+                    presentation,
+                    new[] { reset }
+                );
+                Assert.That(
+                    stateType.GetProperty("VisualState")
+                        .GetValue(firstBinding).ToString(),
+                    Is.EqualTo("Error")
+                );
+                AssertColor(
+                    ReadRendererPropertyBlockColor(renderers[0]),
+                    1f,
+                    0f,
+                    0f
+                );
+
+                presentationType.GetMethod("TickFeedback").Invoke(
+                    presentation,
+                    new object[] { 100.59d }
+                );
+                Assert.That(
+                    stateType.GetProperty("VisualState")
+                        .GetValue(firstBinding).ToString(),
+                    Is.EqualTo("Error")
+                );
+                presentationType.GetMethod("TickFeedback").Invoke(
+                    presentation,
+                    new object[] { 100.61d }
+                );
+                for (int index = 0; index < cabinetBindings.Length; index++)
+                {
+                    Assert.That(
+                        stateType.GetProperty("VisualState").GetValue(
+                            cabinetBindings.GetValue(index)
+                        ).ToString(),
+                        Is.EqualTo("Idle")
+                    );
+                    Assert.That(
+                        RotationAngleFromIdentity(buttons[index]),
+                        Is.LessThan(0.001f)
+                    );
+                }
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void BreakerStateUsesExactHandlerAndPositiveAbsoluteX()
+        {
+            object root = CreateGameObject("free_switch_handler_ue5");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                object exactHandler = CreateChildPath(
+                    rootTransform,
+                    "switchHandler.fbx/RootNode/handler"
+                );
+                object decoy = CreateVisual(rootTransform, "handler");
+                Type setupType = Type.GetType(
+                    ValidatorTypeName,
+                    throwOnError: true
+                );
+                object resolved = setupType.GetMethod(
+                    "ResolveBreakerHandler"
+                ).Invoke(null, new[] { rootTransform });
+                Assert.That(resolved, Is.SameAs(exactHandler));
+
+                Type stateType = RuntimeType(
+                    "DeterministicTargetStateBinding"
+                );
+                object binding = Activator.CreateInstance(stateType);
+                stateType.GetMethod("ConfigureAbsolute").Invoke(
+                    binding,
+                    new[]
+                    {
+                        (object)"breaker_a",
+                        exactHandler,
+                        CreateVector3(0f, 0f, 0f),
+                        CreateVector3(0f, 0f, 0f),
+                        CreateVector3(0f, 0f, 0f),
+                        CreateVector3(60f, 0f, 0f)
+                    }
+                );
+                stateType.GetMethod("Activate").Invoke(binding, null);
+
+                Assert.That(
+                    RotationAngleFromIdentity(rootTransform),
+                    Is.LessThan(0.001f),
+                    "The physical switch root must remain fixed."
+                );
+                Assert.That(
+                    RotationAngleFromIdentity(decoy),
+                    Is.LessThan(0.001f),
+                    "A same-named decoy must not be animated."
+                );
+                Assert.That(
+                    ReadVector3Component(
+                        exactHandler.GetType().GetProperty(
+                            "localEulerAngles"
+                        ).GetValue(exactHandler),
+                        "x"
+                    ),
+                    Is.EqualTo(60f).Within(0.01f)
+                );
+
+                SetLocalEulerAngles(
+                    exactHandler,
+                    CreateVector3(200f, 0f, 0f)
+                );
+                stateType.GetMethod("Activate").Invoke(binding, null);
+                Assert.That(
+                    ReadVector3Component(
+                        exactHandler.GetType().GetProperty(
+                            "localEulerAngles"
+                        ).GetValue(exactHandler),
+                        "x"
+                    ),
+                    Is.EqualTo(60f).Within(0.01f),
+                    "Repeated rebuilds must restore one absolute down pose."
+                );
+                stateType.GetMethod("Reset").Invoke(binding, null);
+                Assert.That(
+                    RotationAngleFromIdentity(exactHandler),
+                    Is.LessThan(0.001f)
+                );
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void SetupFactoriesUseExplicitChestAndBreakerPoses()
+        {
+            object root = CreateGameObject("W7AbsoluteSetupFactoriesTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                object chest = CreateVisual(rootTransform, "chest");
+                object lid = CreateChildPath(
+                    chest,
+                    "Collada visual scene group/ChestUpper_low"
+                );
+                AddComponent(
+                    GetGameObject(lid),
+                    UnityType("MeshRenderer")
+                );
+                SetLocalEulerAngles(lid, CreateVector3(200f, 0f, 0f));
+
+                Type setupType = Type.GetType(
+                    ValidatorTypeName,
+                    throwOnError: true
+                );
+                object firstChestBinding = setupType.GetMethod(
+                    "CreateChestLidBinding"
+                ).Invoke(null, new[] { chest });
+                Type hingeType = RuntimeType("DeterministicHingeBinding");
+                Assert.That(
+                    hingeType.GetProperty("UsesExplicitClosedPose")
+                        .GetValue(firstChestBinding),
+                    Is.True
+                );
+                Assert.That(
+                    RotationAngleFromIdentity(lid),
+                    Is.EqualTo(108.03f).Within(0.02f)
+                );
+                hingeType.GetMethod("Open").Invoke(firstChestBinding, null);
+                float firstOpenAngle = RotationAngleFromIdentity(lid);
+
+                object secondChestBinding = setupType.GetMethod(
+                    "CreateChestLidBinding"
+                ).Invoke(null, new[] { chest });
+                Assert.That(
+                    RotationAngleFromIdentity(lid),
+                    Is.EqualTo(108.03f).Within(0.02f),
+                    "Repeated setup must restore the explicit closed pose."
+                );
+                hingeType.GetMethod("Open").Invoke(secondChestBinding, null);
+                Assert.That(
+                    RotationAngleFromIdentity(lid),
+                    Is.EqualTo(firstOpenAngle).Within(0.02f)
+                );
+
+                object switchRoot = CreateVisual(
+                    rootTransform,
+                    "free_switch_handler_ue5"
+                );
+                object handler = CreateChildPath(
+                    switchRoot,
+                    "switchHandler.fbx/RootNode/handler"
+                );
+                SetLocalEulerAngles(handler, CreateVector3(-18f, 0f, 0f));
+                object breakerBinding = setupType.GetMethod(
+                    "CreateBreakerStateBinding"
+                ).Invoke(
+                    null,
+                    new[] { (object)"breaker_a", switchRoot }
+                );
+                Type stateType = RuntimeType(
+                    "DeterministicTargetStateBinding"
+                );
+                Assert.That(
+                    stateType.GetProperty("Target").GetValue(breakerBinding),
+                    Is.SameAs(handler)
+                );
+                stateType.GetMethod("Activate").Invoke(breakerBinding, null);
+                Assert.That(
+                    ReadVector3Component(
+                        handler.GetType().GetProperty("localEulerAngles")
+                            .GetValue(handler),
+                        "x"
+                    ),
+                    Is.EqualTo(60f).Within(0.01f)
+                );
+                Assert.That(
+                    RotationAngleFromIdentity(switchRoot),
+                    Is.LessThan(0.001f)
+                );
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void PhaseSixPointingReportsRealHitNoHitAndDiagnostics()
+        {
+            object root = CreateGameObject("W7PhaseSixPointingTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                Type detectorType = PresentationType(
+                    "GhostPointingDetector"
+                );
+                Type highlightType = PresentationType(
+                    "InteractionTargetHighlightVisual"
+                );
+                Type bindingType = PresentationType(
+                    "GhostPointingTargetBinding"
+                );
+                object detector = AddComponent(root, detectorType);
+                object highlight = AddComponent(root, highlightType);
+                detectorType.GetMethod("ConfigureHighlight").Invoke(
+                    detector,
+                    new[] { highlight }
+                );
+                Assert.That(
+                    detectorType.GetProperty("DiagnosticStatus")
+                        .GetValue(detector).ToString(),
+                    Is.EqualTo("PhaseNotConfigured")
+                );
+
+                string[] targetIds =
+                    { "breaker_a", "breaker_b", "breaker_c" };
+                Array bindings = Array.CreateInstance(bindingType, 3);
+                object[] targets = new object[3];
+                for (int index = 0; index < targetIds.Length; index++)
+                {
+                    targets[index] = CreateVisual(
+                        rootTransform,
+                        targetIds[index]
+                    );
+                    SetLocalPosition(
+                        targets[index],
+                        CreateVector3(index * 2f, 0f, 2f)
+                    );
+                    AddComponent(
+                        GetGameObject(targets[index]),
+                        UnityPhysicsType("BoxCollider")
+                    );
+                    bindings.SetValue(
+                        Activator.CreateInstance(
+                            bindingType,
+                            new[] { (object)targetIds[index], targets[index] }
+                        ),
+                        index
+                    );
+                }
+                detectorType.GetMethod("ConfigureTargetBindings").Invoke(
+                    detector,
+                    new object[] { bindings }
+                );
+
+                object runPlan = CreateRunPlan();
+                object phaseSixVariant = GetRunPlanTaskVariant(runPlan, 5);
+                object textAndPointing = Enum.Parse(
+                    CoreType("AssistanceCondition"),
+                    "TextAndPointing"
+                );
+                detectorType.GetMethod(
+                    "ConfigurePhase",
+                    new[]
+                    {
+                        CoreType("AssistanceCondition"),
+                        CoreType("TaskVariant")
+                    }
+                ).Invoke(
+                    detector,
+                    new[] { textAndPointing, phaseSixVariant }
+                );
+                Assert.That(
+                    ((Array)detectorType.GetProperty("EligibleTargetIds")
+                        .GetValue(detector)).Length,
+                    Is.EqualTo(3)
+                );
+                Assert.That(
+                    detectorType.GetProperty("DiagnosticStatus")
+                        .GetValue(detector).ToString(),
+                    Is.EqualTo("IncompleteFingerRig")
+                );
+
+                object leftDistal = CreateVisual(
+                    rootTransform,
+                    "Left_IndexDistal"
+                );
+                object leftTip = CreateVisual(rootTransform, "Left_IndexTip");
+                object rightDistal = CreateVisual(
+                    rootTransform,
+                    "Right_IndexDistal"
+                );
+                object rightTip = CreateVisual(
+                    rootTransform,
+                    "Right_IndexTip"
+                );
+                SetLocalPosition(leftDistal, CreateVector3(0f, 0f, 0f));
+                SetLocalPosition(leftTip, CreateVector3(0f, 0f, 0.1f));
+                SetLocalPosition(rightDistal, CreateVector3(8f, 0f, 0f));
+                SetLocalPosition(rightTip, CreateVector3(8f, 0f, 0.1f));
+                detectorType.GetMethod("ConfigureFingerBones").Invoke(
+                    detector,
+                    new[] { leftDistal, leftTip, rightDistal, rightTip }
+                );
+                Assert.That(
+                    detectorType.GetProperty("DiagnosticStatus")
+                        .GetValue(detector).ToString(),
+                    Is.EqualTo("PlaybackNotConfigured")
+                );
+
+                double now = (double)UnityType("Time").GetProperty(
+                    "realtimeSinceStartupAsDouble",
+                    BindingFlags.Public | BindingFlags.Static
+                ).GetValue(null);
+                detectorType.GetMethod("SynchronizePlayback").Invoke(
+                    detector,
+                    new object[] { true, now }
+                );
+                detectorType.GetMethod("EvaluatePointing").Invoke(
+                    detector,
+                    new object[] { now + 0.01d }
+                );
+                Assert.That(
+                    detectorType.GetProperty("DiagnosticStatus")
+                        .GetValue(detector).ToString(),
+                    Is.EqualTo("Hit")
+                );
+                Assert.That(
+                    detectorType.GetProperty("DiagnosticTargetId")
+                        .GetValue(detector),
+                    Is.EqualTo("breaker_a")
+                );
+                Assert.That(
+                    highlightType.GetProperty("IsVisible")
+                        .GetValue(highlight),
+                    Is.True
+                );
+
+                SetLocalPosition(leftDistal, CreateVector3(8f, 0f, 0f));
+                SetLocalPosition(leftTip, CreateVector3(8f, 0f, 0.1f));
+                detectorType.GetMethod("EvaluatePointing").Invoke(
+                    detector,
+                    new object[] { now + 0.02d }
+                );
+                Assert.That(
+                    detectorType.GetProperty("DiagnosticStatus")
+                        .GetValue(detector).ToString(),
+                    Is.EqualTo("NoHit")
+                );
+                Assert.That(
+                    highlightType.GetProperty("IsVisible")
+                        .GetValue(highlight),
+                    Is.True,
+                    "Loss grace must preserve the current visual briefly."
+                );
+                detectorType.GetMethod("EvaluatePointing").Invoke(
+                    detector,
+                    new object[] { now + 0.2d }
+                );
+                Assert.That(
+                    highlightType.GetProperty("IsVisible")
+                        .GetValue(highlight),
+                    Is.False
+                );
+
+                object signOnly = Enum.Parse(
+                    CoreType("AssistanceCondition"),
+                    "SignOnly"
+                );
+                detectorType.GetMethod(
+                    "ConfigurePhase",
+                    new[]
+                    {
+                        CoreType("AssistanceCondition"),
+                        CoreType("TaskVariant")
+                    }
+                ).Invoke(detector, new[] { signOnly, phaseSixVariant });
+                Assert.That(
+                    detectorType.GetProperty("DiagnosticStatus")
+                        .GetValue(detector).ToString(),
+                    Is.EqualTo("ConditionDoesNotIncludePointing")
+                );
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void KeyProxyHitHighlightsProxyAndVisualCompanion()
+        {
+            object root = CreateGameObject("W7KeyCompanionPointingTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                object proxy = CreateVisual(rootTransform, "W7Target_key_a");
+                object model = CreateVisual(rootTransform, "key");
+                SetLocalPosition(proxy, CreateVector3(0f, 0f, 2f));
+                SetLocalPosition(model, CreateVector3(0.2f, 0f, 2f));
+                AddComponent(
+                    GetGameObject(proxy),
+                    UnityPhysicsType("BoxCollider")
+                );
+
+                Type detectorType = PresentationType(
+                    "GhostPointingDetector"
+                );
+                Type highlightType = PresentationType(
+                    "InteractionTargetHighlightVisual"
+                );
+                Type bindingType = PresentationType(
+                    "GhostPointingTargetBinding"
+                );
+                object detector = AddComponent(root, detectorType);
+                object highlight = AddComponent(root, highlightType);
+                object binding = Activator.CreateInstance(
+                    bindingType,
+                    new object[]
+                    {
+                        "key_a",
+                        proxy,
+                        TypedArray(
+                            UnityType("Transform"),
+                            proxy,
+                            model
+                        )
+                    }
+                );
+                Array bindings = Array.CreateInstance(bindingType, 1);
+                bindings.SetValue(binding, 0);
+                detectorType.GetMethod("ConfigureHighlight").Invoke(
+                    detector,
+                    new[] { highlight }
+                );
+                detectorType.GetMethod("ConfigureTargetBindings").Invoke(
+                    detector,
+                    new object[] { bindings }
+                );
+
+                object distal = CreateVisual(rootTransform, "IndexDistal");
+                object tip = CreateVisual(rootTransform, "IndexTip");
+                object otherDistal = CreateVisual(
+                    rootTransform,
+                    "OtherDistal"
+                );
+                object otherTip = CreateVisual(rootTransform, "OtherTip");
+                SetLocalPosition(tip, CreateVector3(0f, 0f, 0.1f));
+                SetLocalPosition(otherDistal, CreateVector3(8f, 0f, 0f));
+                SetLocalPosition(otherTip, CreateVector3(8f, 0f, 0.1f));
+                detectorType.GetMethod("ConfigureFingerBones").Invoke(
+                    detector,
+                    new[] { distal, tip, otherDistal, otherTip }
+                );
+                object variant = GetRunPlanTaskVariant(CreateRunPlan(), 3);
+                object condition = Enum.Parse(
+                    CoreType("AssistanceCondition"),
+                    "TextAndPointing"
+                );
+                detectorType.GetMethod(
+                    "ConfigurePhase",
+                    new[]
+                    {
+                        CoreType("AssistanceCondition"),
+                        CoreType("TaskVariant")
+                    }
+                ).Invoke(detector, new[] { condition, variant });
+                double now = (double)UnityType("Time").GetProperty(
+                    "realtimeSinceStartupAsDouble",
+                    BindingFlags.Public | BindingFlags.Static
+                ).GetValue(null);
+                detectorType.GetMethod("SynchronizePlayback").Invoke(
+                    detector,
+                    new object[] { true, now }
+                );
+                detectorType.GetMethod("EvaluatePointing").Invoke(
+                    detector,
+                    new object[] { now + 0.01d }
+                );
+
+                Assert.That(
+                    detectorType.GetProperty("DiagnosticTargetId")
+                        .GetValue(detector),
+                    Is.EqualTo("key_a")
+                );
+                Array highlightedRoots = (Array)highlightType.GetProperty(
+                    "HighlightedRoots"
+                ).GetValue(highlight);
+                Assert.That(highlightedRoots.Length, Is.EqualTo(2));
+                Assert.That(highlightedRoots.Cast<object>(), Does.Contain(proxy));
+                Assert.That(highlightedRoots.Cast<object>(), Does.Contain(model));
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
         }
 
         [Test]
@@ -2697,7 +3656,7 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void PlanHintsFollowErrorCompletionAndGiveUpLifecycle()
+        public void DeprecatedPlanHintsStayHiddenAcrossLifecycle()
         {
             object root = CreateGameObject("W7HintLifecycleTest");
             try
@@ -2794,17 +3753,13 @@ namespace SignVR.Interaction.Editor.Tests
                 coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
                 SynchronizePhase(coordinator, 3, giveUpAvailable: true);
                 DispatchHintResult(hints, GiveUp(coordinator, 3));
-                Assert.That(IsComponentGameObjectActive(chestText), Is.True);
+                Assert.That(IsComponentGameObjectActive(chestText), Is.False);
 
                 SynchronizePhase(coordinator, 4);
-                foreach (string targetId in
-                         new[] { "blue", "red", "yellow", "green" })
-                {
-                    DispatchHintResult(
-                        hints,
-                        AcceptTarget(coordinator, 4, targetId)
-                    );
-                }
+                DispatchHintResult(
+                    hints,
+                    AcceptTarget(coordinator, 4, "key_a")
+                );
                 Assert.That(IsComponentGameObjectActive(chestText), Is.False);
 
                 coordinatorType.GetMethod("Configure").Invoke(
@@ -2814,7 +3769,7 @@ namespace SignVR.Interaction.Editor.Tests
                 coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
                 SynchronizePhase(coordinator, 3, giveUpAvailable: true);
                 DispatchHintResult(hints, GiveUp(coordinator, 3));
-                Assert.That(IsComponentGameObjectActive(chestText), Is.True);
+                Assert.That(IsComponentGameObjectActive(chestText), Is.False);
                 SynchronizePhase(coordinator, 4, giveUpAvailable: true);
                 DispatchHintResult(hints, GiveUp(coordinator, 4));
                 Assert.That(IsComponentGameObjectActive(chestText), Is.False);
@@ -2826,7 +3781,7 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void PhaseFourGiveUpOpensChestAndReleasesOnlyPlannedKey()
+        public void PhaseFourGiveUpKeepsKeyModelVisibleAndVisualOnly()
         {
             object root = CreateGameObject("W7PhaseFourGiveUpFallbackTest");
             try
@@ -2943,12 +3898,17 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(
                     keyBody.GetType().GetProperty("isKinematic")
                         .GetValue(keyBody),
+                    Is.True
+                );
+                Assert.That(
+                    keyBody.GetType().GetProperty("useGravity")
+                        .GetValue(keyBody),
                     Is.False
                 );
                 Assert.That(
                     keyCollider.GetType().GetProperty("enabled")
                         .GetValue(keyCollider),
-                    Is.True
+                    Is.False
                 );
             }
             finally
@@ -2995,7 +3955,6 @@ namespace SignVR.Interaction.Editor.Tests
                 coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
                 AdvanceToPhaseFive(coordinator);
 
-                AcceptTarget(coordinator, 5, "key_a");
                 AcceptTarget(coordinator, 5, "button_a");
                 AcceptTarget(coordinator, 5, "button_b");
                 presentation.GetType().GetMethod("RebuildFromAuthority")
@@ -3027,7 +3986,7 @@ namespace SignVR.Interaction.Editor.Tests
                     (int)resetResult.GetType()
                         .GetProperty("Progress")
                         .GetValue(resetResult),
-                    Is.EqualTo(1)
+                    Is.EqualTo(0)
                 );
                 Assert.That(
                     RotationAngleFromIdentity(buttonA),
@@ -3118,7 +4077,7 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void ReenabledPresentationRestoresMissedDoorButtonsAndKey()
+        public void ReenabledPresentationRestoresDirectKeyPhaseVisuals()
         {
             object root = CreateGameObject("W7PresentationRehydrateTest");
             try
@@ -3171,14 +4130,17 @@ namespace SignVR.Interaction.Editor.Tests
                     key,
                     UnityPhysicsType("BoxCollider")
                 );
+                object keyProxy = CreateGameObject("W7Target_key_a");
+                SetParent(GetTransform(keyProxy), rootTransform);
                 Type keyType = RuntimeType("PlannedKeyReleaseBinding");
                 object keyBinding = Activator.CreateInstance(keyType);
-                keyType.GetMethod("Configure").Invoke(
+                keyType.GetMethod("ConfigureVisualOnly").Invoke(
                     keyBinding,
                     new object[]
                     {
                         "key_a",
                         key,
+                        keyProxy,
                         TypedArray(
                             UnityPhysicsType("Rigidbody"),
                             keyBody
@@ -3239,21 +4201,22 @@ namespace SignVR.Interaction.Editor.Tests
                 presentationType.GetProperty("enabled")
                     .SetValue(presentation, false);
 
-                foreach (string targetId in
-                         new[] { "blue", "red", "yellow", "green" })
-                {
-                    AcceptTarget(coordinator, 4, targetId);
-                }
+                object accepted = AcceptTarget(coordinator, 4, "key_a");
+                Assert.That(
+                    accepted.GetType().GetProperty("Accepted")
+                        .GetValue(accepted),
+                    Is.True
+                );
 
                 Assert.That(
                     RotationAngleFromIdentity(lid),
-                    Is.LessThan(0.001f)
+                    Is.GreaterThan(0.1f)
                 );
                 foreach (object button in buttonTransforms)
                 {
                     Assert.That(
-                        RotationAngleFromIdentity(button),
-                        Is.LessThan(0.001f)
+                        IsComponentGameObjectActive(button),
+                        Is.False
                     );
                 }
                 Assert.That(
@@ -3275,18 +4238,22 @@ namespace SignVR.Interaction.Editor.Tests
                 foreach (object button in buttonTransforms)
                 {
                     Assert.That(
-                        RotationAngleFromIdentity(button),
-                        Is.GreaterThan(0.1f)
+                        IsComponentGameObjectActive(button),
+                        Is.False
                     );
                 }
                 Assert.That(
                     keyBody.GetType().GetProperty("isKinematic")
                         .GetValue(keyBody),
-                    Is.False
+                    Is.True
                 );
                 Assert.That(
                     keyCollider.GetType().GetProperty("enabled")
                         .GetValue(keyCollider),
+                    Is.False
+                );
+                Assert.That(
+                    IsComponentGameObjectActive(GetTransform(keyProxy)),
                     Is.True
                 );
                 int editorInvocationCount =
@@ -4691,11 +5658,7 @@ namespace SignVR.Interaction.Editor.Tests
             SynchronizePhase(coordinator, 3);
             AcceptTarget(coordinator, 3, "picture_frame_a");
             SynchronizePhase(coordinator, 4);
-            foreach (string targetId in
-                     new[] { "blue", "red", "yellow", "green" })
-            {
-                AcceptTarget(coordinator, 4, targetId);
-            }
+            AcceptTarget(coordinator, 4, "key_a");
             SynchronizePhase(coordinator, 5);
         }
 
@@ -4832,11 +5795,66 @@ namespace SignVR.Interaction.Editor.Tests
             ).Invoke(transform, new[] { parent, (object)false });
         }
 
+        private static void SetLocalEulerAngles(object transform, object euler)
+        {
+            transform.GetType().GetProperty("localEulerAngles")
+                .SetValue(transform, euler);
+        }
+
+        private static void SetLocalPosition(object transform, object position)
+        {
+            transform.GetType().GetProperty("localPosition")
+                .SetValue(transform, position);
+        }
+
         private static object CreateVector3(float x, float y, float z)
         {
             return Activator.CreateInstance(
                 UnityType("Vector3"),
                 new object[] { x, y, z }
+            );
+        }
+
+        private static object CreateColor(float r, float g, float b, float a)
+        {
+            return Activator.CreateInstance(
+                UnityType("Color"),
+                new object[] { r, g, b, a }
+            );
+        }
+
+        private static object ReadRendererPropertyBlockColor(object renderer)
+        {
+            Type blockType = UnityType("MaterialPropertyBlock");
+            object block = Activator.CreateInstance(blockType);
+            renderer.GetType().GetMethod(
+                "GetPropertyBlock",
+                new[] { blockType }
+            ).Invoke(renderer, new[] { block });
+            return blockType.GetMethod(
+                "GetColor",
+                new[] { typeof(string) }
+            ).Invoke(block, new object[] { "_BaseColor" });
+        }
+
+        private static void AssertColor(
+            object color,
+            float red,
+            float green,
+            float blue)
+        {
+            Type colorType = color.GetType();
+            Assert.That(
+                Convert.ToSingle(colorType.GetField("r").GetValue(color)),
+                Is.EqualTo(red).Within(0.001f)
+            );
+            Assert.That(
+                Convert.ToSingle(colorType.GetField("g").GetValue(color)),
+                Is.EqualTo(green).Within(0.001f)
+            );
+            Assert.That(
+                Convert.ToSingle(colorType.GetField("b").GetValue(color)),
+                Is.EqualTo(blue).Within(0.001f)
             );
         }
 
@@ -4940,6 +5958,15 @@ namespace SignVR.Interaction.Editor.Tests
             );
         }
 
+        private static Type PresentationType(string typeName)
+        {
+            return Type.GetType(
+                "SignVR.Interaction.Presentation." + typeName +
+                ", " + RuntimeAssembly,
+                throwOnError: true
+            );
+        }
+
         private static Type CoreType(string typeName)
         {
             return Type.GetType(
@@ -4947,6 +5974,18 @@ namespace SignVR.Interaction.Editor.Tests
                 ", SignVR.Interaction.Core",
                 throwOnError: true
             );
+        }
+
+        private static object GetRunPlanTaskVariant(
+            object runPlan,
+            int zeroBasedPhaseIndex)
+        {
+            object phases = runPlan.GetType().GetProperty("Phases")
+                .GetValue(runPlan);
+            object phase = phases.GetType().GetProperty("Item")
+                .GetValue(phases, new object[] { zeroBasedPhaseIndex });
+            return phase.GetType().GetProperty("TaskVariant")
+                .GetValue(phase);
         }
 
         private static void SubscribePublicResultProduced(
