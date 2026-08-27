@@ -156,6 +156,9 @@ before manipulating the scene.
   evidence.
 - [ ] A Completed Run reaches a participant-visible result review only after
   its five local artifacts have sealed.
+- [ ] Result Review visibly shows the sealed `Pass`/`Warning`/`Fail` grade,
+  capture diagnostics, flow counters, duration, and `5/5` local-file status;
+  it never reports missing statistics as a successful measurement.
 - [ ] A person wearing the headset explicitly confirms the Completed review
   before the application returns to PreStart.
 - [ ] Repeat with a disposable Run: Aborted review shows the abort outcome and

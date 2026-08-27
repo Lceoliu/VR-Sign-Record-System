@@ -70,6 +70,15 @@ that command. Neither the console nor another adapter may call
 but visible review and normal bare-hand confirmation on Quest remain the
 physical acceptance truth.
 
+Once sealing succeeds, Result Review displays the terminal outcome plus the
+sealed aggregate summary: exact `Pass`/`Warning`/`Fail` grade, actual sample
+rate, minimum HMD/hand tracking validity, required-probe coverage, gap count,
+completed phases, interaction errors, replays, stuck phases, duration, and
+whether the authoritative five-file set is complete. A missing aggregate is
+shown as unavailable rather than silently replaced with a success message.
+These review values are a projection of `summary.json`, not a second source of
+truth.
+
 ## Quest-local sealed artifacts
 
 Completed and Aborted Runs seal exactly five authoritative files beneath:
