@@ -2,6 +2,8 @@ using System;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.UI;
 
 namespace SignVR.Interaction.Editor.Tests
 {
@@ -21,6 +23,62 @@ namespace SignVR.Interaction.Editor.Tests
         public void GeneratedInteractionLabPassesCleanSceneContract()
         {
             InvokeValidator("ValidateSceneForAutomation");
+        }
+
+        [Test]
+        public void SeatedMoverUsesTheCompleteThreeDimensionalHmdForward()
+        {
+            Type moverType = Type.GetType(
+                "SignVR.Interaction.InteractionSeatedRigMover, Assembly-CSharp",
+                throwOnError: true
+            );
+            var player = new GameObject("VRPlayer");
+            var offset = new GameObject("InteractionSeatedRigOffset");
+            var xrOrigin = new GameObject("OVRCameraRig");
+            var hmd = new GameObject("CenterEyeAnchor");
+            var staticTarget = new GameObject("StaticTaskTarget");
+            var buttonObject = new GameObject("Move", typeof(RectTransform));
+            try
+            {
+                offset.transform.SetParent(player.transform, false);
+                xrOrigin.transform.SetParent(offset.transform, false);
+                hmd.transform.SetParent(xrOrigin.transform, false);
+                Button button = buttonObject.AddComponent<Button>();
+                Component mover = offset.AddComponent(moverType);
+                Vector3 forward = new Vector3(-2f, 3f, -6f).normalized;
+                hmd.transform.rotation = Quaternion.LookRotation(
+                    forward,
+                    Vector3.up
+                );
+                Vector3 playerBefore = player.transform.position;
+                Vector3 staticTargetBefore = new Vector3(4f, 2f, -3f);
+                staticTarget.transform.position = staticTargetBefore;
+                Vector3 expected = offset.transform.position + forward * 0.1f;
+
+                moverType.GetMethod("Configure")?.Invoke(
+                    mover,
+                    new object[] { hmd.transform, button, 0.1f }
+                );
+                button.onClick.Invoke();
+
+                Assert.That(offset.transform.position.x, Is.EqualTo(expected.x)
+                    .Within(0.000001f));
+                Assert.That(offset.transform.position.y, Is.EqualTo(expected.y)
+                    .Within(0.000001f));
+                Assert.That(offset.transform.position.z, Is.EqualTo(expected.z)
+                    .Within(0.000001f));
+                Assert.That(player.transform.position, Is.EqualTo(playerBefore));
+                Assert.That(xrOrigin.transform.position,
+                    Is.EqualTo(expected));
+                Assert.That(staticTarget.transform.position,
+                    Is.EqualTo(staticTargetBefore));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(buttonObject);
+                UnityEngine.Object.DestroyImmediate(staticTarget);
+                UnityEngine.Object.DestroyImmediate(player);
+            }
         }
 
         private static void InvokeValidator(string methodName)
