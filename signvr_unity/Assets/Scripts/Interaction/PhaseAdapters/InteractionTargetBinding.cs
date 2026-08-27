@@ -701,6 +701,7 @@ namespace SignVR.Interaction.PhaseAdapters
 #if UNITY_INCLUDE_TESTS
             subscriptionDiagnostic.RecordResetPerformed();
 #endif
+            ResetInputGate();
             RestoreAuthoredPoseAndPhysics();
             ApplyAvailability(IsInputAvailable);
         }

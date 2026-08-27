@@ -835,6 +835,7 @@ namespace SignVR.Interaction.Orchestration
                     InteractionTargetHighlightVisual>();
                 var target = new GameObject("Target");
                 target.transform.SetParent(root.transform, false);
+                target.transform.position = Vector3.forward;
 
                 detector.ConfigurePlayer(player);
                 detector.ConfigureHighlight(highlight);
@@ -961,6 +962,7 @@ namespace SignVR.Interaction.Orchestration
                 highlight.transform.SetParent(detectorRoot.transform, false);
                 var target = new GameObject("Target");
                 target.transform.SetParent(detectorRoot.transform, false);
+                target.transform.position = Vector3.forward;
                 detector.ConfigurePlayer(detectorPlayer);
                 detector.ConfigureHighlight(highlight);
                 detector.ConfigureTargetBindings(new[]

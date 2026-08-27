@@ -53,6 +53,7 @@ namespace SignVR.Interaction.Presentation
 
         public Transform TargetRoot => targetRoot;
 
-        public IReadOnlyList<Transform> HighlightRoots => highlightRoots;
+        public IReadOnlyList<Transform> HighlightRoots =>
+            highlightRoots ?? Array.Empty<Transform>();
     }
 }

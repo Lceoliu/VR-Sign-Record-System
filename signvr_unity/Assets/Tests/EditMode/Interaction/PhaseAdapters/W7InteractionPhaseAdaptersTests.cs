@@ -1694,6 +1694,7 @@ namespace SignVR.Interaction.Editor.Tests
                         CreateVector3(60f, 0f, 0f)
                     }
                 );
+                stateType.GetMethod("CaptureIdlePose").Invoke(binding, null);
                 stateType.GetMethod("Activate").Invoke(binding, null);
 
                 Assert.That(
@@ -2309,7 +2310,9 @@ namespace SignVR.Interaction.Editor.Tests
 
                     Assert.That(
                         failure.InnerException.Message,
-                        Does.Contain("Chest lid MovingPart")
+                        Does.Contain(
+                            "Chest lid must use its frozen exact path"
+                        )
                     );
                 }
                 finally
@@ -2325,16 +2328,12 @@ namespace SignVR.Interaction.Editor.Tests
             WithCleanInteractionScene(scene =>
             {
                 InvokeTestOwnedSetupAndValidate(scene);
-                object chestButton = FindGameObjectInScene(
+                object hint = FindGameObjectInScene(
                     scene,
-                    "W7ChestButton_blue"
-                );
-                object labelTransform = FindChild(
-                    GetTransform(chestButton),
-                    "Label"
+                    "W7ChestOrderHint"
                 );
                 object label = GetComponent(
-                    GetGameObject(labelTransform),
+                    hint,
                     Type.GetType(
                         "UnityEngine.TextMesh, UnityEngine.TextRenderingModule",
                         throwOnError: true
@@ -3239,7 +3238,7 @@ namespace SignVR.Interaction.Editor.Tests
                 allowedRoots.SetValue(GetTransform(leftRoot), 0);
                 allowedRoots.SetValue(GetTransform(rightRoot), 1);
 
-                object blueObject = CreateGameObject("W7Target_blue");
+                object blueObject = CreateGameObject("W7Target_key_b");
                 SetParent(GetTransform(blueObject), rootTransform);
                 object blueCollider = AddComponent(
                     blueObject,
@@ -3253,7 +3252,7 @@ namespace SignVR.Interaction.Editor.Tests
                     blueBinding,
                     new object[]
                     {
-                        "blue",
+                        "key_b",
                         adapters.GetValue(3),
                         null,
                         TypedArray(
@@ -3271,7 +3270,9 @@ namespace SignVR.Interaction.Editor.Tests
                     new object[] { blueBinding, allowedRoots, 0f }
                 );
 
-                object redObject = CreateGameObject("W7Target_red");
+                object redObject = CreateGameObject(
+                    "W7Target_motorbike_key"
+                );
                 SetParent(GetTransform(redObject), rootTransform);
                 object redCollider = AddComponent(
                     redObject,
@@ -3285,7 +3286,7 @@ namespace SignVR.Interaction.Editor.Tests
                     redBinding,
                     new object[]
                     {
-                        "red",
+                        "motorbike_key",
                         adapters.GetValue(3),
                         null,
                         TypedArray(

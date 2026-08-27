@@ -110,6 +110,8 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         {
             RuntimeFixture fixture = CreateRuntimeFixture("ContactCycleGate");
             Component phaseFour = fixture.Adapters[3];
+            ActivatePhase(fixture, 2);
+            ActivatePhase(fixture, 3);
             ActivatePhase(fixture, 4);
 
             GameObject leftRoot = new GameObject("LeftHandInteractor");
@@ -129,7 +131,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Transform[] allowedRoots =
                 { leftRoot.transform, rightRoot.transform };
 
-            GameObject blueObject = new GameObject("W7Target_blue");
+            GameObject blueObject = new GameObject("W7Target_key_b");
             blueObject.transform.SetParent(fixture.Root.transform, false);
             Collider blueCollider = blueObject.AddComponent<BoxCollider>();
             Component blueBinding = blueObject.AddComponent(
@@ -138,7 +140,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             InvokePublic(
                 blueBinding,
                 "Configure",
-                "blue",
+                "key_b",
                 phaseFour,
                 Array.Empty<Behaviour>(),
                 new[] { blueCollider }
@@ -154,7 +156,9 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 0.05f
             );
 
-            GameObject redObject = new GameObject("W7Target_red");
+            GameObject redObject = new GameObject(
+                "W7Target_motorbike_key"
+            );
             redObject.transform.SetParent(fixture.Root.transform, false);
             Collider redCollider = redObject.AddComponent<BoxCollider>();
             Component redBinding = redObject.AddComponent(
@@ -163,7 +167,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             InvokePublic(
                 redBinding,
                 "Configure",
-                "red",
+                "motorbike_key",
                 phaseFour,
                 Array.Empty<Behaviour>(),
                 new[] { redCollider }
@@ -541,93 +545,16 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         }
 
         [UnityTest]
-        public IEnumerator PhysicalKeypadDigitsAndSubmitCompletePhaseOne()
+        public IEnumerator PhaseOneTargetCompletesWithoutPasswordGate()
         {
-            RuntimeFixture fixture = CreateRuntimeFixture("PhysicalKeypad");
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "PasswordFreePhaseOne"
+            );
             Component phaseOne = fixture.Adapters[0];
-            AssertAccepted(AcceptTarget(fixture, "box_stool"));
-
-            GameObject handRoot = Track(new GameObject("LeftHandInteractor"));
-            handRoot.transform.position = Vector3.right * 20f;
-            handRoot.AddComponent<BoxCollider>();
-            Rigidbody handBody = handRoot.AddComponent<Rigidbody>();
-            handBody.isKinematic = true;
-            handBody.useGravity = false;
-
-            var inputs = new List<GameObject>();
-            for (int digit = 1; digit <= 4; digit++)
-            {
-                GameObject button = Track(
-                    new GameObject("W7SafeDigit_" + digit)
-                );
-                button.transform.SetParent(fixture.Root.transform, false);
-                button.transform.position = Vector3.right * (digit * 2f);
-                BoxCollider trigger = button.AddComponent<BoxCollider>();
-                trigger.isTrigger = true;
-                Rigidbody triggerBody = button.AddComponent<Rigidbody>();
-                triggerBody.isKinematic = false;
-                triggerBody.useGravity = false;
-                triggerBody.constraints = RigidbodyConstraints.FreezeAll;
-                Component binding = button.AddComponent(
-                    RuntimeType("InteractionDigitBinding")
-                );
-                InvokePublic(binding, "Configure", digit, phaseOne, trigger);
-                Component relay = button.AddComponent(
-                    RuntimeType("InteractionTriggerRelay")
-                );
-                InvokePublic(
-                    relay,
-                    "Configure",
-                    binding,
-                    new[] { handRoot.transform },
-                    0.05f
-                );
-                inputs.Add(button);
-            }
-
-            GameObject submit = Track(new GameObject("W7SafeSubmit"));
-            submit.transform.SetParent(fixture.Root.transform, false);
-            submit.transform.position = Vector3.right * 10f;
-            BoxCollider submitTrigger = submit.AddComponent<BoxCollider>();
-            submitTrigger.isTrigger = true;
-            Rigidbody submitBody = submit.AddComponent<Rigidbody>();
-            submitBody.isKinematic = false;
-            submitBody.useGravity = false;
-            submitBody.constraints = RigidbodyConstraints.FreezeAll;
-            Component submitBinding = submit.AddComponent(
-                RuntimeType("InteractionPasswordSubmitBinding")
-            );
-            InvokePublic(
-                submitBinding,
-                "Configure",
-                phaseOne,
-                submitTrigger
-            );
-            Component submitRelay = submit.AddComponent(
-                RuntimeType("InteractionTriggerRelay")
-            );
-            InvokePublic(
-                submitRelay,
-                "Configure",
-                submitBinding,
-                new[] { handRoot.transform },
-                0.05f
-            );
-            inputs.Add(submit);
-
             var completed = new EventCounter();
             SubscribeGenericEvent(phaseOne, "Completed", completed);
-            Physics.SyncTransforms();
-            yield return new WaitForFixedUpdate();
-            foreach (GameObject input in inputs)
-            {
-                handRoot.transform.position = Vector3.right * 20f;
-                Physics.SyncTransforms();
-                yield return new WaitForFixedUpdate();
-                handRoot.transform.position = input.transform.position;
-                Physics.SyncTransforms();
-                yield return new WaitForFixedUpdate();
-            }
+            AssertAccepted(AcceptTarget(fixture, "box_stool"));
+            yield return null;
 
             object lastResult = phaseOne.GetType()
                 .GetProperty("LastResult")
@@ -637,8 +564,8 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 lastResult.GetType().GetProperty("PhaseCompleted")
                     .GetValue(lastResult),
                 Is.True,
-                "Four physical digit entries followed by the physical # " +
-                "trigger must complete Phase 1."
+                "The planned box must complete Phase 1 without a password " +
+                "or keypad gate."
             );
             Assert.That(completed.Count, Is.EqualTo(1));
         }
@@ -3760,6 +3687,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                             111f + index,
                             121f + index
                         );
+                    bodies[index].isKinematic = false;
                     bodies[index].linearVelocity = new Vector3(
                         4f + index,
                         5f + index,

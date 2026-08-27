@@ -20,12 +20,24 @@ namespace SignVR.Interaction.PhaseAdapters
         [SerializeField]
         private float openAngleDegrees = 90f;
 
+        [SerializeField]
         private Vector3 closedLocalPosition;
+
+        [SerializeField]
         private Quaternion closedLocalRotation;
+
+        [SerializeField]
         private Vector3 openLocalPosition;
+
+        [SerializeField]
         private Quaternion openLocalRotation;
+
+        [SerializeField]
         private bool closedPoseCaptured;
+
+        [SerializeField]
         private bool explicitClosedPose;
+
         private bool opened;
 
         public Transform MovingPart => movingPart;
@@ -197,12 +209,24 @@ namespace SignVR.Interaction.PhaseAdapters
         [SerializeField]
         private Color errorColor = Color.red;
 
+        [SerializeField]
         private Vector3 idleLocalPosition;
+
+        [SerializeField]
         private Quaternion idleLocalRotation;
+
+        [SerializeField]
         private Vector3 activatedLocalPosition;
+
+        [SerializeField]
         private Quaternion activatedLocalRotation;
+
+        [SerializeField]
         private bool idlePoseCaptured;
+
+        [SerializeField]
         private bool usesExplicitPoses;
+
         private MaterialPropertyBlock[] idlePropertyBlocks =
             Array.Empty<MaterialPropertyBlock>();
         private DeterministicTargetVisualState visualState;
@@ -302,6 +326,10 @@ namespace SignVR.Interaction.PhaseAdapters
             if (target == null)
             {
                 idlePoseCaptured = false;
+                return;
+            }
+            if (usesExplicitPoses && idlePoseCaptured)
+            {
                 return;
             }
             idleLocalPosition = target.localPosition;
@@ -610,19 +638,6 @@ namespace SignVR.Interaction.PhaseAdapters
                     authoredBodyLocalPositions[index],
                     authoredBodyLocalRotations[index]
                 );
-                body.useGravity = authoredBodyGravity[index];
-                if (authoredBodyKinematic[index])
-                {
-                    body.isKinematic = true;
-                }
-                else
-                {
-                    body.isKinematic = false;
-                    body.linearVelocity =
-                        authoredBodyLinearVelocities[index];
-                    body.angularVelocity =
-                        authoredBodyAngularVelocities[index];
-                }
             }
             for (int index = 0;
                 index < interactionBehaviours.Length;
@@ -648,6 +663,27 @@ namespace SignVR.Interaction.PhaseAdapters
             if (inputProxyRoot != null)
             {
                 inputProxyRoot.SetActive(authoredProxyActive);
+            }
+            for (int index = 0; index < bodyCount; index++)
+            {
+                Rigidbody body = bodies[index];
+                if (body == null)
+                {
+                    continue;
+                }
+                body.useGravity = authoredBodyGravity[index];
+                if (authoredBodyKinematic[index])
+                {
+                    body.isKinematic = true;
+                }
+                else
+                {
+                    body.isKinematic = false;
+                    body.linearVelocity =
+                        authoredBodyLinearVelocities[index];
+                    body.angularVelocity =
+                        authoredBodyAngularVelocities[index];
+                }
             }
         }
 
