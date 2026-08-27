@@ -615,10 +615,17 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                 }
             }
 
-            Transform surface = FindNamedTransform(scene, "W8StudyStartSurface");
-            if (surface != null)
+            foreach (string surfaceName in new[]
+                     {
+                         "W8StudyStartSurface",
+                         "W8StudyResultSurface"
+                     })
             {
-                UnityEngine.Object.DestroyImmediate(surface.gameObject);
+                Transform surface = FindNamedTransform(scene, surfaceName);
+                if (surface != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(surface.gameObject);
+                }
             }
 
             Component instructionControls = FindSingleComponent(
@@ -780,8 +787,12 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                           "PreStartRoot",
                           "StartButton",
                           "StatusLabel",
-                          "ProgressLabel"
-                     })
+                          "ProgressLabel",
+                          "ResultRoot",
+                          "ResultOutcomeLabel",
+                          "ResultSaveStatusLabel",
+                          "AcknowledgeResultButton"
+                      })
             {
                 AssertPublicReference(controls, property);
             }
@@ -812,6 +823,65 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                     legacyChild
                 );
             }
+
+            Transform resultSurface = FindNamedTransform(
+                scene,
+                "W8StudyResultSurface"
+            );
+            Assert.That(resultSurface, Is.Not.Null);
+            Assert.That(resultSurface.GetComponent<Canvas>(), Is.Not.Null);
+            Assert.That(
+                resultSurface.GetComponents<Component>().Any(component =>
+                    component.GetType().FullName ==
+                        "SignVR.SceneFlow.WorldSpacePokeCanvas"),
+                Is.True,
+                "Result page is not wired to the existing XR touch canvas."
+            );
+            foreach (string child in new[]
+                     {
+                         "Outcome",
+                         "SaveStatus",
+                         "Acknowledge"
+                     })
+            {
+                Assert.That(resultSurface.Find(child), Is.Not.Null, child);
+            }
+            Assert.That(
+                FindComponentOn(
+                    resultSurface.Find("Outcome").gameObject,
+                    "TMPro.TextMeshProUGUI"
+                ).GetType().GetProperty("text")?.GetValue(
+                    FindComponentOn(
+                        resultSurface.Find("Outcome").gameObject,
+                        "TMPro.TextMeshProUGUI"
+                    )
+                ),
+                Is.EqualTo("完成或安全结束")
+            );
+            Assert.That(
+                FindComponentOn(
+                    resultSurface.Find("SaveStatus").gameObject,
+                    "TMPro.TextMeshProUGUI"
+                ).GetType().GetProperty("text")?.GetValue(
+                    FindComponentOn(
+                        resultSurface.Find("SaveStatus").gameObject,
+                        "TMPro.TextMeshProUGUI"
+                    )
+                ),
+                Is.EqualTo("正在安全保存数据，请稍候…")
+            );
+            Assert.That(
+                FindComponentOn(
+                    resultSurface.Find("Acknowledge/Label").gameObject,
+                    "TMPro.TextMeshProUGUI"
+                ).GetType().GetProperty("text")?.GetValue(
+                    FindComponentOn(
+                        resultSurface.Find("Acknowledge/Label").gameObject,
+                        "TMPro.TextMeshProUGUI"
+                    )
+                ),
+                Is.EqualTo("确认返回")
+            );
 
             Component realControls = FindSingleComponent(
                 scene,
@@ -890,15 +960,19 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                 "SignVR.Interaction.Orchestration.InteractionStudyCaptureBinding",
                 "SignVR.Interaction.Orchestration.InteractionStudyFlowControls"
             };
-            Transform surface = FindNamedTransform(scene, "W8StudyStartSurface");
+            Transform[] surfaces =
+            {
+                FindNamedTransform(scene, "W8StudyStartSurface"),
+                FindNamedTransform(scene, "W8StudyResultSurface")
+            };
             var entries = new List<string>();
             foreach (Component component in AllComponents(scene))
             {
                 string fullName = component.GetType().FullName ??
                     component.GetType().Name;
-                bool inSurface = surface != null &&
+                bool inSurface = surfaces.Any(surface => surface != null &&
                     (component.transform == surface ||
-                     component.transform.IsChildOf(surface));
+                     component.transform.IsChildOf(surface)));
                 if (!inSurface && !relevantTypes.Contains(fullName) &&
                     !relevantTypes.Contains(component.GetType().Name))
                 {
@@ -922,7 +996,7 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
                     "|" + serialized
                 );
             }
-            if (surface != null)
+            foreach (Transform surface in surfaces.Where(value => value != null))
             {
                 foreach (Transform value in surface.GetComponentsInChildren<
                              Transform>(true))

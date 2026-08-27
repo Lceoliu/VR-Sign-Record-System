@@ -34,6 +34,7 @@ namespace SignVR.Editor.Interaction
         private const string CaptureAnchorPath =
             "InteractionSceneRoot/Anchors/ExperimentCaptureAnchor";
         private const string StartSurfaceName = "W8StudyStartSurface";
+        private const string ResultSurfaceName = "W8StudyResultSurface";
         private const string ExpectedManifestRelativePath =
             "InstructionContent/instruction-content-manifest.json";
 
@@ -331,7 +332,10 @@ namespace SignVR.Editor.Interaction
                     "instructionControls.TryInstallCommandSink(this)",
                     "instructionControls.TryClearCommandSink(this)",
                     "flowController?.TryReplay()",
-                    "flowController?.TryStart()"
+                    "flowController?.TryStart()",
+                    "flowController?.TryAcknowledgeResult()",
+                    "snapshot?.IsResultVisible",
+                    "snapshot?.CanAcknowledgeResult"
                 },
                 failures
             );
@@ -343,6 +347,7 @@ namespace SignVR.Editor.Interaction
                     "ParticipantSession",
                     "EnsureParticipantSession",
                     "ApplyAutomaticIdentityToCurrentRun",
+                    "TryAcknowledgeResult",
                     "StopManifestLoad",
                     "SafeSuspendFlow(\"application_pause\")",
                     "SafeSuspendFlow(\"component_disabled\")"
@@ -358,7 +363,10 @@ namespace SignVR.Editor.Interaction
                     "W7InteractionPhaseAdaptersSetup.SetupLoadedScene(scene)",
                     "ExecuteSceneUndoGroupForAutomation",
                     "W6 Configure Local Capture (Unsaved)",
-                    "W7 Setup Phase Adapters"
+                    "W7 Setup Phase Adapters",
+                    "W8StudyResultSurface",
+                    "完成或安全结束",
+                    "确认返回"
                 },
                 failures
             );
@@ -437,14 +445,18 @@ namespace SignVR.Editor.Interaction
             CaptureExistingW8RichTextState(Scene scene)
         {
             Transform uiAnchor = TryFindTransform(scene, UiAnchorPath);
-            Transform surface = uiAnchor == null
-                ? null
-                : FindDirectChild(uiAnchor, StartSurfaceName);
-            return surface == null
-                ? new Dictionary<TMP_Text, bool>()
-                : surface.GetComponentsInChildren<TMP_Text>(true)
-                    .Where(value => value != null)
-                    .ToDictionary(value => value, value => value.richText);
+            if (uiAnchor == null)
+            {
+                return new Dictionary<TMP_Text, bool>();
+            }
+            return new[] { StartSurfaceName, ResultSurfaceName }
+                .Select(name => FindDirectChild(uiAnchor, name))
+                .Where(surface => surface != null)
+                .SelectMany(surface =>
+                    surface.GetComponentsInChildren<TMP_Text>(true))
+                .Where(value => value != null)
+                .Distinct()
+                .ToDictionary(value => value, value => value.richText);
         }
 
         private static void RestoreExistingW8RichTextState(
@@ -558,6 +570,19 @@ namespace SignVR.Editor.Interaction
                 surface,
                 "Progress"
             );
+            GameObject resultSurface = EnsureResultSurface(uiAnchor, hmd);
+            TMP_Text resultOutcome = RequireSurfaceComponent<TMP_Text>(
+                resultSurface,
+                "Outcome"
+            );
+            TMP_Text resultSaveStatus = RequireSurfaceComponent<TMP_Text>(
+                resultSurface,
+                "SaveStatus"
+            );
+            Button acknowledgeResult = RequireSurfaceComponent<Button>(
+                resultSurface,
+                "Acknowledge"
+            );
 
             SetObjectReference(controls, "flowController", flow);
             SetObjectReference(
@@ -569,6 +594,22 @@ namespace SignVR.Editor.Interaction
             SetObjectReference(controls, "startButton", start);
             SetObjectReference(controls, "statusLabel", status);
             SetObjectReference(controls, "progressLabel", progress);
+            SetObjectReference(controls, "resultRoot", resultSurface);
+            SetObjectReference(
+                controls,
+                "resultOutcomeLabel",
+                resultOutcome
+            );
+            SetObjectReference(
+                controls,
+                "resultSaveStatusLabel",
+                resultSaveStatus
+            );
+            SetObjectReference(
+                controls,
+                "acknowledgeResultButton",
+                acknowledgeResult
+            );
             SetBoolean(instructionControls, "requireCommandSink", true);
         }
 
@@ -766,6 +807,31 @@ namespace SignVR.Editor.Interaction
                     "W8 standalone Start/status controls are incomplete or disabled."
                 );
             }
+            GameObject resultSurface = FindDirectChild(
+                uiAnchor,
+                ResultSurfaceName
+            )?.gameObject;
+            if (resultSurface == null ||
+                resultSurface.GetComponent<Canvas>() == null ||
+                resultSurface.GetComponent<GraphicRaycaster>() == null ||
+                resultSurface.GetComponent<WorldSpacePokeCanvas>() == null)
+            {
+                failures.Add(
+                    "Participant-visible W8StudyResultSurface XR/UGUI " +
+                    "touch UI is missing."
+                );
+            }
+            if (controls != null && (controls.ResultRoot != resultSurface ||
+                controls.ResultOutcomeLabel == null ||
+                controls.ResultSaveStatusLabel == null ||
+                controls.AcknowledgeResultButton == null ||
+                controls.AcknowledgeResultButton.transform.parent !=
+                    resultSurface?.transform))
+            {
+                failures.Add(
+                    "W8 Completed/Aborted result controls are incomplete."
+                );
+            }
             if (surface != null && (
                     FindDirectChild(surface.transform, "ParticipantId") != null ||
                     FindDirectChild(surface.transform, "BuildIdentity") != null ||
@@ -884,19 +950,27 @@ namespace SignVR.Editor.Interaction
                 UiAnchorPath
             );
 
-            Transform[] namedSurfaces = uiAnchor.Cast<Transform>()
-                .Where(child => string.Equals(
-                    child.name,
-                    StartSurfaceName,
-                    StringComparison.Ordinal))
-                .ToArray();
-            if (namedSurfaces.Length > 1 ||
-                (namedSurfaces.Length == 1 &&
-                 namedSurfaces[0].GetComponent<RectTransform>() == null))
+            foreach (string surfaceName in new[]
+                     {
+                         StartSurfaceName,
+                         ResultSurfaceName
+                     })
             {
-                throw new InvalidOperationException(
-                    "W8StudyStartSurface is duplicated or is not a UI object."
-                );
+                Transform[] namedSurfaces = uiAnchor.Cast<Transform>()
+                    .Where(child => string.Equals(
+                        child.name,
+                        surfaceName,
+                        StringComparison.Ordinal))
+                    .ToArray();
+                if (namedSurfaces.Length > 1 ||
+                    (namedSurfaces.Length == 1 &&
+                     namedSurfaces[0].GetComponent<RectTransform>() == null))
+                {
+                    throw new InvalidOperationException(
+                        surfaceName +
+                        " is duplicated or is not a UI object."
+                    );
+                }
             }
 
             InteractionTargetBinding[] bindings =
@@ -1192,6 +1266,115 @@ namespace SignVR.Editor.Interaction
                 new Vector2(700f, 48f));
 
             SetLayerRecursively(root.transform, uiAnchor.gameObject.layer);
+            return root;
+        }
+
+        private static GameObject EnsureResultSurface(
+            Transform uiAnchor,
+            Transform hmd)
+        {
+            TMP_FontAsset font = ResolveFont();
+            Transform existing = FindDirectChild(uiAnchor, ResultSurfaceName);
+            GameObject root = existing == null
+                ? CreateUiObject(uiAnchor, ResultSurfaceName)
+                : existing.gameObject;
+            RectTransform rect = RequireRect(root);
+            Undo.RecordObject(rect, "Layout W8 Result surface");
+            rect.anchorMin = rect.anchorMax = rect.pivot =
+                new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(780f, 500f);
+            rect.localPosition = new Vector3(0f, 0.20f, 0f);
+            rect.localRotation = Quaternion.identity;
+            rect.localScale = Vector3.one * 0.001f;
+
+            GetOrAdd<Canvas>(root);
+            GetOrAdd<CanvasScaler>(root);
+            GetOrAdd<GraphicRaycaster>(root);
+            GetOrAdd<WorldSpacePokeCanvas>(root);
+
+            Canvas canvas = root.GetComponent<Canvas>();
+            CanvasScaler scaler = root.GetComponent<CanvasScaler>();
+            WorldSpacePokeCanvas poke = root.GetComponent<WorldSpacePokeCanvas>();
+            if (canvas == null || scaler == null || poke == null)
+            {
+                throw new InvalidOperationException(
+                    "W8 Result surface could not create its required Canvas " +
+                    "component set."
+                );
+            }
+            Undo.RecordObjects(
+                new UnityEngine.Object[] { canvas, scaler, poke },
+                "Configure W8 Result canvas"
+            );
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.overrideSorting = true;
+            canvas.sortingOrder = 29992;
+            canvas.worldCamera = hmd.GetComponent<Camera>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+            scaler.dynamicPixelsPerUnit = 100f;
+            poke.Configure(canvas);
+
+            Image background = EnsurePanel(root.transform, "Background");
+            Undo.RecordObject(background, "Configure W8 Result background");
+            background.color = new Color(0.035f, 0.05f, 0.075f, 0.96f);
+            Stretch(background.rectTransform, 0f);
+            background.raycastTarget = false;
+
+            TMP_Text outcome = EnsureText(
+                root.transform,
+                "Outcome",
+                "完成或安全结束",
+                font,
+                34f
+            );
+            SetRect(
+                outcome.rectTransform,
+                new Vector2(0f, 120f),
+                new Vector2(700f, 100f)
+            );
+
+            TMP_Text saveStatus = EnsureText(
+                root.transform,
+                "SaveStatus",
+                "正在安全保存数据，请稍候…",
+                font,
+                23f
+            );
+            if (saveStatus.textWrappingMode != TextWrappingModes.Normal)
+            {
+                Undo.RecordObject(
+                    saveStatus,
+                    "Configure W8 result save-status wrapping"
+                );
+                saveStatus.textWrappingMode = TextWrappingModes.Normal;
+                EditorUtility.SetDirty(saveStatus);
+            }
+            SetRect(
+                saveStatus.rectTransform,
+                new Vector2(0f, 5f),
+                new Vector2(700f, 90f)
+            );
+
+            Button acknowledge = EnsureButton(
+                root.transform,
+                "Acknowledge",
+                "确认返回",
+                font,
+                new Color(0.12f, 0.56f, 0.30f, 1f)
+            );
+            SetRect(
+                acknowledge.GetComponent<RectTransform>(),
+                new Vector2(0f, -130f),
+                new Vector2(520f, 110f)
+            );
+
+            SetLayerRecursively(root.transform, uiAnchor.gameObject.layer);
+            if (root.activeSelf)
+            {
+                Undo.RecordObject(root, "Hide W8 Result surface before Run");
+                root.SetActive(false);
+                EditorUtility.SetDirty(root);
+            }
             return root;
         }
 

@@ -135,6 +135,9 @@ namespace SignVR.Interaction.Orchestration
             bool canReplay,
             bool canGiveUp,
             bool abortInProgress,
+            bool isResultVisible,
+            bool canAcknowledgeResult,
+            RunResult? terminalOutcome,
             string status)
         {
             RunState = runState;
@@ -145,6 +148,9 @@ namespace SignVR.Interaction.Orchestration
             CanReplay = canReplay;
             CanGiveUp = canGiveUp;
             AbortInProgress = abortInProgress;
+            IsResultVisible = isResultVisible;
+            CanAcknowledgeResult = canAcknowledgeResult;
+            TerminalOutcome = terminalOutcome;
             Status = status ?? string.Empty;
         }
 
@@ -156,6 +162,9 @@ namespace SignVR.Interaction.Orchestration
         public bool CanReplay { get; }
         public bool CanGiveUp { get; }
         public bool AbortInProgress { get; }
+        public bool IsResultVisible { get; }
+        public bool CanAcknowledgeResult { get; }
+        public RunResult? TerminalOutcome { get; }
         public string Status { get; }
     }
 

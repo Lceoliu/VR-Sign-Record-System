@@ -373,6 +373,16 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
             );
         }
 
+        [UnityTest]
+        public IEnumerator ResultReviewRoutesTouchConfirmationForBothOutcomes()
+        {
+            InvokeDriver(
+                StandaloneDriverTypeName,
+                "ResultPageRoutesCompletedAndAbortedAcknowledgement"
+            );
+            yield return null;
+        }
+
 #if UNITY_EDITOR
         [UnityTest]
         public IEnumerator SavedInteractionLabStartButtonConsumesOneRunAndStaysActive()
