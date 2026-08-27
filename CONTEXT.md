@@ -60,6 +60,10 @@ _Avoid_: Guidance toggle, per-phase condition
 A shuffled three-Run allocation containing each Assistance Condition exactly once. The next block is reshuffled after all three entries are consumed. A slot is consumed when Start creates its Run Plan and is not returned after an abort. Block state is intentionally session-local and resets whenever the Interaction application launches.
 _Avoid_: Independent coin flip, persisted study schedule
 
+**Test Assistance Override**:
+An explicit EngineeringLocal/debug-only configuration that assigns `TextAndPointing` directly to every new Run Plan for presentation testing. It does not change pointing geometry: the ray and highlight still require a hit on a current eligible target. Standalone Study rejects this override; disabling it restores the Assistance Assignment Block.
+_Avoid_: Hidden presentation override, Study condition
+
 **Pointing Assistance**:
 The ghost signer's fingertip ray and the corresponding target highlight, shown together for the current instruction as soon as the inferred fingertip ray hits an eligible target. There is no dwell-before-show threshold; after the ray stops hitting, both visuals may remain for an approximately 150 ms grace period to suppress flicker.
 _Avoid_: Participant hand ray, recorded cue timeline
@@ -72,9 +76,9 @@ _Avoid_: Physics fidelity, visual polish
 The existing rounded prompt surface, Chinese font, visual styling, and canonical sentence text already used during the 31-sentence recording workflow. Recorder keeps it in the HMD's upper-left field of view; Interaction reuses its presentation above the active ghost signer's head without rewriting the 31 sentence strings.
 _Avoid_: New subtitle system, screen-space caption
 
-**Delayed Transcript**:
-The canonical Chinese instruction text revealed in the Instruction Bubble only after the first sign-language playback finishes and a short delay elapses, representing a completed sign-to-text result.
-_Avoid_: Live subtitle, Guidance mode
+**Instruction Transcript**:
+The canonical Chinese instruction text shown in the Instruction Bubble when the Instruction Signer becomes visible and the instruction playback actually starts, when the Run's Assistance Condition includes text. It remains visible until the current phase exits; Replay does not toggle or recreate it.
+_Avoid_: Delayed Transcript, screen-space caption, per-Replay bubble
 
 **Phase Replay Allowance**:
 The single optional replay available after the first instruction playback completes. Using it is logged; the replay control remains unavailable before completion and cannot be used a second time in the same phase.

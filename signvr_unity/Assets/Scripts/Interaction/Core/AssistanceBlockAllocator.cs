@@ -2,14 +2,23 @@ using System;
 
 namespace SignVR.Interaction.Core
 {
+    public enum AssistanceAssignmentMode
+    {
+        RandomizedBlock = 0,
+        ForcedTextAndPointing = 1
+    }
+
     public sealed class AssistanceAssignment
     {
         public AssistanceAssignment(
             AssistanceCondition condition,
             int blockIndex,
-            int slotIndex)
+            int slotIndex,
+            AssistanceAssignmentMode mode =
+                AssistanceAssignmentMode.RandomizedBlock)
         {
             CoreGuard.DefinedEnum(condition, nameof(condition));
+            CoreGuard.DefinedEnum(mode, nameof(mode));
             if (blockIndex < 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(blockIndex));
@@ -23,6 +32,7 @@ namespace SignVR.Interaction.Core
             Condition = condition;
             BlockIndex = blockIndex;
             SlotIndex = slotIndex;
+            Mode = mode;
         }
 
         public AssistanceCondition Condition { get; }
@@ -30,6 +40,11 @@ namespace SignVR.Interaction.Core
         public int BlockIndex { get; }
 
         public int SlotIndex { get; }
+
+        public AssistanceAssignmentMode Mode { get; }
+
+        public bool IsForced =>
+            Mode == AssistanceAssignmentMode.ForcedTextAndPointing;
     }
 
     /// <summary>
@@ -43,6 +58,7 @@ namespace SignVR.Interaction.Core
         public const int BlockSize = 3;
 
         private readonly DeterministicRandom random;
+        private readonly AssistanceAssignmentMode mode;
         private AssistanceCondition[] currentBlock;
         private int nextSlotIndex;
         private int currentBlockIndex = -1;
@@ -55,9 +71,28 @@ namespace SignVR.Interaction.Core
         }
 
         public AssistanceBlockAllocator(int sessionSeed)
+            : this(sessionSeed, forceTextAndPointing: false)
+        {
+        }
+
+        public AssistanceBlockAllocator(
+            int sessionSeed,
+            bool forceTextAndPointing)
         {
             random = new DeterministicRandom(sessionSeed);
+            mode = forceTextAndPointing
+                ? AssistanceAssignmentMode.ForcedTextAndPointing
+                : AssistanceAssignmentMode.RandomizedBlock;
         }
+
+        public AssistanceBlockAllocator(bool forceTextAndPointing)
+            : this(unchecked(
+                (Environment.TickCount * 397) ^ Guid.NewGuid().GetHashCode()
+            ), forceTextAndPointing)
+        {
+        }
+
+        public AssistanceAssignmentMode Mode => mode;
 
         public int CurrentBlockIndex => currentBlockIndex;
 
@@ -79,7 +114,8 @@ namespace SignVR.Interaction.Core
             var assignment = new AssistanceAssignment(
                 currentBlock[nextSlotIndex],
                 currentBlockIndex,
-                nextSlotIndex
+                nextSlotIndex,
+                mode
             );
 
             // The slot is committed only after Start has successfully created
@@ -98,13 +134,24 @@ namespace SignVR.Interaction.Core
 
             currentBlockIndex++;
             nextSlotIndex = 0;
-            currentBlock = new[]
+            currentBlock = mode == AssistanceAssignmentMode
+                    .ForcedTextAndPointing
+                ? new[]
+                {
+                    AssistanceCondition.TextAndPointing,
+                    AssistanceCondition.TextAndPointing,
+                    AssistanceCondition.TextAndPointing
+                }
+                : new[]
             {
                 AssistanceCondition.TextAndPointing,
                 AssistanceCondition.TextOnly,
                 AssistanceCondition.SignOnly
             };
-            random.Shuffle(currentBlock);
+            if (mode == AssistanceAssignmentMode.RandomizedBlock)
+            {
+                random.Shuffle(currentBlock);
+            }
         }
     }
 

@@ -105,6 +105,34 @@ namespace SignVR.Interaction.Editor.Tests.CaptureHost
         }
 
         [Test]
+        public void TestAssistanceOverride_RequiresArmedEngineeringDebugBoundary()
+        {
+            Assert.DoesNotThrow(() => ValidateStartWithAssistanceOverride(
+                "EngineeringLocal",
+                debugOverridesActive: true,
+                engineeringLocalExplicitlyArmed: true,
+                debugBuild: true,
+                forceTextAndPointingForTesting: true
+            ));
+            Assert.Throws<InvalidOperationException>(() =>
+                ValidateStartWithAssistanceOverride(
+                    "StandaloneStudy",
+                    debugOverridesActive: false,
+                    engineeringLocalExplicitlyArmed: false,
+                    debugBuild: true,
+                    forceTextAndPointingForTesting: true
+                ));
+            Assert.Throws<InvalidOperationException>(() =>
+                ValidateStartWithAssistanceOverride(
+                    "EngineeringLocal",
+                    debugOverridesActive: false,
+                    engineeringLocalExplicitlyArmed: true,
+                    debugBuild: true,
+                    forceTextAndPointingForTesting: true
+                ));
+        }
+
+        [Test]
         public void StandaloneStructure_AcceptsStrictStudyDefaults()
         {
             Assert.DoesNotThrow(() => ValidateStructure(
@@ -125,6 +153,22 @@ namespace SignVR.Interaction.Editor.Tests.CaptureHost
                 referencesWired: true,
                 runModeName: "StandaloneStudy",
                 debugOverridesActive: true
+            ));
+        }
+
+        [Test]
+        public void StandaloneStructure_AcceptsExplicitTestConfiguration()
+        {
+            Assert.DoesNotThrow(() => InvokePublicStatic(
+                SetupPolicyTypeName,
+                "ValidateStructureWithAssistanceMode",
+                1,
+                1,
+                true,
+                ParseRunMode("EngineeringLocal"),
+                true,
+                true,
+                true
             ));
         }
 
@@ -159,6 +203,24 @@ namespace SignVR.Interaction.Editor.Tests.CaptureHost
                 referencesWired,
                 ParseRunMode(runModeName),
                 debugOverridesActive
+            );
+        }
+
+        private static void ValidateStartWithAssistanceOverride(
+            string runModeName,
+            bool debugOverridesActive,
+            bool engineeringLocalExplicitlyArmed,
+            bool debugBuild,
+            bool forceTextAndPointingForTesting)
+        {
+            InvokePublicStatic(
+                StartPolicyTypeName,
+                "ValidateWithAssistanceOverride",
+                ParseRunMode(runModeName),
+                debugOverridesActive,
+                engineeringLocalExplicitlyArmed,
+                debugBuild,
+                forceTextAndPointingForTesting
             );
         }
 

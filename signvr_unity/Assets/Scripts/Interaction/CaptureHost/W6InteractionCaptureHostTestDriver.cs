@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using SignVR.Interaction.Core;
@@ -98,6 +99,68 @@ namespace SignVR.Interaction.CaptureHost
             {
                 "TextAndPointing", "TextOnly", "SignOnly"
             }), "One assistance block must contain all three conditions.");
+        }
+
+        public static void ForcedAssistanceMatchesPlanManifestAndCaptureLog()
+        {
+            var allocator = new AssistanceBlockAllocator(
+                91,
+                forceTextAndPointing: true
+            );
+            var generator = CreateGenerator();
+            MethodInfo payloadBuilder = typeof(InteractionRunController)
+                .GetMethod(
+                    "BuildRunCreatedPayload",
+                    BindingFlags.NonPublic | BindingFlags.Static
+                );
+            Require(payloadBuilder != null, "Run-created payload builder is missing.");
+
+            for (int runIndex = 0; runIndex < 5; runIndex++)
+            {
+                RunPlan plan = generator.Generate(
+                    CreateRequest(200 + runIndex, "P001"),
+                    allocator.AllocateNext()
+                );
+                Require(
+                    plan.AssistanceCondition ==
+                        AssistanceCondition.TextAndPointing &&
+                    plan.ConditionAssignment.IsForced,
+                    "Forced Run Plan condition or provenance drifted."
+                );
+
+                IDictionary<string, object> manifest =
+                    InteractionJson.ParseObject(
+                        new UTF8Encoding(false, true).GetString(
+                            InteractionRunManifestContractV1.SerializeUtf8(plan)
+                        )
+                    );
+                Require(
+                    InteractionJson.RequireString(
+                        manifest,
+                        "assistance_condition"
+                    ) == plan.AssistanceCondition.ToString(),
+                    "Manifest assistance condition differs from its Run Plan."
+                );
+
+                string payload = (string)payloadBuilder.Invoke(
+                    null,
+                    new object[] { plan }
+                );
+                IDictionary<string, object> capture =
+                    InteractionJson.ParseObject(payload);
+                Require(
+                    InteractionJson.RequireString(
+                        capture,
+                        "assistance_condition"
+                    ) == plan.AssistanceCondition.ToString() &&
+                    InteractionJson.RequireString(
+                        capture,
+                        "assignment_mode"
+                    ) == AssistanceAssignmentMode.ForcedTextAndPointing
+                        .ToString(),
+                    "Capture log condition or assignment mode differs from the Plan."
+                );
+            }
         }
 
         public static void ScheduledStartGateBlocksPreStartCapture()

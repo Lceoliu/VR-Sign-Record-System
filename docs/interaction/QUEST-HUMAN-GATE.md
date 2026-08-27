@@ -114,7 +114,8 @@ Common checks across all six phases:
 - [ ] The participant can interact at any time; interaction is not locked to
   animation playback.
 - [ ] The first instruction plays once automatically.
-- [ ] The text bubble appears about one second after the first playback ends,
+- [ ] In a text-bearing condition, the text bubble appears as soon as the
+  Instruction Signer becomes visible and first playback starts,
   remains visible thereafter, and is above the signer ghost's head. Its text
   and visual style match the prior recording UI.
 - [ ] The Replay button is disabled until playback completes, can be used at

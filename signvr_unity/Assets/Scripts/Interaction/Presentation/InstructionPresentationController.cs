@@ -341,10 +341,12 @@ namespace SignVR.Interaction.Presentation
 
         private void HandlePlaybackStarted(InstructionPlaybackPass pass)
         {
+            double now = Time.realtimeSinceStartupAsDouble;
             InstructionPlaybackStarted?.Invoke(
                 pass,
-                Time.realtimeSinceStartupAsDouble
+                now
             );
+            presentationState.InstructionPlaybackStarted(now);
             StateChanged?.Invoke();
         }
 

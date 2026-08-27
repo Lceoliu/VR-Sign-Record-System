@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using SignVR.Interaction.CaptureHost;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -127,7 +128,10 @@ namespace SignVR.Editor.Interaction
             Transform captureAnchor = RequireTransform(scene, CaptureAnchorPath);
 
             InteractionRunController controller =
-                GetOrAdd<InteractionRunController>(runtimeAnchor.gameObject);
+                runtimeAnchor.GetComponent<InteractionRunController>();
+            bool controllerWasAdded = controller == null;
+            controller ??=
+                Undo.AddComponent<InteractionRunController>(runtimeAnchor.gameObject);
             InteractionCaptureSampler sampler =
                 GetOrAdd<InteractionCaptureSampler>(captureAnchor.gameObject);
 
@@ -137,6 +141,10 @@ namespace SignVR.Editor.Interaction
                 sampler
             );
             SetObjectReference(sampler, "controller", controller);
+            if (controllerWasAdded)
+            {
+                ConfigureTestAssistanceOverride(controller);
+            }
             afterWiring?.Invoke();
             ValidateSceneStructure(scene, requireCanonicalScenePath);
         }
@@ -174,13 +182,15 @@ namespace SignVR.Editor.Interaction
                     "W6 component references are not wired to the anchor-local instances."
                 );
             }
-            InteractionCaptureSetupPolicy.ValidateStructure(
+            InteractionCaptureSetupPolicy.ValidateStructureWithAssistanceMode(
                 controllers.Length,
                 samplers.Length,
                 controllers[0].CaptureSampler == samplers[0] &&
                     samplers[0].Controller == controllers[0],
                 controllers[0].RunMode,
-                controllers[0].DebugOverridesActive
+                controllers[0].DebugOverridesActive,
+                controllers[0].EngineeringLocalExplicitlyArmed,
+                controllers[0].ForceTextAndPointingForTesting
             );
 
             int controllerCount = EnumerateSceneComponents<InteractionRunController>(
@@ -248,14 +258,105 @@ namespace SignVR.Editor.Interaction
                     "Existing W6 components are not on their canonical anchors."
                 );
             }
-            if (controllers.Length == 1 &&
-                (controllers[0].RunMode != InteractionRunMode.StandaloneStudy ||
-                 controllers[0].DebugOverridesActive))
+        }
+
+        [MenuItem("Tools/SignVR/Interaction/Assistance/Enable Test Text + Pointing")]
+        public static void EnableTestAssistanceOverride()
+        {
+            InteractionRunController controller = RequireControllerInActiveScene();
+            ConfigureTestAssistanceOverride(controller);
+            ValidateLoadedSceneStructure();
+            Debug.Log(
+                "[W6InteractionCaptureHostSetup] EngineeringLocal test assistance override enabled."
+            );
+        }
+
+        public static void EnableTestAssistanceOverrideForAutomation()
+        {
+            Scene scene = EditorSceneManager.OpenScene(
+                InteractionLabContract.ScenePath,
+                OpenSceneMode.Single
+            );
+            InteractionRunController controller = RequireControllerInActiveScene();
+            ConfigureTestAssistanceOverride(controller);
+            ValidateSceneStructure(scene, true);
+            if (!EditorSceneManager.SaveScene(
+                    scene,
+                    InteractionLabContract.ScenePath,
+                    saveAsCopy: false))
             {
                 throw new InvalidOperationException(
-                    "Existing W6 controller is not the default standalone Study configuration."
+                    "Could not save the test assistance configuration."
                 );
             }
+            Debug.Log(
+                "[W6InteractionCaptureHostSetup] Saved EngineeringLocal TextAndPointing test configuration."
+            );
+        }
+
+        [MenuItem("Tools/SignVR/Interaction/Assistance/Disable Override for Study")]
+        public static void DisableTestAssistanceOverrideForStudy()
+        {
+            InteractionRunController controller = RequireControllerInActiveScene();
+            SetModeFields(
+                controller,
+                InteractionRunMode.StandaloneStudy,
+                debugOverridesActive: false,
+                engineeringLocalExplicitlyArmed: false,
+                forceTextAndPointingForTesting: false
+            );
+            ValidateLoadedSceneStructure();
+            Debug.Log(
+                "[W6InteractionCaptureHostSetup] Study mode restored; randomized three-Run assistance blocks are active."
+            );
+        }
+
+        private static void ConfigureTestAssistanceOverride(
+            InteractionRunController controller)
+        {
+            SetModeFields(
+                controller,
+                InteractionRunMode.EngineeringLocal,
+                debugOverridesActive: true,
+                engineeringLocalExplicitlyArmed: true,
+                forceTextAndPointingForTesting: true
+            );
+        }
+
+        private static void SetModeFields(
+            InteractionRunController controller,
+            InteractionRunMode mode,
+            bool debugOverridesActive,
+            bool engineeringLocalExplicitlyArmed,
+            bool forceTextAndPointingForTesting)
+        {
+            Undo.RecordObject(controller, "Configure Interaction assistance mode");
+            var serialized = new SerializedObject(controller);
+            serialized.Update();
+            serialized.FindProperty("runMode").enumValueIndex = (int)mode;
+            serialized.FindProperty("debugOverridesActive").boolValue =
+                debugOverridesActive;
+            serialized.FindProperty("engineeringLocalExplicitlyArmed").boolValue =
+                engineeringLocalExplicitlyArmed;
+            serialized.FindProperty("forceTextAndPointingForTesting").boolValue =
+                forceTextAndPointingForTesting;
+            serialized.ApplyModifiedProperties();
+            EditorUtility.SetDirty(controller);
+        }
+
+        private static InteractionRunController RequireControllerInActiveScene()
+        {
+            Scene scene = SceneManager.GetActiveScene();
+            Transform runtimeAnchor = RequireTransform(scene, RuntimeAnchorPath);
+            InteractionRunController controller =
+                runtimeAnchor.GetComponent<InteractionRunController>();
+            if (controller == null)
+            {
+                throw new InvalidOperationException(
+                    "InteractionRunController is not configured on RuntimeSystemsAnchor."
+                );
+            }
+            return controller;
         }
 
         private static void SetObjectReference(

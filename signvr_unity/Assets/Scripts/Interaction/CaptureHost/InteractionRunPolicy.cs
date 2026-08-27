@@ -17,13 +17,29 @@ namespace SignVR.Interaction.CaptureHost
             bool engineeringLocalExplicitlyArmed,
             bool debugBuild)
         {
+            ValidateWithAssistanceOverride(
+                mode,
+                debugOverridesActive,
+                engineeringLocalExplicitlyArmed,
+                debugBuild,
+                forceTextAndPointingForTesting: false
+            );
+        }
+
+        public static void ValidateWithAssistanceOverride(
+            InteractionRunMode mode,
+            bool debugOverridesActive,
+            bool engineeringLocalExplicitlyArmed,
+            bool debugBuild,
+            bool forceTextAndPointingForTesting)
+        {
             if (!Enum.IsDefined(typeof(InteractionRunMode), mode))
             {
                 throw new ArgumentOutOfRangeException(nameof(mode));
             }
             if (mode == InteractionRunMode.StandaloneStudy)
             {
-                if (debugOverridesActive)
+                if (debugOverridesActive || forceTextAndPointingForTesting)
                 {
                     throw new InvalidOperationException(
                         "StandaloneStudy refuses every active debug override."
@@ -36,6 +52,12 @@ namespace SignVR.Interaction.CaptureHost
             {
                 throw new InvalidOperationException(
                     "EngineeringLocal requires an explicit arm flag and a debug build."
+                );
+            }
+            if (forceTextAndPointingForTesting && !debugOverridesActive)
+            {
+                throw new InvalidOperationException(
+                    "The TextAndPointing test override must be declared as an active debug override."
                 );
             }
         }
@@ -79,6 +101,26 @@ namespace SignVR.Interaction.CaptureHost
             InteractionRunMode runMode,
             bool debugOverridesActive)
         {
+            ValidateStructureWithAssistanceMode(
+                controllerCount,
+                samplerCount,
+                referencesWired,
+                runMode,
+                debugOverridesActive,
+                engineeringLocalExplicitlyArmed: false,
+                forceTextAndPointingForTesting: false
+            );
+        }
+
+        public static void ValidateStructureWithAssistanceMode(
+            int controllerCount,
+            int samplerCount,
+            bool referencesWired,
+            InteractionRunMode runMode,
+            bool debugOverridesActive,
+            bool engineeringLocalExplicitlyArmed,
+            bool forceTextAndPointingForTesting)
+        {
             if (controllerCount != 1 || samplerCount != 1)
             {
                 throw new InvalidOperationException(
@@ -92,12 +134,22 @@ namespace SignVR.Interaction.CaptureHost
                     "W6 structure references are not wired."
                 );
             }
-            if (runMode != InteractionRunMode.StandaloneStudy ||
-                debugOverridesActive)
+            bool productionStudy =
+                runMode == InteractionRunMode.StandaloneStudy &&
+                !debugOverridesActive &&
+                !engineeringLocalExplicitlyArmed &&
+                !forceTextAndPointingForTesting;
+            bool explicitTestConfiguration =
+                runMode == InteractionRunMode.EngineeringLocal &&
+                debugOverridesActive &&
+                engineeringLocalExplicitlyArmed &&
+                forceTextAndPointingForTesting;
+            if (!productionStudy && !explicitTestConfiguration)
             {
                 throw new InvalidOperationException(
-                    "Standalone Interaction structure must default to " +
-                    "StandaloneStudy without overrides."
+                    "Standalone Interaction structure must be either the " +
+                    "production Study configuration or the explicit " +
+                    "EngineeringLocal TextAndPointing test configuration."
                 );
             }
         }

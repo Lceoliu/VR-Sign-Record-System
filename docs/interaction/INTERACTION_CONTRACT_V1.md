@@ -10,7 +10,7 @@ Status: frozen for the 2026-08-26 internal pilot. Additive implementation detail
 - `TextOnly`
 - `SignOnly`
 
-`PointingOnly` is invalid. One value is assigned per Run and applies to all six phases. A Start consumes one slot from a session-local shuffled block containing each value once; abort does not return the slot, and application restart creates a new block.
+`PointingOnly` is invalid. One value is assigned per Run and applies to all six phases. In Standalone Study, Start consumes one slot from a session-local shuffled block containing each value once; abort does not return the slot, and application restart creates a new block. An explicitly armed EngineeringLocal debug build may instead force `TextAndPointing` into every Run Plan. Standalone Study rejects that override.
 
 ### Run and phase states
 
@@ -111,7 +111,7 @@ Pilot validation requires one entry for every sentence `001` through `031`. Gene
 - Current-phase interactions are enabled throughout the phase, including playback.
 - First playback start is the timer origin.
 - After first playback completes, Replay becomes available and may be used at most once.
-- In text-bearing conditions, the existing Chinese bubble appears one second after first playback completes and stays until phase exit.
+- In text-bearing conditions, the existing Chinese bubble appears when the signer becomes visible and the first instruction playback actually starts, then stays until phase exit. Replay does not hide, recreate, or re-time it. `SignOnly` never shows the bubble.
 - Pointing display is derived from the ghost fingertip ray against current legal targets. A hit shows ray and highlight immediately; there is no entry dwell. Loss of hit hides them after an approximately 150 ms grace period.
 - A phase timeout at 180 seconds logs an event but does not auto-advance.
 - `GiveUpPhase` is available after the allowed replay completes and records `Stuck` before advancing.
