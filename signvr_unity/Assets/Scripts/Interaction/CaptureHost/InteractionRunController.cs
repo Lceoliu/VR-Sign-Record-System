@@ -162,17 +162,16 @@ namespace SignVR.Interaction.CaptureHost
                     Encoding.UTF8.GetBytes(projectRoot)
                 );
             }
-            var token = new StringBuilder(12);
-            for (int index = 0; index < 6; index++)
-            {
-                token.Append(projectHash[index].ToString(
-                    "x2",
-                    CultureInfo.InvariantCulture
-                ));
-            }
+            // Keep the Editor-only root short enough that recovery's sibling
+            // temporary names stay below legacy Windows MAX_PATH limits. Six
+            // hash bytes still provide a stable 48-bit project identity.
+            string token = Convert.ToBase64String(projectHash, 0, 6)
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
             return Path.Combine(
                 Path.GetTempPath(),
-                "svr-ed-" + token
+                "sv-" + token
             );
 #else
             return Application.persistentDataPath;

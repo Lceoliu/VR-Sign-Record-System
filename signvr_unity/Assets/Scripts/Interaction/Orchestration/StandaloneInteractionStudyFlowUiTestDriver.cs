@@ -1060,11 +1060,13 @@ namespace SignVR.Interaction.Orchestration
                         pathComparison
                     ) &&
                     editorStorageName.StartsWith(
-                        "svr-ed-",
+                        "sv-",
                         StringComparison.Ordinal
-                    ),
+                    ) &&
+                    editorStorageName.Length == 11,
                 "Editor Play Mode startup recovery was not isolated from " +
-                    "the real persistent experiment root."
+                    "the real persistent experiment root or exceeded its " +
+                    "short-path contract."
             );
 
             double preparationDeadline =
