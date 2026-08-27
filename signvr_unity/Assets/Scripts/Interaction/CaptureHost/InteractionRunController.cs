@@ -26,6 +26,10 @@ namespace SignVR.Interaction.CaptureHost
         [Tooltip("EngineeringLocal requires this explicit arm flag and a debug build.")]
         private bool engineeringLocalExplicitlyArmed;
 
+        [SerializeField]
+        [Tooltip("EngineeringLocal-only test aid. Every Run Plan receives TextAndPointing; disable it to restore randomized three-Run blocks.")]
+        private bool forceTextAndPointingForTesting;
+
         [Header("Run identity")]
         [SerializeField]
         private string batchId = "pilot-20260826";
@@ -113,6 +117,10 @@ namespace SignVR.Interaction.CaptureHost
         public string GitCommit => gitCommit;
         public InteractionRunMode RunMode => runMode;
         public bool DebugOverridesActive => debugOverridesActive;
+        public bool EngineeringLocalExplicitlyArmed =>
+            engineeringLocalExplicitlyArmed;
+        public bool ForceTextAndPointingForTesting =>
+            forceTextAndPointingForTesting;
         public InteractionCaptureSampler CaptureSampler => captureSampler;
         public InteractionStandaloneLocalRunRecoveryStatus StartupRecoveryStatus =>
             startupRecovery == null
@@ -135,7 +143,9 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return;
             }
-            conditionAllocator = new AssistanceBlockAllocator();
+            conditionAllocator = new AssistanceBlockAllocator(
+                forceTextAndPointingForTesting
+            );
             stateMachine = new InteractionRunStateMachine(
                 conditionAllocator,
                 new RunPlanGenerator()
@@ -236,7 +246,8 @@ namespace SignVR.Interaction.CaptureHost
         public void ConfigureMode(
             InteractionRunMode configuredMode,
             bool configuredDebugOverridesActive,
-            bool explicitlyArmEngineeringLocal)
+            bool explicitlyArmEngineeringLocal,
+            bool forceTextAndPointing = false)
         {
             if (State != RunState.PreStart)
             {
@@ -247,6 +258,21 @@ namespace SignVR.Interaction.CaptureHost
             runMode = configuredMode;
             debugOverridesActive = configuredDebugOverridesActive;
             engineeringLocalExplicitlyArmed = explicitlyArmEngineeringLocal;
+            forceTextAndPointingForTesting = forceTextAndPointing;
+            bool allocatorIsForced = conditionAllocator != null &&
+                conditionAllocator.Mode == AssistanceAssignmentMode
+                    .ForcedTextAndPointing;
+            if (stateMachine != null &&
+                allocatorIsForced != forceTextAndPointingForTesting)
+            {
+                conditionAllocator = new AssistanceBlockAllocator(
+                    forceTextAndPointingForTesting
+                );
+                stateMachine = new InteractionRunStateMachine(
+                    conditionAllocator,
+                    new RunPlanGenerator()
+                );
+            }
         }
 
         public bool CanStart(out string reason)
@@ -296,11 +322,12 @@ namespace SignVR.Interaction.CaptureHost
             }
             try
             {
-                InteractionStudyStartPolicy.Validate(
+                InteractionStudyStartPolicy.ValidateWithAssistanceOverride(
                     runMode,
                     debugOverridesActive,
                     engineeringLocalExplicitlyArmed,
-                    IsDebugBuild()
+                    IsDebugBuild(),
+                    forceTextAndPointingForTesting
                 );
                 InteractionStoragePaths.ValidateSegment(batchId, nameof(batchId));
                 InteractionStoragePaths.ValidateSegment(
@@ -1740,9 +1767,11 @@ namespace SignVR.Interaction.CaptureHost
             ) + ",\"block_index\":" +
                 plan.ConditionAssignment.BlockIndex.ToString(
                     CultureInfo.InvariantCulture
-                ) + ",\"slot_index\":" +
+            ) + ",\"slot_index\":" +
                 plan.ConditionAssignment.SlotIndex.ToString(
                     CultureInfo.InvariantCulture
+                ) + ",\"assignment_mode\":" + Quote(
+                    plan.ConditionAssignment.Mode.ToString()
                 ) + "}";
         }
 

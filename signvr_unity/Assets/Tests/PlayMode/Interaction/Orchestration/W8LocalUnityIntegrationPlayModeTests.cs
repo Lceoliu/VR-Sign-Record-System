@@ -28,6 +28,98 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
         }
 
         [UnityTest]
+        public IEnumerator AssistanceOverrideAndImmediateTranscriptHoldInPlayMode()
+        {
+            Type conditionType = Type.GetType(
+                "SignVR.Interaction.Core.AssistanceCondition, " +
+                "SignVR.Interaction.Core",
+                throwOnError: true
+            );
+            Type allocatorType = Type.GetType(
+                "SignVR.Interaction.Core.AssistanceBlockAllocator, " +
+                "SignVR.Interaction.Core",
+                throwOnError: true
+            );
+            object allocator = Activator.CreateInstance(
+                allocatorType,
+                new object[] { 17, true }
+            );
+            MethodInfo allocate = allocatorType.GetMethod("AllocateNext");
+            for (int index = 0; index < 5; index++)
+            {
+                object assignment = allocate.Invoke(allocator, null);
+                Assert.That(
+                    assignment.GetType().GetProperty("Condition")
+                        .GetValue(assignment).ToString(),
+                    Is.EqualTo("TextAndPointing")
+                );
+                Assert.That(
+                    assignment.GetType().GetProperty("IsForced")
+                        .GetValue(assignment),
+                    Is.True
+                );
+            }
+
+            Type stateType = Type.GetType(
+                "SignVR.Interaction.Presentation." +
+                "InstructionPhasePresentationState, Assembly-CSharp",
+                throwOnError: true
+            );
+            foreach (string conditionName in new[]
+                { "TextAndPointing", "TextOnly" })
+            {
+                object state = Activator.CreateInstance(stateType);
+                stateType.GetMethod("BeginPhase").Invoke(
+                    state,
+                    new[] { Enum.Parse(conditionType, conditionName) }
+                );
+                stateType.GetMethod("InstructionPlaybackStarted").Invoke(
+                    state,
+                    new object[] { 1d }
+                );
+                Assert.That(
+                    stateType.GetProperty("BubbleVisible").GetValue(state),
+                    Is.True,
+                    conditionName
+                );
+                stateType.GetMethod("FirstPlaybackCompleted").Invoke(
+                    state,
+                    new object[] { 2d }
+                );
+                stateType.GetMethod("TryConsumeReplay").Invoke(state, null);
+                stateType.GetMethod("InstructionPlaybackStarted").Invoke(
+                    state,
+                    new object[] { 3d }
+                );
+                Assert.That(
+                    stateType.GetProperty("BubbleVisible").GetValue(state),
+                    Is.True,
+                    "Replay must retain the existing bubble."
+                );
+                stateType.GetMethod("EndPhase").Invoke(state, null);
+                Assert.That(
+                    stateType.GetProperty("BubbleVisible").GetValue(state),
+                    Is.False
+                );
+            }
+
+            object signOnly = Activator.CreateInstance(stateType);
+            stateType.GetMethod("BeginPhase").Invoke(
+                signOnly,
+                new[] { Enum.Parse(conditionType, "SignOnly") }
+            );
+            stateType.GetMethod("InstructionPlaybackStarted").Invoke(
+                signOnly,
+                new object[] { 1d }
+            );
+            Assert.That(
+                stateType.GetProperty("BubbleVisible").GetValue(signOnly),
+                Is.False
+            );
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator ReplayGiveUpAndValidationDriftAreExactlyOnce()
         {
             InvokeDriver("ReplayUsesOneW6TokenAndCannotStartTwice");

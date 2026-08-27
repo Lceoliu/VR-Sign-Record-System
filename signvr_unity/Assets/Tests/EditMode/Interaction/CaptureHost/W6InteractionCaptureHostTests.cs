@@ -27,6 +27,12 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void ForcedAssistanceMatchesPlanManifestAndCaptureLog()
+        {
+            Invoke(nameof(ForcedAssistanceMatchesPlanManifestAndCaptureLog));
+        }
+
+        [Test]
         public void ScheduledStartGateBlocksPreStartCapture()
         {
             Invoke(nameof(ScheduledStartGateBlocksPreStartCapture));

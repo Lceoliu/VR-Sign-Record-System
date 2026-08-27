@@ -9,8 +9,6 @@ namespace SignVR.Interaction.Presentation
     /// </summary>
     public sealed class InstructionPhasePresentationState
     {
-        public const double BubbleDelaySeconds = 1d;
-
         private AssistanceCondition condition;
         private bool phaseActive;
         private bool firstPlaybackCompleted;
@@ -18,7 +16,6 @@ namespace SignVR.Interaction.Presentation
         private bool replayConsumed;
         private bool replayInProgress;
         private bool replayCompleted;
-        private double bubbleDueAt = double.PositiveInfinity;
         private double lastMonotonicTime = double.NaN;
 
         public event Action Changed;
@@ -68,7 +65,6 @@ namespace SignVR.Interaction.Presentation
             replayConsumed = false;
             replayInProgress = false;
             replayCompleted = false;
-            bubbleDueAt = double.PositiveInfinity;
             lastMonotonicTime = double.NaN;
 
             if (wasVisible)
@@ -76,6 +72,23 @@ namespace SignVR.Interaction.Presentation
                 BubbleHidden?.Invoke();
             }
             Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// Reveals text at the same presentation boundary at which the signer
+        /// becomes visible and the first instruction playback starts. Replays
+        /// are intentionally idempotent and never toggle the bubble.
+        /// </summary>
+        public void InstructionPlaybackStarted(double monotonicTime)
+        {
+            EnsurePhaseActive();
+            AdvanceTime(monotonicTime);
+            if (!bubbleVisible && TextAllowed)
+            {
+                bubbleVisible = true;
+                BubbleShown?.Invoke();
+                Changed?.Invoke();
+            }
         }
 
         public void FirstPlaybackCompleted(double monotonicTime)
@@ -90,11 +103,6 @@ namespace SignVR.Interaction.Presentation
             }
 
             firstPlaybackCompleted = true;
-            if (TextAllowed)
-            {
-                bubbleDueAt = monotonicTime + BubbleDelaySeconds;
-            }
-
             ReplayBecameAvailable?.Invoke();
             Changed?.Invoke();
         }
@@ -107,13 +115,6 @@ namespace SignVR.Interaction.Presentation
             }
 
             AdvanceTime(monotonicTime);
-            if (!bubbleVisible && TextAllowed && firstPlaybackCompleted &&
-                monotonicTime >= bubbleDueAt)
-            {
-                bubbleVisible = true;
-                BubbleShown?.Invoke();
-                Changed?.Invoke();
-            }
         }
 
         /// <summary>
@@ -161,7 +162,6 @@ namespace SignVR.Interaction.Presentation
             phaseActive = false;
             bubbleVisible = false;
             replayInProgress = false;
-            bubbleDueAt = double.PositiveInfinity;
             if (wasVisible)
             {
                 BubbleHidden?.Invoke();

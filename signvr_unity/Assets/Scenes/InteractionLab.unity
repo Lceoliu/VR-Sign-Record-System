@@ -12997,9 +12997,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 553df6c9c17e48f8a754bde9bc95c224, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::SignVR.Interaction.CaptureHost.InteractionRunController
-  runMode: 0
-  debugOverridesActive: 0
-  engineeringLocalExplicitlyArmed: 0
+  runMode: 1
+  debugOverridesActive: 1
+  engineeringLocalExplicitlyArmed: 1
+  forceTextAndPointingForTesting: 1
   batchId: pilot-20260826
   participantId: UNCONFIGURED
   gitCommit: unintegrated

@@ -167,6 +167,37 @@ namespace SignVR.Interaction.Core.Tests
         }
 
         [Test]
+        public void AssistanceAllocator_TestOverrideForcesEveryRunWithoutShuffle()
+        {
+            var allocator = new AssistanceBlockAllocator(
+                2468,
+                forceTextAndPointing: true
+            );
+
+            AssistanceAssignment[] assignments = Enumerable.Range(0, 7)
+                .Select(_ => allocator.AllocateNext())
+                .ToArray();
+
+            Assert.That(
+                assignments.Select(item => item.Condition),
+                Is.All.EqualTo(AssistanceCondition.TextAndPointing)
+            );
+            Assert.That(assignments.All(item => item.IsForced), Is.True);
+            Assert.That(
+                assignments.Select(item => item.Mode),
+                Is.All.EqualTo(AssistanceAssignmentMode.ForcedTextAndPointing)
+            );
+            Assert.That(
+                assignments.Select(item => item.BlockIndex),
+                Is.EqualTo(new[] { 0, 0, 0, 1, 1, 1, 2 })
+            );
+            Assert.That(
+                assignments.Select(item => item.SlotIndex),
+                Is.EqualTo(new[] { 0, 1, 2, 0, 1, 2, 0 })
+            );
+        }
+
+        [Test]
         public void AssistanceAllocator_NewApplicationSessionRestartsTheBlock()
         {
             var firstSession = new AssistanceBlockAllocator(99);
