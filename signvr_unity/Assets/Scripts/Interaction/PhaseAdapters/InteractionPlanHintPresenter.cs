@@ -143,6 +143,11 @@ namespace SignVR.Interaction.PhaseAdapters
             plan = coordinator.Plan;
             InteractionTaskPresentationSnapshot snapshot =
                 coordinator.PresentationSnapshot;
+            ValidationResult phaseOneResult = coordinator.LastResult;
+            if (phaseOneResult != null && phaseOneResult.PhaseId != 1)
+            {
+                phaseOneResult = null;
+            }
             if (plan == null || snapshot == null)
             {
                 return;
@@ -150,10 +155,23 @@ namespace SignVR.Interaction.PhaseAdapters
 
             if (snapshot.SafePasswordVisible)
             {
-                safePasswordText.text = string.Join(
-                    string.Empty,
-                    plan.SafePassword.Digits
+                int enteredDigitCount = GetEnteredDigitCount(
+                    phaseOneResult
                 );
+                safePasswordText.text =
+                    string.Join(string.Empty, plan.SafePassword.Digits) +
+                    "\nINPUT: " + enteredDigitCount + " / " +
+                    SafePassword.DigitCount;
+                safePasswordText.gameObject.SetActive(true);
+            }
+            else if (phaseOneResult != null &&
+                     phaseOneResult.InteractionError &&
+                     !phaseOneResult.PhaseCompleted)
+            {
+                safePasswordText.text = phaseOneResult.Error ==
+                    PhaseValidationError.IncorrectPassword
+                        ? "PIN ERROR\nTOUCH THE BOX AGAIN"
+                        : "INPUT ERROR\nTOUCH THE BOX AGAIN";
                 safePasswordText.gameObject.SetActive(true);
             }
             if (snapshot.ChestOrderVisible)
@@ -164,6 +182,22 @@ namespace SignVR.Interaction.PhaseAdapters
                 );
                 chestOrderText.gameObject.SetActive(true);
             }
+        }
+
+        private static int GetEnteredDigitCount(
+            ValidationResult phaseOneResult)
+        {
+            if (phaseOneResult == null ||
+                phaseOneResult.InteractionError)
+            {
+                return 0;
+            }
+
+            return Mathf.Clamp(
+                phaseOneResult.Progress - 1,
+                0,
+                SafePassword.DigitCount
+            );
         }
 
         private void HideHints()

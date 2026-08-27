@@ -734,7 +734,17 @@ namespace SignVR.Interaction.Orchestration
         public static IEnumerator SavedInteractionLabStartButtonConsumesOneRun()
         {
             return RunSavedInteractionLabScenarioWithCleanup(
-                injectFailureAfterRunStart: false
+                injectFailureAfterRunStart: false,
+                requireFirstPresentationVisible: false
+            );
+        }
+
+        public static IEnumerator
+            SavedInteractionLabFirstRunShowsSignerTextAndPointingAssistance()
+        {
+            return RunSavedInteractionLabScenarioWithCleanup(
+                injectFailureAfterRunStart: false,
+                requireFirstPresentationVisible: true
             );
         }
 
@@ -742,12 +752,14 @@ namespace SignVR.Interaction.Orchestration
             SavedInteractionLabFailureAfterStartCleansOwnedResources()
         {
             return RunSavedInteractionLabScenarioWithCleanup(
-                injectFailureAfterRunStart: true
+                injectFailureAfterRunStart: true,
+                requireFirstPresentationVisible: false
             );
         }
 
         private static IEnumerator RunSavedInteractionLabScenarioWithCleanup(
-            bool injectFailureAfterRunStart)
+            bool injectFailureAfterRunStart,
+            bool requireFirstPresentationVisible)
         {
             Require(
                 Application.isPlaying,
@@ -755,7 +767,8 @@ namespace SignVR.Interaction.Orchestration
             );
 
             var context = new SavedInteractionLabTestContext(
-                injectFailureAfterRunStart
+                injectFailureAfterRunStart,
+                requireFirstPresentationVisible
             );
             Exception primaryFailure = null;
             Exception cleanupFailure = null;
@@ -1018,6 +1031,19 @@ namespace SignVR.Interaction.Orchestration
                 );
             InteractionRunController runController = context.RunController;
             Button startButton = controls.StartButton;
+            InstructionPresentationController presentation =
+                context.RequireFirstPresentationVisible
+                    ? FindSingleSceneComponent<
+                        InstructionPresentationController>(loadedScene)
+                    : null;
+            string observedPresentationFault = null;
+            if (presentation != null)
+            {
+                presentation.PresentationFaulted += error =>
+                    observedPresentationFault = error;
+                presentation.GhostPlayer
+                    .RetargeterReadinessFailuresRemainingForTests = 3;
+            }
 
             Require(
                 controls.FlowController == flowController &&
@@ -1106,8 +1132,10 @@ namespace SignVR.Interaction.Orchestration
             );
             runController.ConfigureMode(
                 InteractionRunMode.EngineeringLocal,
-                configuredDebugOverridesActive: false,
-                explicitlyArmEngineeringLocal: true
+                configuredDebugOverridesActive:
+                    context.RequireFirstPresentationVisible,
+                explicitlyArmEngineeringLocal: true,
+                forceTextAndPointing: context.RequireFirstPresentationVisible
             );
 
             double readyDeadline = Time.realtimeSinceStartupAsDouble + 5d;
@@ -1151,6 +1179,249 @@ namespace SignVR.Interaction.Orchestration
                 "Saved InteractionLab capture initialization did not finish."
             );
             runController.ReconcileConsumedRunInitializationForTests();
+
+            if (context.RequireFirstPresentationVisible)
+            {
+                double presentationDeadline =
+                    Time.realtimeSinceStartupAsDouble + 10d;
+                while (!presentation.GhostPlayer.IsPlaying &&
+                    string.IsNullOrWhiteSpace(
+                        presentation.GhostPlayer.LastError
+                    ) &&
+                    Time.realtimeSinceStartupAsDouble < presentationDeadline)
+                {
+                    yield return null;
+                }
+
+                Require(
+                    presentation.GhostPlayer.IsPlaying,
+                    "The first saved-scene Run never made the instruction " +
+                    "signer visible. player_status=" +
+                    presentation.GhostPlayer.Status +
+                    ", player_error=" +
+                    (presentation.GhostPlayer.LastError ?? "<none>") +
+                    ", observed_fault=" +
+                    (observedPresentationFault ?? "<none>") +
+                    ", flow_status=" +
+                    (flowController.Snapshot?.Status ?? "<none>") + "."
+                );
+                Require(
+                    presentation.BubbleIsVisible &&
+                        presentation.PromptPresenter.IsVisible &&
+                        !string.IsNullOrWhiteSpace(
+                            presentation.PromptPresenter.PromptText
+                        ),
+                    "The first saved-scene playback did not show its Chinese " +
+                    "instruction bubble."
+                );
+                TextMeshProUGUI promptLabel = presentation.PromptPresenter
+                    .PromptLabel as TextMeshProUGUI;
+                promptLabel?.ForceMeshUpdate();
+                int promptVertexCount = 0;
+                if (promptLabel?.textInfo?.meshInfo != null)
+                {
+                    for (int index = 0;
+                        index < promptLabel.textInfo.meshInfo.Length;
+                        index++)
+                    {
+                        promptVertexCount +=
+                            promptLabel.textInfo.meshInfo[index].vertexCount;
+                    }
+                }
+                Require(
+                    promptLabel != null && promptVertexCount > 0,
+                    "The Chinese prompt produced no TMP geometry."
+                );
+                Graphic bubbleSurface = presentation.PromptPresenter.transform
+                    .Find("InstructionBubbleCanvas/Bubble/Surface")
+                    ?.GetComponent<Graphic>();
+                Material promptMaterial = promptLabel.materialForRendering;
+                Material surfaceMaterial = bubbleSurface?.materialForRendering;
+                Canvas promptCanvas = promptLabel.transform.parent != null
+                    ? promptLabel.transform.parent.GetComponent<Canvas>()
+                    : null;
+                Canvas rootBubbleCanvas =
+                    presentation.PromptPresenter.BubbleCanvas;
+                bool explicitCanvasOrdering = promptCanvas != null &&
+                    rootBubbleCanvas != null &&
+                    promptCanvas.overrideSorting &&
+                    promptCanvas.sortingOrder >
+                        rootBubbleCanvas.sortingOrder;
+                Require(
+                    promptMaterial != null && surfaceMaterial != null &&
+                        (explicitCanvasOrdering ||
+                         promptMaterial.renderQueue >=
+                            surfaceMaterial.renderQueue),
+                    "The Chinese prompt has neither a later Canvas nor a " +
+                    "later material queue than its opaque-looking overlay " +
+                    "background, so it is hidden. prompt_shader=" +
+                    (promptMaterial?.shader?.name ?? "<null>") +
+                    ", prompt_queue=" +
+                    (promptMaterial != null
+                        ? promptMaterial.renderQueue
+                        : -1) +
+                    ", surface_shader=" +
+                    (surfaceMaterial?.shader?.name ?? "<null>") +
+                    ", surface_queue=" +
+                    (surfaceMaterial != null
+                        ? surfaceMaterial.renderQueue
+                        : -1) +
+                    ", prompt_canvas_sorting=" +
+                    (promptCanvas != null
+                        ? promptCanvas.sortingOrder
+                        : -1) +
+                    ", root_canvas_sorting=" +
+                    (rootBubbleCanvas != null
+                        ? rootBubbleCanvas.sortingOrder
+                        : -1) + "."
+                );
+                Transform signerHead = null;
+                Transform[] signerBones = presentation.GhostPlayer.Retargeter
+                    .GetComponentsInChildren<Transform>(true);
+                for (int index = 0; index < signerBones.Length; index++)
+                {
+                    if (string.Equals(
+                            signerBones[index].name,
+                            "Head",
+                            StringComparison.Ordinal))
+                    {
+                        signerHead = signerBones[index];
+                        break;
+                    }
+                }
+                Require(
+                    signerHead != null,
+                    "The saved instruction signer has no Head bone."
+                );
+                Vector3 bubblePosition =
+                    presentation.PromptPresenter.transform.position;
+                Vector2 signerHorizontal = new(
+                    signerHead.position.x,
+                    signerHead.position.z
+                );
+                Vector2 bubbleHorizontal = new(
+                    bubblePosition.x,
+                    bubblePosition.z
+                );
+                Require(
+                    Vector2.Distance(signerHorizontal, bubbleHorizontal) <=
+                        0.1f &&
+                        bubblePosition.y > signerHead.position.y &&
+                        bubblePosition.y <= signerHead.position.y + 0.5f,
+                    "The Chinese instruction bubble is not anchored above " +
+                    "the visible signer's Head bone. signer_head=" +
+                    signerHead.position + ", bubble=" + bubblePosition + "."
+                );
+                Camera participantCamera = presentation.PromptPresenter
+                    .ParticipantHmd?.GetComponent<Camera>();
+                Quaternion originalCameraRotation = participantCamera != null
+                    ? participantCamera.transform.rotation
+                    : Quaternion.identity;
+                if (participantCamera != null)
+                {
+                    participantCamera.transform.LookAt(
+                        signerHead.position,
+                        Vector3.up
+                    );
+                }
+                Vector3 bubbleViewport = participantCamera != null
+                    ? participantCamera.WorldToViewportPoint(
+                        presentation.PromptPresenter.transform.position
+                    )
+                    : new Vector3(-1f, -1f, -1f);
+                if (participantCamera != null)
+                {
+                    participantCamera.transform.rotation =
+                        originalCameraRotation;
+                }
+                Require(
+                    participantCamera != null && bubbleViewport.z > 0f &&
+                        bubbleViewport.x >= 0f && bubbleViewport.x <= 1f &&
+                        bubbleViewport.y >= 0f && bubbleViewport.y <= 1f,
+                    "The Chinese instruction bubble is logically visible but " +
+                    "outside the participant camera viewport. viewport=" +
+                    bubbleViewport + "."
+                );
+
+                GhostPointingDetector detector = presentation.PointingDetector;
+                Require(
+                    detector.PhaseConfigured && detector.PointingAllowed &&
+                        detector.HasCompleteFingerRig &&
+                        detector.TargetBindings.Count > 0,
+                    "The first saved-scene playback did not arm complete " +
+                    "pointing assistance. configured=" +
+                    detector.PhaseConfigured +
+                    ", allowed=" + detector.PointingAllowed +
+                    ", finger_rig=" + detector.HasCompleteFingerRig +
+                    ", bindings=" + detector.TargetBindings.Count + "."
+                );
+
+                string targetId = consumedPlan.Phases[0]
+                    .TaskVariant.TargetIds[0];
+                GhostPointingTargetBinding binding = null;
+                for (int index = 0;
+                    index < detector.TargetBindings.Count;
+                    index++)
+                {
+                    GhostPointingTargetBinding candidate =
+                        detector.TargetBindings[index];
+                    if (candidate != null && string.Equals(
+                            candidate.TargetId,
+                            targetId,
+                            StringComparison.Ordinal))
+                    {
+                        binding = candidate;
+                        break;
+                    }
+                }
+                Require(
+                    binding?.TargetRoot != null,
+                    "The first phase has no saved pointing target binding for " +
+                    targetId + "."
+                );
+
+                bool observedNaturalPointing = detector.IsPointingVisible;
+                double pointingDeadline =
+                    Time.realtimeSinceStartupAsDouble + 10d;
+                while (!observedNaturalPointing &&
+                    presentation.GhostPlayer.IsPlaying &&
+                    Time.realtimeSinceStartupAsDouble < pointingDeadline)
+                {
+                    yield return null;
+                    observedNaturalPointing = detector.IsPointingVisible;
+                }
+                Require(
+                    observedNaturalPointing,
+                    "The real first instruction playback never produced a " +
+                    "fingertip-ray hit on its eligible target."
+                );
+
+                Vector3 targetPoint = binding.TargetRoot.position;
+                Require(
+                    detector.TryPresentPointingHitForTests(
+                        targetId,
+                        targetPoint + Vector3.up * 0.2f,
+                        targetPoint
+                    ),
+                    "The first playback could not present its saved pointing " +
+                    "visual chain."
+                );
+                yield return null;
+                LineRenderer ray = detector.transform
+                    .Find("GhostPointingRay")
+                    ?.GetComponent<LineRenderer>();
+                InteractionTargetHighlightVisual highlight =
+                    FindSingleSceneComponent<
+                        InteractionTargetHighlightVisual>(loadedScene);
+                Require(
+                    detector.IsPointingVisible && ray != null && ray.enabled &&
+                        highlight.IsVisible &&
+                        highlight.TargetRoot == binding.TargetRoot,
+                    "The first playback did not render both the fingertip ray " +
+                    "and target highlight."
+                );
+            }
+
             string interactionRoot = InteractionStoragePaths.GetInteractionRoot(
                 context.TemporaryRoot
             );
@@ -1249,16 +1520,20 @@ namespace SignVR.Interaction.Orchestration
                 "injected_saved_scene_failure_after_run_start";
 
             internal SavedInteractionLabTestContext(
-                bool injectFailureAfterRunStart)
+                bool injectFailureAfterRunStart,
+                bool requireFirstPresentationVisible)
             {
                 TemporaryRoot = CreateShortTemporaryRoot();
                 PreexistingSceneHandles = CaptureLoadedSceneHandles();
                 InjectFailureAfterRunStart = injectFailureAfterRunStart;
+                RequireFirstPresentationVisible =
+                    requireFirstPresentationVisible;
             }
 
             internal string TemporaryRoot { get; }
             internal HashSet<ulong> PreexistingSceneHandles { get; }
             internal bool InjectFailureAfterRunStart { get; }
+            internal bool RequireFirstPresentationVisible { get; }
             internal bool LoadRequested { get; set; }
             internal Scene LoadedScene { get; set; }
             internal InteractionRunController RunController { get; set; }

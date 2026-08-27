@@ -16,15 +16,6 @@ namespace SignVR.Interaction.Presentation
     public sealed class InteractionPromptPresenter : MonoBehaviour
     {
         private const string VisualRootName = "InstructionBubbleCanvas";
-        private const string OverlayShaderResource =
-            "Shaders/RecordingUiOverlay";
-        private const string OverlayShaderName =
-            "SignVR/Recording UI Overlay";
-        private const string TextOverlayMaterialResource =
-            "Fonts & Materials/LiberationSans SDF - Overlay";
-        private const string TextOverlayShaderName =
-            "TextMeshPro/Mobile/Distance Field Overlay";
-
         // This is the one Recorder-owned canonical table, not a second list of
         // Interaction subtitle strings.
         private static readonly RecordingSentence[] CanonicalSentences =
@@ -41,6 +32,11 @@ namespace SignVR.Interaction.Presentation
         [SerializeField]
         [Min(1f)]
         private float heightAboveSignerRoot = 2.15f;
+
+        [SerializeField]
+        [Min(0.05f)]
+        [Tooltip("Vertical clearance above the retargeted signer's Head bone.")]
+        private float heightAboveSignerHead = 0.25f;
 
         [Header("Canonical Recorder appearance")]
         [SerializeField]
@@ -63,10 +59,9 @@ namespace SignVR.Interaction.Presentation
         private Canvas bubbleCanvas;
         private CanvasGroup canvasGroup;
         private TextMeshProUGUI promptLabel;
-        private Material uiOverlayMaterial;
-        private Material textOverlayMaterial;
         private string sentenceId = string.Empty;
         private bool visible;
+        private Transform signerHead;
 
         public event Action Shown;
         public event Action Hidden;
@@ -90,6 +85,7 @@ namespace SignVR.Interaction.Presentation
         public void Configure(Transform stableSignerRoot, Transform hmd)
         {
             signerRoot = stableSignerRoot;
+            signerHead = null;
             participantHmd = hmd;
             EnsureVisuals();
             ResolveCamera();
@@ -129,6 +125,8 @@ namespace SignVR.Interaction.Presentation
             visualRoot.SetActive(visible);
             if (visible)
             {
+                ResolveCamera();
+                UpdateBillboard();
                 Shown?.Invoke();
             }
             else
@@ -189,7 +187,7 @@ namespace SignVR.Interaction.Presentation
             canvasRect.localScale = Vector3.one * 0.001f;
             bubbleCanvas.renderMode = RenderMode.WorldSpace;
             bubbleCanvas.overrideSorting = true;
-            bubbleCanvas.sortingOrder = 30000;
+            bubbleCanvas.sortingOrder = 29999;
             bubbleCanvas.additionalShaderChannels =
                 AdditionalCanvasShaderChannels.TexCoord1 |
                 AdditionalCanvasShaderChannels.TexCoord2 |
@@ -238,7 +236,34 @@ namespace SignVR.Interaction.Presentation
             background.CornerRadius = Mathf.Max(8f, cornerRadius - 4f);
             background.CornerSegments = 10;
 
-            Transform existingPrompt = panel.transform.Find("Prompt");
+            Transform existingPromptCanvas = panel.transform.Find(
+                "PromptCanvas"
+            );
+            GameObject promptCanvasObject = existingPromptCanvas != null
+                ? existingPromptCanvas.gameObject
+                : new GameObject(
+                    "PromptCanvas",
+                    typeof(RectTransform),
+                    typeof(Canvas)
+                );
+            if (existingPromptCanvas == null)
+            {
+                promptCanvasObject.transform.SetParent(panel.transform, false);
+            }
+            RectTransform promptCanvasRect =
+                promptCanvasObject.GetComponent<RectTransform>();
+            Stretch(promptCanvasRect);
+            promptCanvasRect.offsetMin = new Vector2(32f, 24f);
+            promptCanvasRect.offsetMax = new Vector2(-32f, -24f);
+            Canvas promptCanvas = promptCanvasObject.GetComponent<Canvas>();
+            promptCanvas.overrideSorting = true;
+            promptCanvas.sortingOrder = bubbleCanvas.sortingOrder + 1;
+            promptCanvas.additionalShaderChannels =
+                bubbleCanvas.additionalShaderChannels;
+
+            Transform existingPrompt = promptCanvasObject.transform.Find(
+                "Prompt"
+            ) ?? panel.transform.Find("Prompt");
             GameObject promptObject = existingPrompt != null
                 ? existingPrompt.gameObject
                 : new GameObject(
@@ -247,15 +272,19 @@ namespace SignVR.Interaction.Presentation
                     typeof(CanvasRenderer),
                     typeof(TextMeshProUGUI)
                 );
-            if (existingPrompt == null)
+            if (existingPrompt == null ||
+                existingPrompt.parent != promptCanvasObject.transform)
             {
-                promptObject.transform.SetParent(panel.transform, false);
+                promptObject.transform.SetParent(
+                    promptCanvasObject.transform,
+                    false
+                );
             }
             promptLabel = promptObject.GetComponent<TextMeshProUGUI>();
             RectTransform promptRect = promptLabel.rectTransform;
             Stretch(promptRect);
-            promptRect.offsetMin = new Vector2(32f, 24f);
-            promptRect.offsetMax = new Vector2(-32f, -24f);
+            promptRect.offsetMin = Vector2.zero;
+            promptRect.offsetMax = Vector2.zero;
             promptLabel.raycastTarget = false;
             promptLabel.richText = false;
             promptLabel.fontStyle = FontStyles.Normal;
@@ -281,40 +310,13 @@ namespace SignVR.Interaction.Presentation
             InteractionRoundedRectangleGraphic border,
             InteractionRoundedRectangleGraphic background)
         {
-            Shader shader = Resources.Load<Shader>(OverlayShaderResource) ??
-                Shader.Find(OverlayShaderName);
-            if (shader != null && uiOverlayMaterial == null)
-            {
-                uiOverlayMaterial = new Material(shader)
-                {
-                    name = "Interaction Prompt UI Overlay",
-                    hideFlags = HideFlags.DontSave
-                };
-            }
-            border.material = uiOverlayMaterial;
-            background.material = uiOverlayMaterial;
-
-            Material packaged = Resources.Load<Material>(
-                TextOverlayMaterialResource
-            );
-            Shader textShader = packaged != null
-                ? packaged.shader
-                : Shader.Find(TextOverlayShaderName);
-            Material source = promptLabel.fontSharedMaterial;
-            if (textShader == null || source == null)
-            {
-                return;
-            }
-
-            textOverlayMaterial = new Material(textShader)
-            {
-                name = "Interaction Prompt Text Overlay",
-                hideFlags = HideFlags.DontSave
-            };
-            textOverlayMaterial.CopyPropertiesFromMaterial(source);
-            textOverlayMaterial.shaderKeywords = source.shaderKeywords;
-            textOverlayMaterial.renderQueue = 5000;
-            promptLabel.fontSharedMaterial = textOverlayMaterial;
+            // Keep both background graphics on Unity's standard UI material.
+            // A custom Queue=Overlay material renders after TMP's normal
+            // distance-field material and hides every glyph. With the same UI
+            // queue, Canvas hierarchy order (Surface, then PromptCanvas) is
+            // authoritative and the text is submitted last.
+            border.material = null;
+            background.material = null;
         }
 
         private void ResolveCamera()
@@ -335,7 +337,13 @@ namespace SignVR.Interaction.Presentation
 
         private void UpdateBillboard()
         {
-            if (signerRoot != null)
+            ResolveSignerHead();
+            if (signerHead != null)
+            {
+                transform.position = signerHead.position +
+                    Vector3.up * heightAboveSignerHead;
+            }
+            else if (signerRoot != null)
             {
                 transform.position = signerRoot.position +
                     Vector3.up * heightAboveSignerRoot;
@@ -354,6 +362,28 @@ namespace SignVR.Interaction.Presentation
                     awayFromViewer.normalized,
                     Vector3.up
                 );
+            }
+        }
+
+        private void ResolveSignerHead()
+        {
+            if (signerHead != null || signerRoot == null)
+            {
+                return;
+            }
+
+            Transform[] descendants = signerRoot.GetComponentsInChildren<
+                Transform>(true);
+            for (int index = 0; index < descendants.Length; index++)
+            {
+                if (string.Equals(
+                        descendants[index].name,
+                        "Head",
+                        StringComparison.Ordinal))
+                {
+                    signerHead = descendants[index];
+                    return;
+                }
             }
         }
 
@@ -419,32 +449,11 @@ namespace SignVR.Interaction.Presentation
             }
         }
 
-        private void OnDestroy()
-        {
-            DestroyMaterial(uiOverlayMaterial);
-            DestroyMaterial(textOverlayMaterial);
-        }
-
-        private static void DestroyMaterial(Material material)
-        {
-            if (material == null)
-            {
-                return;
-            }
-            if (Application.isPlaying)
-            {
-                Destroy(material);
-            }
-            else
-            {
-                DestroyImmediate(material);
-            }
-        }
-
 #if UNITY_EDITOR
         private void OnValidate()
         {
             heightAboveSignerRoot = Mathf.Max(1f, heightAboveSignerRoot);
+            heightAboveSignerHead = Mathf.Max(0.05f, heightAboveSignerHead);
             cornerRadius = Mathf.Clamp(cornerRadius, 8f, 64f);
         }
 #endif

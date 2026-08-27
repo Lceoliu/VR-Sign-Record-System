@@ -3,6 +3,7 @@ using System.Collections;
 using System.IO;
 using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
+using SignVR.Interaction.Orchestration;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -102,6 +103,23 @@ namespace SignVR.Interaction.Presentation
             presentationController.PresentationFaulted +=
                 HandlePresentationFaulted;
             manifestRoutine = StartCoroutine(LoadManifest());
+        }
+
+        private void Start()
+        {
+            foreach (InteractionStudyFlowControls controls in
+                FindObjectsByType<InteractionStudyFlowControls>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None
+                ))
+            {
+                controls.enabled = false;
+                GameObject preStartRoot = controls.PreStartRoot;
+                if (preStartRoot != null)
+                {
+                    preStartRoot.SetActive(false);
+                }
+            }
         }
 
         private IEnumerator LoadManifest()

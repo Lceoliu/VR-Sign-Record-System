@@ -13,6 +13,10 @@ namespace SignVR.Interaction.Editor.Tests
             "SignVR.Editor.Interaction.InteractionLabValidator, " +
             "Assembly-CSharp-Editor";
 
+        private const string SignSequenceSetupTypeName =
+            "SignVR.Editor.Interaction.InteractionSignSequenceTestSceneSetup, " +
+            "Assembly-CSharp-Editor";
+
         [Test]
         public void BuildEntriesUseDistinctIdentityAndOneExplicitScene()
         {
@@ -23,6 +27,15 @@ namespace SignVR.Interaction.Editor.Tests
         public void GeneratedInteractionLabPassesCleanSceneContract()
         {
             InvokeValidator("ValidateSceneForAutomation");
+        }
+
+        [Test]
+        public void SignSequenceSceneHidesProductionStudyUiOnEntry()
+        {
+            InvokeStatic(
+                SignSequenceSetupTypeName,
+                "ValidateSceneForAutomation"
+            );
         }
 
         [Test]
@@ -83,10 +96,14 @@ namespace SignVR.Interaction.Editor.Tests
 
         private static void InvokeValidator(string methodName)
         {
-            Type validator = Type.GetType(
-                ValidatorTypeName,
-                throwOnError: true
-            );
+            InvokeStatic(ValidatorTypeName, methodName);
+        }
+
+        private static void InvokeStatic(
+            string typeName,
+            string methodName)
+        {
+            Type validator = Type.GetType(typeName, throwOnError: true);
             MethodInfo method = validator.GetMethod(
                 methodName,
                 BindingFlags.Public | BindingFlags.Static

@@ -21,6 +21,15 @@ namespace SignVR.Interaction.Presentation
     [DefaultExecutionOrder(-250)]
     public sealed class InstructionGhostPlayer : MonoBehaviour
     {
+        private const double RetargeterReadinessTimeoutSeconds = 5d;
+
+        private enum RetargeterValidationResult
+        {
+            Ready,
+            Waiting,
+            Invalid,
+        }
+
         [Serializable]
         private struct Vector3Record
         {
@@ -87,6 +96,10 @@ namespace SignVR.Interaction.Presentation
         private int loadGeneration;
         private double playbackStartedAt;
 
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        private int retargeterReadinessFailuresRemainingForTests;
+#endif
+
         public event Action StateChanged;
         public event Action<InstructionContentReference> Loaded;
         public event Action<InstructionPlaybackPass> PlaybackStarted;
@@ -127,6 +140,15 @@ namespace SignVR.Interaction.Presentation
             : 0;
 
         public string LastError { get; private set; } = string.Empty;
+
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+        internal int RetargeterReadinessFailuresRemainingForTests
+        {
+            get => retargeterReadinessFailuresRemainingForTests;
+            set => retargeterReadinessFailuresRemainingForTests =
+                Mathf.Max(0, value);
+        }
+#endif
 
         public void Configure(CharacterRetargeter signerRetargeter)
         {
@@ -272,10 +294,40 @@ namespace SignVR.Interaction.Presentation
                 yield break;
             }
 
-            if (!ValidateRetargeter(jointCount, out string retargeterError))
+            double retargeterDeadline =
+                Time.realtimeSinceStartupAsDouble +
+                RetargeterReadinessTimeoutSeconds;
+            while (true)
             {
-                FailLoad(retargeterError);
-                yield break;
+                if (generation != loadGeneration)
+                {
+                    yield break;
+                }
+
+                RetargeterValidationResult validationResult =
+                    InspectRetargeter(jointCount, out string retargeterError);
+                if (validationResult == RetargeterValidationResult.Ready)
+                {
+                    break;
+                }
+
+                if (validationResult == RetargeterValidationResult.Invalid)
+                {
+                    FailLoad(retargeterError);
+                    yield break;
+                }
+
+                if (Time.realtimeSinceStartupAsDouble >= retargeterDeadline)
+                {
+                    FailLoad(
+                        "Timed out waiting for the instruction signer's " +
+                        "CharacterRetargeter. Last status: " +
+                        retargeterError
+                    );
+                    yield break;
+                }
+
+                yield return null;
             }
 
             DisposePoseBuffer();
@@ -284,6 +336,14 @@ namespace SignVR.Interaction.Presentation
                 Allocator.Persistent,
                 NativeArrayOptions.UninitializedMemory
             );
+
+            // CharacterRetargeter may already have scheduled its normal
+            // Update job earlier in this frame. Disabling the component does
+            // not complete that job, and immediately resetting/reusing its
+            // native pose buffers then violates Unity's job safety rules. This
+            // only happens on the first phase because later phases inherit the
+            // already-disabled retargeter.
+            retargeter.ConvertPoseJobHandle.Complete();
             retargeter.enabled = false;
             MSDKUtility.ResetInterpolators(retargeter.RetargetingHandle);
 
@@ -472,19 +532,29 @@ namespace SignVR.Interaction.Presentation
             return retargeter.RetargeterValid;
         }
 
-        private bool ValidateRetargeter(int jointCount, out string error)
+        private RetargeterValidationResult InspectRetargeter(
+            int jointCount,
+            out string error)
         {
+#if UNITY_EDITOR || UNITY_INCLUDE_TESTS
+            if (retargeterReadinessFailuresRemainingForTests > 0)
+            {
+                retargeterReadinessFailuresRemainingForTests--;
+                error = "Injected transient CharacterRetargeter readiness delay.";
+                return RetargeterValidationResult.Waiting;
+            }
+#endif
             if (retargeter == null)
             {
                 error = "Instruction signer CharacterRetargeter is not assigned.";
-                return false;
+                return RetargeterValidationResult.Invalid;
             }
 
             ulong handle = retargeter.RetargetingHandle;
             if (handle == 0)
             {
                 error = "Instruction signer CharacterRetargeter has no native handle.";
-                return false;
+                return RetargeterValidationResult.Waiting;
             }
 
             if (!MSDKUtility.GetSkeletonInfo(
@@ -493,7 +563,7 @@ namespace SignVR.Interaction.Presentation
                     out MSDKUtility.SkeletonInfo skeletonInfo))
             {
                 error = "Cannot inspect the instruction signer's source skeleton.";
-                return false;
+                return RetargeterValidationResult.Waiting;
             }
 
             if (skeletonInfo.JointCount != jointCount)
@@ -501,11 +571,11 @@ namespace SignVR.Interaction.Presentation
                 error =
                     $"Pose joint_count {jointCount} does not match signer " +
                     $"source skeleton {skeletonInfo.JointCount}.";
-                return false;
+                return RetargeterValidationResult.Invalid;
             }
 
             error = string.Empty;
-            return true;
+            return RetargeterValidationResult.Ready;
         }
 
         private string ResolveArtifactUri(string artifactPath)

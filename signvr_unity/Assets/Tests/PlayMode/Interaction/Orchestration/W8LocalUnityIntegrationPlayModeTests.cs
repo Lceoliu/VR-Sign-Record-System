@@ -19,6 +19,66 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
         private const string StandaloneDriverTypeName =
             "SignVR.Interaction.Orchestration." +
             "StandaloneInteractionStudyFlowUiTestDriver, Assembly-CSharp";
+        private const string SignSequenceControllerTypeName =
+            "SignVR.Interaction.Presentation." +
+            "InteractionSignSequenceTestController, Assembly-CSharp";
+        private const string StudyControlsTypeName =
+            "SignVR.Interaction.Orchestration." +
+            "InteractionStudyFlowControls, Assembly-CSharp";
+
+        [UnityTest]
+        public IEnumerator SignSequenceSceneHidesProductionStudyUiAfterAwake()
+        {
+            var owner = new GameObject("StudyControlsOwner");
+            var preStartRoot = new GameObject("W8StudyStartSurface");
+            var testOwner = new GameObject("SignSequenceTestController");
+            owner.SetActive(false);
+            testOwner.SetActive(false);
+            try
+            {
+                Type controlsType = Type.GetType(
+                    StudyControlsTypeName,
+                    throwOnError: true
+                );
+                Behaviour controls = (Behaviour)owner.AddComponent(controlsType);
+                controls.enabled = false;
+                controlsType.GetField(
+                    "preStartRoot",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).SetValue(controls, preStartRoot);
+
+                preStartRoot.SetActive(false);
+                owner.SetActive(true);
+                Assert.That(
+                    preStartRoot.activeSelf,
+                    Is.True,
+                    "The disabled production controls must reproduce the Awake bug."
+                );
+
+                Type controllerType = Type.GetType(
+                    SignSequenceControllerTypeName,
+                    throwOnError: true
+                );
+                Component controller = testOwner.AddComponent(controllerType);
+                controllerType.GetMethod(
+                    "Start",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).Invoke(controller, null);
+
+                Assert.That(
+                    preStartRoot.activeSelf,
+                    Is.False,
+                    "The sign-sequence controller must hide the recovery UI."
+                );
+            }
+            finally
+            {
+                UnityEngine.Object.Destroy(owner);
+                UnityEngine.Object.Destroy(preStartRoot);
+                UnityEngine.Object.Destroy(testOwner);
+            }
+            yield return null;
+        }
 
         [UnityTest]
         public IEnumerator SixPhaseFlowKeepsW1W5W6W7AuthorityBoundaries()
@@ -320,6 +380,16 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
             yield return InvokeDriverCoroutine(
                 StandaloneDriverTypeName,
                 "SavedInteractionLabStartButtonConsumesOneRun"
+            );
+        }
+
+        [UnityTest]
+        public IEnumerator
+            SavedInteractionLabFirstRunShowsSignerTextAndPointingAssistance()
+        {
+            yield return InvokeDriverCoroutine(
+                StandaloneDriverTypeName,
+                "SavedInteractionLabFirstRunShowsSignerTextAndPointingAssistance"
             );
         }
 

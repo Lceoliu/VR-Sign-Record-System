@@ -42,8 +42,7 @@ namespace SignVR.Editor.Interaction
             foreach (InteractionStudyFlowControls controls in
                 FindAll<InteractionStudyFlowControls>())
             {
-                controls.enabled = false;
-                EditorUtility.SetDirty(controls);
+                DisableProductionStudyUi(controls);
             }
             copiedControls.enabled = false;
             EditorUtility.SetDirty(copiedControls);
@@ -80,6 +79,95 @@ namespace SignVR.Editor.Interaction
             );
         }
 
+        [MenuItem("SignVR/Tests/Repair 31-Sign Sequence Entry UI")]
+        public static void RepairEntryUi()
+        {
+            Scene scene = EditorSceneManager.OpenScene(
+                ScenePath,
+                OpenSceneMode.Additive
+            );
+            try
+            {
+                InteractionStudyFlowControls[] controls =
+                    FindSceneComponents<InteractionStudyFlowControls>(scene);
+                if (controls.Length != 1)
+                {
+                    throw new InvalidOperationException(
+                        "The sign-sequence scene must contain exactly one " +
+                        "InteractionStudyFlowControls."
+                    );
+                }
+
+                DisableProductionStudyUi(controls[0]);
+                EditorSceneManager.MarkSceneDirty(scene);
+                EditorSceneManager.SaveScene(scene);
+                AssetDatabase.SaveAssets();
+            }
+            finally
+            {
+                EditorSceneManager.CloseScene(scene, removeScene: true);
+            }
+        }
+
+        public static void ValidateSceneForAutomation()
+        {
+            Scene scene = EditorSceneManager.OpenScene(
+                ScenePath,
+                OpenSceneMode.Additive
+            );
+            try
+            {
+                InteractionStudyFlowController[] flows =
+                    FindSceneComponents<InteractionStudyFlowController>(scene);
+                InteractionStudyFlowControls[] flowControls =
+                    FindSceneComponents<InteractionStudyFlowControls>(scene);
+                if (flows.Length != 1 || flows[0].enabled)
+                {
+                    throw new InvalidOperationException(
+                        "The sign-sequence scene must contain one disabled " +
+                        "InteractionStudyFlowController."
+                    );
+                }
+                if (flowControls.Length != 1 || flowControls[0].enabled)
+                {
+                    throw new InvalidOperationException(
+                        "The sign-sequence scene must contain one disabled " +
+                        "InteractionStudyFlowControls."
+                    );
+                }
+
+                var serializedControls = new SerializedObject(
+                    flowControls[0]
+                );
+                SerializedProperty preStartRootProperty = serializedControls
+                    .FindProperty("preStartRoot");
+                GameObject preStartRoot = preStartRootProperty
+                    ?.objectReferenceValue as GameObject;
+                if (preStartRoot == null || preStartRoot.activeSelf)
+                {
+                    throw new InvalidOperationException(
+                        "The production study pre-start UI must be inactive " +
+                        "when the sign-sequence test scene opens."
+                    );
+                }
+
+                if (FindSceneComponents<InteractionSignSequenceTestController>(
+                        scene).Length != 1 ||
+                    FindSceneComponents<InteractionSignSequenceTestControls>(
+                        scene).Length != 1)
+                {
+                    throw new InvalidOperationException(
+                        "The sign-sequence scene requires exactly one test " +
+                        "controller and one test control panel."
+                    );
+                }
+            }
+            finally
+            {
+                EditorSceneManager.CloseScene(scene, removeScene: true);
+            }
+        }
+
         private static T FindOne<T>() where T : Component
         {
             T[] values = FindAll<T>();
@@ -101,6 +189,36 @@ namespace SignVR.Editor.Interaction
                 )
                 .Where(value => value.gameObject.scene.IsValid())
                 .ToArray();
+        }
+
+        private static T[] FindSceneComponents<T>(Scene scene)
+            where T : Component
+        {
+            return scene.GetRootGameObjects()
+                .SelectMany(root => root.GetComponentsInChildren<T>(true))
+                .ToArray();
+        }
+
+        private static void DisableProductionStudyUi(
+            InteractionStudyFlowControls controls)
+        {
+            controls.enabled = false;
+
+            var serializedControls = new SerializedObject(controls);
+            SerializedProperty preStartRootProperty = serializedControls
+                .FindProperty("preStartRoot");
+            GameObject preStartRoot = preStartRootProperty
+                ?.objectReferenceValue as GameObject;
+            if (preStartRoot == null)
+            {
+                throw new InvalidOperationException(
+                    "InteractionStudyFlowControls.preStartRoot is missing."
+                );
+            }
+
+            preStartRoot.SetActive(false);
+            EditorUtility.SetDirty(preStartRoot);
+            EditorUtility.SetDirty(controls);
         }
 
         private static T GetOrAddSingle<T>(GameObject target)

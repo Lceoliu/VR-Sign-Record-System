@@ -1010,6 +1010,7 @@ namespace SignVR.Editor.Interaction
                 GetOrAdd<InteractionTriggerRelay>(proxy);
             RecordForUndo(relay);
             relay.Configure(binding, allowedInteractorRoots);
+            EnsureTouchableTriggerBody(proxy);
             EditorUtility.SetDirty(relay);
             return collider;
         }
@@ -1056,6 +1057,7 @@ namespace SignVR.Editor.Interaction
                     digitBinding,
                     allowedInteractorRoots
                 );
+                EnsureTouchableTriggerBody(button);
                 EnsureButtonLabel(button.transform, digit.ToString());
                 EditorUtility.SetDirty(digitBinding);
                 EditorUtility.SetDirty(digitRelay);
@@ -1087,6 +1089,7 @@ namespace SignVR.Editor.Interaction
                 backspaceBinding,
                 allowedInteractorRoots
             );
+            EnsureTouchableTriggerBody(backspace);
             EnsureButtonLabel(backspace.transform, "*");
             EditorUtility.SetDirty(backspaceBinding);
             EditorUtility.SetDirty(backspaceRelay);
@@ -1113,6 +1116,7 @@ namespace SignVR.Editor.Interaction
                 GetOrAdd<InteractionTriggerRelay>(submit);
             RecordForUndo(submitRelay);
             submitRelay.Configure(submitBinding, allowedInteractorRoots);
+            EnsureTouchableTriggerBody(submit);
             EnsureButtonLabel(submit.transform, "#");
             EditorUtility.SetDirty(submitBinding);
             EditorUtility.SetDirty(submitRelay);
@@ -1160,6 +1164,7 @@ namespace SignVR.Editor.Interaction
                     GetOrAdd<InteractionTriggerRelay>(button);
                 RecordForUndo(relay);
                 relay.Configure(binding, allowedInteractorRoots);
+                EnsureTouchableTriggerBody(button);
                 EnsureButtonLabel(button.transform, targetId.ToUpperInvariant());
                 bindingByTarget.Add(targetId, binding);
                 states[index] = new DeterministicTargetStateBinding();
@@ -1453,6 +1458,20 @@ namespace SignVR.Editor.Interaction
                 failures.Add(
                     $"Trigger relay '{relay?.name ?? "<missing>"}' lacks its " +
                     "receiver, trigger collider, or allowed hand roots."
+                );
+            }
+
+            Rigidbody body = relay != null
+                ? relay.GetComponent<Rigidbody>()
+                : null;
+            if (body == null || body.isKinematic || body.useGravity ||
+                body.constraints != RigidbodyConstraints.FreezeAll)
+            {
+                failures.Add(
+                    $"Trigger relay '{relay?.name ?? "<missing>"}' requires " +
+                    "a gravity-free, non-kinematic Rigidbody with FreezeAll " +
+                    "so Meta's kinematic hand colliders can raise trigger " +
+                    "callbacks under the project's default contact-pair mode."
                 );
             }
         }
@@ -1849,6 +1868,21 @@ namespace SignVR.Editor.Interaction
             return Undo.AddComponent<T>(gameObject);
         }
 
+        private static void EnsureTouchableTriggerBody(GameObject proxy)
+        {
+            Rigidbody body = GetOrAdd<Rigidbody>(proxy);
+            RecordForUndo(body);
+            body.isKinematic = false;
+            body.useGravity = false;
+            body.detectCollisions = true;
+            body.constraints = RigidbodyConstraints.FreezeAll;
+            body.collisionDetectionMode =
+                CollisionDetectionMode.ContinuousSpeculative;
+            body.linearVelocity = Vector3.zero;
+            body.angularVelocity = Vector3.zero;
+            EditorUtility.SetDirty(body);
+        }
+
         private static void RecordForUndo(Object target)
         {
             if (target != null)
@@ -2055,7 +2089,17 @@ namespace SignVR.Editor.Interaction
 
         private static Scene OpenInteractionScene()
         {
-            Scene scene = SceneManager.GetSceneByPath(
+            Scene scene = SceneManager.GetActiveScene();
+            if (scene.IsValid() && scene.isLoaded && string.Equals(
+                    scene.path,
+                    InteractionLabContract.ScenePath,
+                    StringComparison.Ordinal
+                ))
+            {
+                return scene;
+            }
+
+            scene = SceneManager.GetSceneByPath(
                 InteractionLabContract.ScenePath
             );
             if (scene.IsValid() && scene.isLoaded)
@@ -2073,9 +2117,24 @@ namespace SignVR.Editor.Interaction
 
         private static void ActivateSceneForSetup(Scene scene)
         {
-            if (!scene.IsValid() || !scene.isLoaded ||
-                !SceneManager.SetActiveScene(scene) ||
-                SceneManager.GetActiveScene() != scene)
+            if (!scene.IsValid() || !scene.isLoaded)
+            {
+                throw new InvalidOperationException(
+                    "W7 setup could not activate its target scene; no " +
+                    "scene object was created."
+                );
+            }
+
+            if (SceneManager.GetActiveScene() != scene &&
+                !SceneManager.SetActiveScene(scene))
+            {
+                throw new InvalidOperationException(
+                    "W7 setup could not activate its target scene; no " +
+                    "scene object was created."
+                );
+            }
+
+            if (SceneManager.GetActiveScene() != scene)
             {
                 throw new InvalidOperationException(
                     "W7 setup could not activate its target scene; no " +
