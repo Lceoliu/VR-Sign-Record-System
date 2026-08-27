@@ -1556,7 +1556,7 @@ MonoBehaviour:
         description: API layer that providing agentic interface for OpenXR
       m_JsonFileName: XrApiLayer_METAX_operator.json
       m_LibraryArchitecture: 1
-      m_IsEnabled: 1
+      m_IsEnabled: 0
 --- !u!114 &-772980766228261819
 MonoBehaviour:
   m_ObjectHideFlags: 0
