@@ -8,7 +8,8 @@ namespace SignVR.Interaction.PhaseAdapters
     [DisallowMultipleComponent]
     public sealed class InteractionTargetBinding :
         MonoBehaviour,
-        IInteractionTriggerInput
+        IInteractionTriggerInput,
+        IInteractionContactCycleInput
 #if UNITY_EDITOR
         , IInteractionOwnedStateTeardown
 #endif
@@ -30,6 +31,13 @@ namespace SignVR.Interaction.PhaseAdapters
 
         [SerializeField]
         private bool enableMovablePhysicsWhenAvailable;
+
+        [SerializeField, Min(0f)]
+        private float sameTargetCooldownSeconds = 0.3f;
+
+        private float lastAcceptedInputTime = float.NegativeInfinity;
+        private bool contactCycleActive;
+        private bool contactCycleLatched;
 
         private bool availabilitySubscribed;
         private bool resetSubscribed;
@@ -119,6 +127,8 @@ namespace SignVR.Interaction.PhaseAdapters
 
         public bool EnablesMovablePhysicsWhenAvailable =>
             enableMovablePhysicsWhenAvailable;
+
+        public float SameTargetCooldownSeconds => sameTargetCooldownSeconds;
 
 #if UNITY_INCLUDE_TESTS
         public InteractionSubscriptionDiagnostic SubscriptionDiagnostic =>
@@ -218,6 +228,7 @@ namespace SignVR.Interaction.PhaseAdapters
             inputColliders = nextColliders;
             availabilityObjects = nextAvailabilityObjects;
             enableMovablePhysicsWhenAvailable = enableMovablePhysics;
+            ResetInputGate();
             CaptureAuthoredPoseAndPhysics();
             CaptureAuthoredInputState();
             if (manageRuntimeSubscriptions)
@@ -251,7 +262,59 @@ namespace SignVR.Interaction.PhaseAdapters
                 return null;
             }
 
-            return adapter.AcceptTarget(targetId);
+            if (contactCycleActive && contactCycleLatched)
+            {
+                return null;
+            }
+            if (Time.unscaledTime - lastAcceptedInputTime <
+                sameTargetCooldownSeconds)
+            {
+                return null;
+            }
+
+            ValidationResult result = adapter.AcceptTarget(targetId);
+            if (result != null)
+            {
+                lastAcceptedInputTime = Time.unscaledTime;
+                if (contactCycleActive)
+                {
+                    contactCycleLatched = true;
+                }
+            }
+            return result;
+        }
+
+        public void ConfigureSameTargetCooldown(float seconds)
+        {
+            sameTargetCooldownSeconds = float.IsNaN(seconds)
+                ? 0f
+                : Mathf.Max(0f, seconds);
+        }
+
+        public ValidationResult BeginContactCycle()
+        {
+            if (contactCycleActive)
+            {
+                return null;
+            }
+
+            contactCycleActive = true;
+            ValidationResult result = AcceptInput();
+            contactCycleLatched = true;
+            return result;
+        }
+
+        public void EndContactCycle()
+        {
+            contactCycleActive = false;
+            contactCycleLatched = false;
+        }
+
+        private void ResetInputGate()
+        {
+            contactCycleActive = false;
+            contactCycleLatched = false;
+            lastAcceptedInputTime = float.NegativeInfinity;
         }
 
 #if UNITY_EDITOR || UNITY_INCLUDE_TESTS
@@ -524,7 +587,8 @@ namespace SignVR.Interaction.PhaseAdapters
                 body.interpolation = RigidbodyInterpolation.Interpolate;
                 body.collisionDetectionMode =
                     CollisionDetectionMode.ContinuousDynamic;
-                body.useGravity = true;
+                body.useGravity = index < authoredBodyGravity.Length &&
+                    authoredBodyGravity[index];
                 body.linearVelocity = Vector3.zero;
                 body.angularVelocity = Vector3.zero;
             }
@@ -710,10 +774,12 @@ namespace SignVR.Interaction.PhaseAdapters
         {
             ApplyAvailability(false);
             UnbindAdapterEvents();
+            ResetInputGate();
         }
 
         private void OnDestroy()
         {
+            ResetInputGate();
             RestoreAuthoredStateForTeardown();
         }
     }

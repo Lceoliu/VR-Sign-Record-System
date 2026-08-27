@@ -177,9 +177,14 @@ namespace SignVR.Interaction.PhaseAdapters
                     coinBinding.GetComponentsInChildren<Rigidbody>(true);
                 for (int index = 0; index < bodies.Length; index++)
                 {
-                    bodies[index].linearVelocity = Vector3.zero;
-                    bodies[index].angularVelocity = Vector3.zero;
-                    bodies[index].isKinematic = true;
+                    Rigidbody body = bodies[index];
+                    if (body == null || body.isKinematic)
+                    {
+                        continue;
+                    }
+                    body.linearVelocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                    body.isKinematic = true;
                 }
                 coinBinding.transform.SetPositionAndRotation(
                     snapPoint.position,
@@ -232,6 +237,11 @@ namespace SignVR.Interaction.PhaseAdapters
         }
 
         private void OnTriggerExit(Collider other)
+        {
+            ReleaseTrigger(other);
+        }
+
+        public void ReleaseTrigger(Collider other)
         {
             if (other == null)
             {

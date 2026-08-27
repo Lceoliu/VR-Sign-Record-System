@@ -106,6 +106,139 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         }
 
         [UnityTest]
+        public IEnumerator TargetInputIsAcceptedOncePerContactCycleAndTarget()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture("ContactCycleGate");
+            Component phaseFour = fixture.Adapters[3];
+            ActivatePhase(fixture, 4);
+
+            GameObject leftRoot = new GameObject("LeftHandInteractor");
+            leftRoot.transform.SetParent(fixture.Root.transform, false);
+            GameObject leftFirstObject = new GameObject("LeftHandColliderA");
+            leftFirstObject.transform.SetParent(leftRoot.transform, false);
+            Collider leftFirst = leftFirstObject.AddComponent<BoxCollider>();
+            GameObject leftSecondObject = new GameObject("LeftHandColliderB");
+            leftSecondObject.transform.SetParent(leftRoot.transform, false);
+            Collider leftSecond = leftSecondObject.AddComponent<BoxCollider>();
+
+            GameObject rightRoot = new GameObject("RightHandInteractor");
+            rightRoot.transform.SetParent(fixture.Root.transform, false);
+            GameObject rightObject = new GameObject("RightHandCollider");
+            rightObject.transform.SetParent(rightRoot.transform, false);
+            Collider right = rightObject.AddComponent<BoxCollider>();
+            Transform[] allowedRoots =
+                { leftRoot.transform, rightRoot.transform };
+
+            GameObject blueObject = new GameObject("W7Target_blue");
+            blueObject.transform.SetParent(fixture.Root.transform, false);
+            Collider blueCollider = blueObject.AddComponent<BoxCollider>();
+            Component blueBinding = blueObject.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                blueBinding,
+                "Configure",
+                "blue",
+                phaseFour,
+                Array.Empty<Behaviour>(),
+                new[] { blueCollider }
+            );
+            Component blueRelay = blueObject.AddComponent(
+                RuntimeType("InteractionTriggerRelay")
+            );
+            InvokePublic(
+                blueRelay,
+                "Configure",
+                blueBinding,
+                allowedRoots,
+                0.05f
+            );
+
+            GameObject redObject = new GameObject("W7Target_red");
+            redObject.transform.SetParent(fixture.Root.transform, false);
+            Collider redCollider = redObject.AddComponent<BoxCollider>();
+            Component redBinding = redObject.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                redBinding,
+                "Configure",
+                "red",
+                phaseFour,
+                Array.Empty<Behaviour>(),
+                new[] { redCollider }
+            );
+            Component redRelay = redObject.AddComponent(
+                RuntimeType("InteractionTriggerRelay")
+            );
+            InvokePublic(
+                redRelay,
+                "Configure",
+                redBinding,
+                allowedRoots,
+                0.05f
+            );
+
+            var results = new EventCounter();
+            SubscribeGenericEvent(
+                fixture.Coordinator,
+                "ResultProduced",
+                results
+            );
+
+            Assert.That(
+                InvokePublic(blueRelay, "AcceptTrigger", leftFirst),
+                Is.Not.Null
+            );
+            Assert.That(
+                InvokePublic(blueRelay, "AcceptTrigger", leftSecond),
+                Is.Null,
+                "A second collider on the same hand root is one contact."
+            );
+            Assert.That(
+                InvokePublic(blueRelay, "AcceptTrigger", right),
+                Is.Null,
+                "Both hands touching one target share one contact cycle."
+            );
+
+            yield return new WaitForSecondsRealtime(0.06f);
+            InvokePublic(blueBinding, "Poke");
+            InvokePublic(blueBinding, "Trigger");
+            InvokePublic(blueBinding, "Grab");
+            Assert.That(
+                results.Count,
+                Is.EqualTo(1),
+                "Poke/Trigger/Grab must share the active trigger latch."
+            );
+
+            Assert.That(
+                InvokePublic(redRelay, "AcceptTrigger", right),
+                Is.Not.Null,
+                "A contact on another target must not be globally blocked."
+            );
+            Assert.That(results.Count, Is.EqualTo(2));
+
+            InvokePublic(blueRelay, "ReleaseTrigger", leftFirst);
+            InvokePublic(blueRelay, "ReleaseTrigger", leftSecond);
+            Assert.That(
+                InvokePublic(blueRelay, "AcceptTrigger", leftFirst),
+                Is.Null,
+                "One hand remaining on the target must keep it latched."
+            );
+            InvokePublic(blueRelay, "ReleaseTrigger", right);
+            InvokePublic(blueRelay, "ReleaseTrigger", leftFirst);
+
+            yield return new WaitForSecondsRealtime(0.06f);
+            Assert.That(
+                InvokePublic(blueRelay, "AcceptTrigger", leftSecond),
+                Is.Not.Null,
+                "The target must rearm after every hand collider exits and " +
+                "its short cooldown expires."
+            );
+            Assert.That(results.Count, Is.EqualTo(3));
+        }
+
+        [UnityTest]
         public IEnumerator MovableTargetLifecycleRestoresAuthoredState()
         {
             GameObject adapterObject = Track(
@@ -151,7 +284,11 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Assert.That(grabBehaviour.enabled, Is.True);
             Assert.That(collider.enabled, Is.True);
             Assert.That(body.isKinematic, Is.False);
-            Assert.That(body.useGravity, Is.True);
+            Assert.That(
+                body.useGravity,
+                Is.False,
+                "Phase 2 availability must not turn coin gravity on."
+            );
             Assert.That(body.detectCollisions, Is.True);
             Assert.That(body.constraints, Is.EqualTo(RigidbodyConstraints.None));
             Assert.That(
@@ -203,6 +340,81 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Assert.That(
                 body.constraints,
                 Is.EqualTo(RigidbodyConstraints.FreezeAll)
+            );
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator CorrectPlacementSnapsAndLocksCoinWithItsRigidbody()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture("CoinSnapLock");
+            Component phaseTwo = fixture.Adapters[1];
+            ActivatePhase(fixture, 2);
+
+            GameObject coin = new GameObject("coin_dragon");
+            coin.transform.SetParent(fixture.Root.transform, false);
+            coin.transform.position = new Vector3(1f, 2f, 3f);
+            Rigidbody body = coin.AddComponent<Rigidbody>();
+            body.isKinematic = false;
+            body.useGravity = false;
+            body.linearVelocity = new Vector3(2f, 3f, 4f);
+            body.angularVelocity = new Vector3(5f, 6f, 7f);
+            Collider coinCollider = coin.AddComponent<BoxCollider>();
+            Component coinBinding = coin.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                coinBinding,
+                "Configure",
+                "coin_dragon",
+                phaseTwo,
+                Array.Empty<Behaviour>(),
+                new[] { coinCollider }
+            );
+
+            GameObject plate = new GameObject("plate_dragon");
+            plate.transform.SetParent(fixture.Root.transform, false);
+            Collider placementCollider = plate.AddComponent<BoxCollider>();
+            GameObject snapObject = new GameObject("SnapPoint");
+            snapObject.transform.SetParent(plate.transform, false);
+            snapObject.transform.position = new Vector3(8f, 9f, 10f);
+            snapObject.transform.rotation = Quaternion.Euler(20f, 30f, 40f);
+            Component placement = plate.AddComponent(
+                RuntimeType("InteractionPlacementBinding")
+            );
+            InvokePublic(
+                placement,
+                "Configure",
+                "plate_dragon",
+                phaseTwo,
+                placementCollider,
+                snapObject.transform
+            );
+
+            object result = InvokePublic(
+                placement,
+                "AcceptTrigger",
+                coinCollider
+            );
+            AssertAccepted(result);
+            Assert.That(coin.GetComponent<Rigidbody>(), Is.SameAs(body));
+            Assert.That(body.isKinematic, Is.True);
+            Assert.That(body.useGravity, Is.False);
+            Assert.That(body.linearVelocity, Is.EqualTo(Vector3.zero));
+            Assert.That(body.angularVelocity, Is.EqualTo(Vector3.zero));
+            Assert.That(
+                Vector3.Distance(
+                    coin.transform.position,
+                    snapObject.transform.position
+                ),
+                Is.LessThan(0.0001f)
+            );
+            Assert.That(
+                Quaternion.Angle(
+                    coin.transform.rotation,
+                    snapObject.transform.rotation
+                ),
+                Is.LessThan(0.0001f)
             );
             yield return null;
         }
@@ -3256,7 +3468,11 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 {
                     Enum.Parse(CoreType("AssistanceCondition"), "SignOnly"),
                     0,
-                    0
+                    0,
+                    Enum.Parse(
+                        CoreType("AssistanceAssignmentMode"),
+                        "RandomizedBlock"
+                    )
                 }
             );
             object password = Activator.CreateInstance(

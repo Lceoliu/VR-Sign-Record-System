@@ -263,6 +263,75 @@ namespace SignVR.Interaction.Editor.Tests
                     Is.True,
                     $"Phase 2 must restore collisions for {coinName}."
                 );
+                Assert.That(
+                    body.GetType().GetProperty("useGravity")
+                        .GetValue(body),
+                    Is.False,
+                    $"Phase 2 must not turn gravity on for {coinName}."
+                );
+            });
+        }
+
+        [Test]
+        public void SetupRoutesEachKeyThroughItsPhaseFourProxyOnly()
+        {
+            WithCleanInteractionScene(scene =>
+            {
+                InvokeTestOwnedSetupAndValidate(scene);
+
+                foreach (string targetId in
+                         new[] { "key_a", "key_b", "motorbike_key" })
+                {
+                    object proxy = FindGameObjectInScene(
+                        scene,
+                        "W7Target_" + targetId
+                    );
+                    object proxyCollider = GetComponent(
+                        proxy,
+                        UnityPhysicsType("BoxCollider")
+                    );
+                    object relay = GetComponent(
+                        proxy,
+                        RuntimeType("InteractionTriggerRelay")
+                    );
+                    object binding = relay.GetType()
+                        .GetProperty("InputReceiver").GetValue(relay);
+
+                    Assert.That(binding, Is.Not.Null);
+                    Assert.That(
+                        binding.GetType().GetProperty("TargetId")
+                            .GetValue(binding),
+                        Is.EqualTo(targetId)
+                    );
+                    Assert.That(
+                        binding.GetType().GetProperty("PhaseId")
+                            .GetValue(binding),
+                        Is.EqualTo(4),
+                        $"{targetId} must use the Phase 4 adapter."
+                    );
+
+                    Array inputColliders = (Array)binding.GetType()
+                        .GetProperty("InputColliders").GetValue(binding);
+                    Assert.That(inputColliders, Has.Length.EqualTo(1));
+                    Assert.That(
+                        inputColliders.GetValue(0),
+                        Is.SameAs(proxyCollider),
+                        $"{targetId} must keep W7Target_{targetId} as its " +
+                        "only input collider."
+                    );
+
+                    object keyBody = GetGameObject(binding);
+                    Assert.That(
+                        GetComponentsInChildren(
+                            keyBody,
+                            RuntimeType("InteractionTriggerRelay"),
+                            includeInactive: true
+                        ),
+                        Is.Empty,
+                        $"{targetId}'s physical body must not gain a second " +
+                        "trigger input channel."
+                    );
+                }
             });
         }
 
@@ -2015,6 +2084,335 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void PhaseTwoCoinKeepsGravityOffAndCorrectPlacementSnapLocks()
+        {
+            object root = CreateGameObject("W7CoinPhysicsTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                Type coordinatorType = RuntimeType(
+                    "InteractionPhaseCoordinator"
+                );
+                object coordinator = AddComponent(root, coordinatorType);
+                Array adapters = CreateSixAdapters(rootTransform);
+                coordinatorType.GetMethod("ConfigureAdapters").Invoke(
+                    coordinator,
+                    new object[] { adapters }
+                );
+                coordinatorType.GetMethod("Configure").Invoke(
+                    coordinator,
+                    new[] { CreateRunPlan() }
+                );
+                coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
+                SynchronizePhase(coordinator, 2);
+
+                object coin = CreateGameObject("coin_dragon");
+                SetParent(GetTransform(coin), rootTransform);
+                object body = AddComponent(
+                    coin,
+                    UnityPhysicsType("Rigidbody")
+                );
+                body.GetType().GetProperty("isKinematic")
+                    .SetValue(body, true);
+                body.GetType().GetProperty("useGravity")
+                    .SetValue(body, false);
+                object coinCollider = AddComponent(
+                    coin,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object coinBinding = AddComponent(
+                    coin,
+                    RuntimeType("InteractionTargetBinding")
+                );
+                coinBinding.GetType().GetMethod("ConfigureMovable").Invoke(
+                    coinBinding,
+                    new object[]
+                    {
+                        "coin_dragon",
+                        adapters.GetValue(1),
+                        TypedArray(UnityType("Behaviour")),
+                        TypedArray(
+                            UnityPhysicsType("Collider"),
+                            coinCollider
+                        ),
+                        TypedArray(UnityType("GameObject"))
+                    }
+                );
+
+                Assert.That(
+                    GetComponent(coin, UnityPhysicsType("Rigidbody")),
+                    Is.SameAs(body),
+                    "Phase 2 must retain the authored Rigidbody."
+                );
+                Assert.That(
+                    body.GetType().GetProperty("isKinematic")
+                        .GetValue(body),
+                    Is.False,
+                    "The available coin must be movable."
+                );
+                Assert.That(
+                    body.GetType().GetProperty("useGravity")
+                        .GetValue(body),
+                    Is.False,
+                    "Phase 2 availability must not turn coin gravity on."
+                );
+
+                object plate = CreateGameObject("plate_dragon");
+                SetParent(GetTransform(plate), rootTransform);
+                object placementCollider = AddComponent(
+                    plate,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object snap = CreateGameObject("SnapPoint");
+                SetParent(GetTransform(snap), GetTransform(plate));
+                GetTransform(snap).GetType().GetProperty("position")
+                    .SetValue(GetTransform(snap), CreateVector3(8f, 9f, 10f));
+                object placement = AddComponent(
+                    plate,
+                    RuntimeType("InteractionPlacementBinding")
+                );
+                placement.GetType().GetMethod("Configure").Invoke(
+                    placement,
+                    new object[]
+                    {
+                        "plate_dragon",
+                        adapters.GetValue(1),
+                        placementCollider,
+                        GetTransform(snap)
+                    }
+                );
+
+                object result = placement.GetType()
+                    .GetMethod("AcceptTrigger").Invoke(
+                        placement,
+                        new[] { coinCollider }
+                    );
+                Assert.That(result, Is.Not.Null);
+                Assert.That(
+                    result.GetType().GetProperty("Accepted").GetValue(result),
+                    Is.True
+                );
+                Assert.That(
+                    body.GetType().GetProperty("isKinematic")
+                        .GetValue(body),
+                    Is.True,
+                    "A correct placement must lock the coin."
+                );
+                Assert.That(
+                    body.GetType().GetProperty("useGravity")
+                        .GetValue(body),
+                    Is.False
+                );
+                AssertVector3(
+                    GetTransform(coin).GetType().GetProperty("position")
+                        .GetValue(GetTransform(coin)),
+                    8f,
+                    9f,
+                    10f,
+                    "A correct placement must snap to the plate."
+                );
+                Type.GetType(
+                    "UnityEngine.TestTools.LogAssert, UnityEngine.TestRunner",
+                    throwOnError: true
+                ).GetMethod(
+                    "NoUnexpectedReceived",
+                    BindingFlags.Public | BindingFlags.Static
+                ).Invoke(null, null);
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
+        public void TargetContactCycleDeduplicatesEveryPublicInputPerTarget()
+        {
+            object root = CreateGameObject("W7TargetContactCycleTest");
+            try
+            {
+                object rootTransform = GetTransform(root);
+                Type coordinatorType = RuntimeType(
+                    "InteractionPhaseCoordinator"
+                );
+                object coordinator = AddComponent(root, coordinatorType);
+                Array adapters = CreateSixAdapters(rootTransform);
+                coordinatorType.GetMethod("ConfigureAdapters").Invoke(
+                    coordinator,
+                    new object[] { adapters }
+                );
+                coordinatorType.GetMethod("Configure").Invoke(
+                    coordinator,
+                    new[] { CreateRunPlan() }
+                );
+                coordinatorType.GetMethod("Enable").Invoke(coordinator, null);
+                SynchronizePhase(coordinator, 4);
+
+                object leftRoot = CreateGameObject("LeftHandInteractor");
+                SetParent(GetTransform(leftRoot), rootTransform);
+                object leftFirstObject = CreateGameObject("LeftColliderA");
+                SetParent(GetTransform(leftFirstObject), GetTransform(leftRoot));
+                object leftFirst = AddComponent(
+                    leftFirstObject,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object leftSecondObject = CreateGameObject("LeftColliderB");
+                SetParent(GetTransform(leftSecondObject), GetTransform(leftRoot));
+                object leftSecond = AddComponent(
+                    leftSecondObject,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object rightRoot = CreateGameObject("RightHandInteractor");
+                SetParent(GetTransform(rightRoot), rootTransform);
+                object rightColliderObject = CreateGameObject("RightCollider");
+                SetParent(
+                    GetTransform(rightColliderObject),
+                    GetTransform(rightRoot)
+                );
+                object right = AddComponent(
+                    rightColliderObject,
+                    UnityPhysicsType("BoxCollider")
+                );
+                Array allowedRoots = Array.CreateInstance(
+                    UnityType("Transform"),
+                    2
+                );
+                allowedRoots.SetValue(GetTransform(leftRoot), 0);
+                allowedRoots.SetValue(GetTransform(rightRoot), 1);
+
+                object blueObject = CreateGameObject("W7Target_blue");
+                SetParent(GetTransform(blueObject), rootTransform);
+                object blueCollider = AddComponent(
+                    blueObject,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object blueBinding = AddComponent(
+                    blueObject,
+                    RuntimeType("InteractionTargetBinding")
+                );
+                blueBinding.GetType().GetMethod("Configure").Invoke(
+                    blueBinding,
+                    new object[]
+                    {
+                        "blue",
+                        adapters.GetValue(3),
+                        null,
+                        TypedArray(
+                            UnityPhysicsType("Collider"),
+                            blueCollider
+                        )
+                    }
+                );
+                object blueRelay = AddComponent(
+                    blueObject,
+                    RuntimeType("InteractionTriggerRelay")
+                );
+                blueRelay.GetType().GetMethod("Configure").Invoke(
+                    blueRelay,
+                    new object[] { blueBinding, allowedRoots, 0f }
+                );
+
+                object redObject = CreateGameObject("W7Target_red");
+                SetParent(GetTransform(redObject), rootTransform);
+                object redCollider = AddComponent(
+                    redObject,
+                    UnityPhysicsType("BoxCollider")
+                );
+                object redBinding = AddComponent(
+                    redObject,
+                    RuntimeType("InteractionTargetBinding")
+                );
+                redBinding.GetType().GetMethod("Configure").Invoke(
+                    redBinding,
+                    new object[]
+                    {
+                        "red",
+                        adapters.GetValue(3),
+                        null,
+                        TypedArray(
+                            UnityPhysicsType("Collider"),
+                            redCollider
+                        )
+                    }
+                );
+
+                object first = blueRelay.GetType()
+                    .GetMethod("AcceptTrigger").Invoke(
+                        blueRelay,
+                        new[] { leftFirst }
+                    );
+                Assert.That(first, Is.Not.Null);
+                Assert.That(
+                    blueRelay.GetType().GetMethod("AcceptTrigger").Invoke(
+                        blueRelay,
+                        new[] { leftSecond }
+                    ),
+                    Is.Null
+                );
+                Assert.That(
+                    blueRelay.GetType().GetMethod("AcceptTrigger").Invoke(
+                        blueRelay,
+                        new[] { right }
+                    ),
+                    Is.Null
+                );
+                Assert.That(
+                    blueBinding.GetType().GetMethod("AcceptInput").Invoke(
+                        blueBinding,
+                        null
+                    ),
+                    Is.Null,
+                    "The direct/Poke seam must share the trigger latch."
+                );
+                Assert.That(
+                    redBinding.GetType().GetMethod("AcceptInput").Invoke(
+                        redBinding,
+                        null
+                    ),
+                    Is.Not.Null,
+                    "A separate target must own a separate gate."
+                );
+
+                blueRelay.GetType().GetMethod("ReleaseTrigger").Invoke(
+                    blueRelay,
+                    new[] { leftFirst }
+                );
+                blueRelay.GetType().GetMethod("ReleaseTrigger").Invoke(
+                    blueRelay,
+                    new[] { leftSecond }
+                );
+                Assert.That(
+                    blueRelay.GetType().GetMethod("AcceptTrigger").Invoke(
+                        blueRelay,
+                        new[] { leftFirst }
+                    ),
+                    Is.Null,
+                    "The right hand still holds the contact cycle."
+                );
+                blueRelay.GetType().GetMethod("ReleaseTrigger").Invoke(
+                    blueRelay,
+                    new[] { right }
+                );
+                blueRelay.GetType().GetMethod("ReleaseTrigger").Invoke(
+                    blueRelay,
+                    new[] { leftFirst }
+                );
+                Assert.That(
+                    blueRelay.GetType().GetMethod("AcceptTrigger").Invoke(
+                        blueRelay,
+                        new[] { leftSecond }
+                    ),
+                    Is.Not.Null,
+                    "All colliders exiting must rearm the target."
+                );
+            }
+            finally
+            {
+                DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void DisabledTargetAndKeypadBindingsCloseAndRejectInputs()
         {
             object root = CreateGameObject("W7DisabledInputBoundaryTest");
@@ -2256,6 +2654,34 @@ namespace SignVR.Interaction.Editor.Tests
                     "coin_dragon on plate_a is intentionally the wrong pair."
                 );
                 Assert.That(duplicate, Is.Null);
+                placement.GetType().GetMethod("ReleaseTrigger").Invoke(
+                    placement,
+                    new[] { firstCollider }
+                );
+                Assert.That(
+                    placement.GetType().GetMethod("AcceptTrigger").Invoke(
+                        placement,
+                        new[] { firstCollider }
+                    ),
+                    Is.Null,
+                    "One collider still overlapping must keep the coin latched."
+                );
+                placement.GetType().GetMethod("ReleaseTrigger").Invoke(
+                    placement,
+                    new[] { secondCollider }
+                );
+                placement.GetType().GetMethod("ReleaseTrigger").Invoke(
+                    placement,
+                    new[] { firstCollider }
+                );
+                Assert.That(
+                    placement.GetType().GetMethod("AcceptTrigger").Invoke(
+                        placement,
+                        new[] { secondCollider }
+                    ),
+                    Is.Not.Null,
+                    "A full exit must rearm the coin placement contact cycle."
+                );
                 Assert.That(
                     placement.GetType().GetMethod(
                         "AcceptPlacement",
@@ -4195,7 +4621,11 @@ namespace SignVR.Interaction.Editor.Tests
                 {
                     Enum.Parse(assistanceConditionType, "SignOnly"),
                     (object)0,
-                    (object)0
+                    (object)0,
+                    Enum.Parse(
+                        CoreType("AssistanceAssignmentMode"),
+                        "RandomizedBlock"
+                    )
                 }
             );
             object password = Activator.CreateInstance(
