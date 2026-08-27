@@ -380,6 +380,7 @@ namespace SignVR.Editor.Interaction
             }
 
             changed |= EnsureFixedStudyWorldFrame(scene);
+            changed |= InteractionSeatedMoveSetup.Configure(scene);
 
             return changed;
         }

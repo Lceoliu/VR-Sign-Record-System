@@ -46,6 +46,30 @@ Contract baseline
 - Device-dependent tasks do not block unrelated work. Several validated scenes or separately installable test applications may be batched into one later human test session.
 - A worker must not claim device validation unless it actually ran on Quest and reports the build identity and device result.
 
+## InteractionLab seated positioning aid
+
+InteractionLab always includes a head-following world-space Poke button labelled
+`向视线方向移动 10 cm`. Each successful naked-hand Poke translates the complete XR
+subtree exactly 0.1 metres along the HMD's world-space forward vector at the
+click instant. The full X/Y/Z direction is retained: looking up, down, sideways,
+or behind the authored starting view therefore produces the corresponding
+three-dimensional translation.
+
+This is an intentionally collision-free seated test/operator aid. It does not
+use `CharacterController`, gravity, or planar thumbstick locomotion and may pass
+through furniture, walls, or the floor. The application-owned
+`VRPlayer/InteractionSeatedRigOffset` sits above `OVRCameraRig`; the fixed
+`VRPlayer` root and Meta/OpenXR-owned tracking origin retain their established
+ownership. The HMD-child `InteractionSeatedMoveCanvas` stays reachable after
+movement, while static task targets remain in the authored world frame.
+
+Because capture samples HMD and hands in world space, using this aid changes the
+subsequently recorded HMD/hand world coordinates. The accumulated offset is
+runtime-only and resets to zero whenever InteractionLab is reloaded. Primary
+implementation is `Assets/Scripts/Interaction/InteractionSeatedRigMover.cs`;
+idempotent assembly is in `Assets/Editor/InteractionSeatedMoveSetup.cs`, invoked
+by the InteractionLab scene generator and enforced by its validator.
+
 ## Worker completion contract
 
 Every worker report must include:

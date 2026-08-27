@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using SignVR.EditorTools;
+using SignVR.Interaction;
+using SignVR.SceneFlow;
+using TMPro;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -273,6 +276,7 @@ namespace SignVR.Editor.Interaction
                 InteractionLabSceneTool.EnumerateGameObjects(scene).ToArray();
             ValidateRequiredHierarchy(scene, gameObjects, failures);
             ValidateReusableRoomAndRig(scene, gameObjects, failures);
+            ValidateSeatedMovement(gameObjects, failures);
             ValidateRecordingResponsibilities(gameObjects, failures);
             ValidateMissingScripts(gameObjects, failures);
 
@@ -446,6 +450,93 @@ namespace SignVR.Editor.Interaction
                 room.GetComponentsInChildren<MeshCollider>(true).Length == 0)
             {
                 failures.Add("Reusable room mesh colliders are missing.");
+            }
+        }
+
+        private static void ValidateSeatedMovement(
+            IReadOnlyCollection<GameObject> gameObjects,
+            ICollection<string> failures)
+        {
+            InteractionSeatedRigMover[] movers = gameObjects
+                .SelectMany(value =>
+                    value.GetComponents<InteractionSeatedRigMover>())
+                .ToArray();
+            if (movers.Length != 1)
+            {
+                failures.Add(
+                    "Expected exactly one Interaction seated rig mover; found " +
+                    movers.Length + "."
+                );
+                return;
+            }
+
+            InteractionSeatedRigMover mover = movers[0];
+            Transform offset = mover.transform;
+            VRPlayerRig player = offset.parent == null
+                ? null
+                : offset.parent.GetComponent<VRPlayerRig>();
+            if (player == null || !string.Equals(
+                    offset.name,
+                    InteractionSeatedMoveSetup.OffsetName,
+                    StringComparison.Ordinal) ||
+                offset.localPosition != Vector3.zero ||
+                offset.localRotation != Quaternion.identity ||
+                offset.localScale != Vector3.one)
+            {
+                failures.Add(
+                    "Interaction seated offset must be an identity direct child " +
+                    "of the fixed VRPlayer root."
+                );
+            }
+            else if (player.XROrigin == null ||
+                player.XROrigin.parent != offset)
+            {
+                failures.Add(
+                    "The canonical OVRCameraRig/XR origin must be directly " +
+                    "parented under the application-owned seated offset."
+                );
+            }
+
+            if (mover.Hmd == null || mover.Hmd != player?.Head ||
+                mover.MoveButton == null || !Mathf.Approximately(
+                    mover.StepDistance,
+                    InteractionSeatedRigMover.DefaultStepDistance))
+            {
+                failures.Add(
+                    "Interaction seated mover must reference the canonical HMD, " +
+                    "button, and exact 0.1 metre step."
+                );
+                return;
+            }
+
+            if (!mover.enabled || !mover.gameObject.activeInHierarchy ||
+                !mover.MoveButton.interactable ||
+                !mover.MoveButton.gameObject.activeInHierarchy)
+            {
+                failures.Add(
+                    "Interaction seated movement and its button must remain " +
+                    "enabled and available in the canonical production scene."
+                );
+            }
+
+            Transform canvas = mover.MoveButton.transform.parent;
+            TMP_Text label = mover.MoveButton.GetComponentInChildren<TMP_Text>(
+                true
+            );
+            if (canvas == null || canvas.parent != mover.Hmd ||
+                !string.Equals(canvas.name, InteractionSeatedMoveSetup.CanvasName,
+                    StringComparison.Ordinal) ||
+                canvas.GetComponent<Canvas>() == null ||
+                canvas.GetComponent<WorldSpacePokeCanvas>() == null ||
+                label == null || !string.Equals(
+                    label.text,
+                    InteractionSeatedMoveSetup.ButtonLabel,
+                    StringComparison.Ordinal))
+            {
+                failures.Add(
+                    "The seated move button must be the canonical HMD-child " +
+                    "world-space naked-hand Poke canvas and label."
+                );
             }
         }
 
