@@ -158,31 +158,36 @@ namespace SignVR.Interaction.Orchestration
                 Is.EqualTo(PhaseResult.Stuck)
             );
             Assert.That(fixture.Tasks.CurrentPhaseId, Is.EqualTo(2));
+            Assert.That(
+                fixture.Tasks.PresentationSnapshot.SafeDoorOpened,
+                Is.True
+            );
         }
 
-        public static void WrongInputResetsW7ProgressAndSnapshotNeverGuessesProgress()
+        public static void WrongBoxRecordsErrorWithoutPasswordProgress()
         {
             var fixture = StartFirstPhase();
             RunPlan plan = fixture.Run.Plan;
 
-            ValidationResult accepted = fixture.Tasks.AcceptInput(
-                1,
-                PhaseInput.Target(plan.Phases[0].TaskVariant.TargetIds[0])
-            );
-            Assert.That(accepted.Progress, Is.EqualTo(1));
-            Assert.That(fixture.Flow.Snapshot.Progress, Is.EqualTo(1));
-
             ValidationResult wrong = fixture.Tasks.AcceptInput(
                 1,
-                PhaseInput.Submit()
+                PhaseInput.Target("not_the_planned_box")
             );
             Assert.That(wrong.InteractionError, Is.True);
-            Assert.That(wrong.ProgressReset, Is.True);
+            Assert.That(wrong.ProgressReset, Is.False);
             Assert.That(wrong.Progress, Is.Zero);
             Assert.That(fixture.Flow.Snapshot.Progress, Is.Zero);
             Assert.That(fixture.Tasks.LastResult, Is.SameAs(wrong));
             Assert.That(fixture.Run.RecordedResults.Last(), Is.SameAs(wrong));
             Assert.That(fixture.Run.CurrentPhase.InteractionErrorCount, Is.EqualTo(1));
+
+            ValidationResult completed = fixture.Tasks.AcceptInput(
+                1,
+                PhaseInput.Target(plan.Phases[0].TaskVariant.TargetIds[0])
+            );
+            Assert.That(completed.PhaseCompleted, Is.True);
+            Assert.That(completed.Progress, Is.EqualTo(1));
+            Assert.That(completed.RequiredProgress, Is.EqualTo(1));
         }
 
         public static void ValidationErrorsResynchronizeBeforeReplayGiveUp()
@@ -193,7 +198,7 @@ namespace SignVR.Interaction.Orchestration
                 PhaseInput.Submit()
             );
             Assert.That(resetError.InteractionError, Is.True);
-            Assert.That(resetError.ProgressReset, Is.True);
+            Assert.That(resetError.ProgressReset, Is.False);
             Assert.That(
                 reset.Run.CurrentPhase.InteractionErrorCount,
                 Is.EqualTo(1)
@@ -1983,11 +1988,6 @@ namespace SignVR.Interaction.Orchestration
                             plan.Phases[0].TaskVariant.TargetIds[0]
                         )
                     );
-                    foreach (int digit in plan.SafePassword.Digits)
-                    {
-                        result = tasks.AcceptInput(1, PhaseInput.Digit(digit));
-                    }
-                    result = tasks.AcceptInput(1, PhaseInput.Submit());
                     break;
                 case 2:
                     result = tasks.AcceptInput(
@@ -2535,6 +2535,8 @@ namespace SignVR.Interaction.Orchestration
             public RunPlan Plan => session.Plan;
             public ValidationResult LastResult => session.LastResult;
             public int? CurrentPhaseId => session.CurrentPhaseId;
+            public InteractionTaskPresentationSnapshot PresentationSnapshot =>
+                session.PresentationSnapshot;
             public int ResetCount { get; private set; }
             public int AbortCount { get; private set; }
             public int DisableCount { get; private set; }

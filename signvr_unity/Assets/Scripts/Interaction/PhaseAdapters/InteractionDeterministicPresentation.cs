@@ -723,6 +723,7 @@ namespace SignVR.Interaction.PhaseAdapters
             }
             coordinator.RunConfigured += HandleRunConfigured;
             coordinator.RunReset += HandleRunReset;
+            coordinator.PhaseSynchronized += HandlePhaseSynchronized;
             coordinator.ResultProduced += HandleResult;
             subscribed = true;
         }
@@ -733,6 +734,7 @@ namespace SignVR.Interaction.PhaseAdapters
             {
                 coordinator.RunConfigured -= HandleRunConfigured;
                 coordinator.RunReset -= HandleRunReset;
+                coordinator.PhaseSynchronized -= HandlePhaseSynchronized;
                 coordinator.ResultProduced -= HandleResult;
             }
             subscribed = false;
@@ -752,6 +754,12 @@ namespace SignVR.Interaction.PhaseAdapters
             subscriptionDiagnostic.RecordRunReset();
 #endif
             ResetPresentation();
+        }
+
+        private void HandlePhaseSynchronized(
+            PhaseExecutionSnapshot snapshot)
+        {
+            RebuildFromAuthority();
         }
 
         private void PrepareKeysForPlan(RunPlan plan)

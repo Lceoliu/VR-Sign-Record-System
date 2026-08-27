@@ -34,6 +34,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         public event Action<RunPlan> RunConfigured;
         public event Action RunReset;
+        public event Action<PhaseExecutionSnapshot> PhaseSynchronized;
         public event Action<ValidationResult> ResultProduced;
         public event Action<ValidationResult> InputAccepted;
         public event Action<ValidationResult> InteractionError;
@@ -176,6 +177,7 @@ namespace SignVR.Interaction.PhaseAdapters
             EnsureSession();
             session.Synchronize(snapshot);
             UpdateAdapterAvailability();
+            PhaseSynchronized?.Invoke(snapshot);
         }
 
         public ValidationResult AcceptInput(

@@ -16,8 +16,6 @@ namespace SignVR.Interaction.Core
     public enum PhaseFeedbackCue
     {
         None,
-        SafePasswordRevealed,
-        SafeDigitRemoved,
         SafeDoorOpened,
         CoinPlaced,
         ChestOrderUnlocked,
@@ -42,7 +40,6 @@ namespace SignVR.Interaction.Core
         UnexpectedTarget,
         IncorrectCombination,
         IncorrectOrder,
-        IncorrectPassword,
         LifecycleSnapshotRequired,
         LifecycleSnapshotMismatch,
         GiveUpUnavailable,
@@ -239,7 +236,6 @@ namespace SignVR.Interaction.Core
         private readonly ReadOnlyCollection<string> breakerTargetIds;
 
         internal InteractionTaskPresentationSnapshot(
-            bool safePasswordVisible,
             bool chestOrderVisible,
             bool safeDoorOpened,
             bool chestOpened,
@@ -250,7 +246,6 @@ namespace SignVR.Interaction.Core
             IEnumerable<string> cabinetButtons,
             IEnumerable<string> breakers)
         {
-            SafePasswordVisible = safePasswordVisible;
             ChestOrderVisible = chestOrderVisible;
             SafeDoorOpened = safeDoorOpened;
             ChestOpened = chestOpened;
@@ -261,8 +256,6 @@ namespace SignVR.Interaction.Core
             cabinetButtonTargetIds = Copy(cabinetButtons);
             breakerTargetIds = Copy(breakers);
         }
-
-        public bool SafePasswordVisible { get; }
 
         public bool ChestOrderVisible { get; }
 
@@ -323,22 +316,16 @@ namespace SignVR.Interaction.Core
     /// </summary>
     public sealed class InteractionPhaseSession
     {
-        private readonly List<int> safeDigits = new List<int>(
-            SafePassword.DigitCount
-        );
-
         private RunPlan plan;
         private PhaseExecutionSnapshot lifecycleSnapshot;
         private bool locallyEnabled;
         private bool phaseTaskLocked;
-        private bool phaseOneBoxAccepted;
         private int phaseFourProgress;
         private bool phaseFiveKeyAccepted;
         private readonly HashSet<string> phaseFiveButtons =
             new HashSet<string>(StringComparer.Ordinal);
         private ValidationResult lastResult;
         private int phaseSixProgress;
-        private bool safePasswordVisible;
         private bool chestOrderVisible;
         private bool safeDoorOpened;
         private bool chestOpened;
@@ -376,7 +363,6 @@ namespace SignVR.Interaction.Core
 
         public InteractionTaskPresentationSnapshot PresentationSnapshot =>
             new InteractionTaskPresentationSnapshot(
-                safePasswordVisible,
                 chestOrderVisible,
                 safeDoorOpened,
                 chestOpened,
@@ -488,6 +474,10 @@ namespace SignVR.Interaction.Core
             }
 
             lifecycleSnapshot = snapshot;
+            if (snapshot.PhaseId >= 2)
+            {
+                safeDoorOpened = true;
+            }
             if (!snapshot.InteractionsEnabled)
             {
                 phaseTaskLocked = true;
@@ -531,6 +521,10 @@ namespace SignVR.Interaction.Core
             {
                 chestOrderVisible = true;
             }
+            if (phaseId == 1)
+            {
+                safeDoorOpened = true;
+            }
             phaseTaskLocked = true;
             string releasedKey = phaseId == 4
                 ? plan.Phases[3].TaskVariant.TargetIds[0]
@@ -540,9 +534,11 @@ namespace SignVR.Interaction.Core
                 chestOpened = true;
                 releasedKeyTargetId = releasedKey;
             }
-            PhaseFeedbackCue cue = phaseId == 4
-                ? PhaseFeedbackCue.ChestOpened
-                : PhaseFeedbackCue.PhaseGivenUp;
+            PhaseFeedbackCue cue = phaseId == 1
+                ? PhaseFeedbackCue.SafeDoorOpened
+                : phaseId == 4
+                    ? PhaseFeedbackCue.ChestOpened
+                    : PhaseFeedbackCue.PhaseGivenUp;
             return Publish(new ValidationResult(
                 phaseId,
                 true,
@@ -966,92 +962,19 @@ namespace SignVR.Interaction.Core
 
         private ValidationResult AcceptPhaseOne(PhaseInput input)
         {
-            const int requiredProgress = SafePassword.DigitCount + 1;
+            const int requiredProgress = 1;
             string plannedBox = plan.Phases[0].TaskVariant.TargetIds[0];
-            if (!phaseOneBoxAccepted)
-            {
-                if (input.Kind != PhaseInputKind.Target ||
-                    !string.Equals(
-                        input.TargetId,
-                        plannedBox,
-                        StringComparison.Ordinal
-                    ))
-                {
-                    return PhaseOneError(input.TargetId, requiredProgress);
-                }
-
-                phaseOneBoxAccepted = true;
-                safePasswordVisible = true;
-                return new ValidationResult(
-                    1,
-                    true,
-                    false,
-                    false,
-                    false,
-                    1,
-                    requiredProgress,
-                    PhaseFeedbackCue.SafePasswordRevealed,
-                    PhaseValidationError.None,
-                    input.TargetId
-                );
-            }
-
-            if (input.Kind == PhaseInputKind.Digit &&
-                safeDigits.Count < SafePassword.DigitCount)
-            {
-                safeDigits.Add(input.DigitValue.GetValueOrDefault());
-                return new ValidationResult(
-                    1,
-                    true,
-                    false,
-                    false,
-                    false,
-                    safeDigits.Count + 1,
-                    requiredProgress,
-                    PhaseFeedbackCue.None,
-                    PhaseValidationError.None
-                );
-            }
-
-            if (input.Kind == PhaseInputKind.Backspace)
-            {
-                if (safeDigits.Count > 0)
-                {
-                    safeDigits.RemoveAt(safeDigits.Count - 1);
-                }
-                return new ValidationResult(
-                    1,
-                    true,
-                    false,
-                    false,
-                    false,
-                    safeDigits.Count + 1,
-                    requiredProgress,
-                    PhaseFeedbackCue.SafeDigitRemoved,
-                    PhaseValidationError.None
-                );
-            }
-
-            if (input.Kind != PhaseInputKind.Submit ||
-                safeDigits.Count != SafePassword.DigitCount)
+            if (input.Kind != PhaseInputKind.Target ||
+                !string.Equals(
+                    input.TargetId,
+                    plannedBox,
+                    StringComparison.Ordinal
+                ))
             {
                 return PhaseOneError(input.TargetId, requiredProgress);
             }
 
-            for (int index = 0; index < SafePassword.DigitCount; index++)
-            {
-                if (safeDigits[index] != plan.SafePassword.Digits[index])
-                {
-                    return PhaseOneError(
-                        null,
-                        requiredProgress,
-                        PhaseValidationError.IncorrectPassword
-                    );
-                }
-            }
-
             phaseTaskLocked = true;
-            safePasswordVisible = false;
             safeDoorOpened = true;
             return new ValidationResult(
                 1,
@@ -1073,13 +996,11 @@ namespace SignVR.Interaction.Core
             PhaseValidationError error =
                 PhaseValidationError.UnexpectedTarget)
         {
-            ResetTaskProgress();
-            safePasswordVisible = false;
             return new ValidationResult(
                 1,
                 false,
                 true,
-                true,
+                false,
                 false,
                 0,
                 requiredProgress,
@@ -1249,11 +1170,7 @@ namespace SignVR.Interaction.Core
 
         private void ResetPresentationProgress(int phaseId)
         {
-            if (phaseId == 1)
-            {
-                safePasswordVisible = false;
-            }
-            else if (phaseId == 4)
+            if (phaseId == 4)
             {
                 chestOrderVisible = false;
                 presentationChestButtons.Clear();
@@ -1271,7 +1188,6 @@ namespace SignVR.Interaction.Core
         private void ResetAllTaskState()
         {
             ResetTaskProgress();
-            safePasswordVisible = false;
             chestOrderVisible = false;
             safeDoorOpened = false;
             chestOpened = false;
@@ -1285,8 +1201,6 @@ namespace SignVR.Interaction.Core
 
         private void ResetTaskProgress()
         {
-            phaseOneBoxAccepted = false;
-            safeDigits.Clear();
             phaseFourProgress = 0;
             phaseFiveKeyAccepted = false;
             phaseFiveButtons.Clear();

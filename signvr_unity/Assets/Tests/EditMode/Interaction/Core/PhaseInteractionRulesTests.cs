@@ -120,63 +120,65 @@ namespace SignVR.Interaction.Core.Tests
         }
 
         [Test]
-        public void PhaseOne_BackspaceRemovesOnlyLastDigitAndSubmitUsesEditedValue()
+        public void PhaseTwoEntryAfterPhaseOneGiveUpKeepsSafeDoorOpen()
         {
             var harness = new SessionHarness(CreatePlan());
-            InteractionPhaseSession session = harness.Session;
-            session.AcceptInput(1, PhaseInput.Target("box_stool"));
-            session.AcceptInput(1, PhaseInput.Digit(7));
-            session.AcceptInput(1, PhaseInput.Digit(1));
-            session.AcceptInput(1, PhaseInput.Digit(8));
+            PhaseExecutionSnapshot giveUpAvailable =
+                harness.MakeGiveUpAvailable();
 
-            ValidationResult backspace = session.AcceptInput(
-                1,
-                PhaseInput.Backspace()
+            ValidationResult givenUp = harness.Session.GiveUpCurrentPhase(
+                giveUpAvailable
             );
-            session.AcceptInput(1, PhaseInput.Digit(4));
-            session.AcceptInput(1, PhaseInput.Digit(9));
-            ValidationResult completed = session.AcceptInput(
-                1,
-                PhaseInput.Submit()
-            );
+            harness.AdvanceGivenUpPhase();
 
-            Assert.That(backspace.Accepted, Is.True);
-            Assert.That(backspace.Progress, Is.EqualTo(3));
-            Assert.That(backspace.FeedbackCue, Is.EqualTo(
-                PhaseFeedbackCue.SafeDigitRemoved
-            ));
-            Assert.That(completed.PhaseCompleted, Is.True);
+            Assert.That(givenUp.PhaseGivenUp, Is.True);
+            Assert.That(harness.Session.CurrentPhaseId, Is.EqualTo(2));
+            Assert.That(
+                harness.Session.PresentationSnapshot.SafeDoorOpened,
+                Is.True
+            );
         }
 
         [Test]
-        public void PhaseOne_WrongSubmissionClearsBoxAndAllDigits()
+        public void PhaseTwoSynchronizationOpensSafeDoorWithoutPhaseOneResult()
         {
             var harness = new SessionHarness(CreatePlan());
-            InteractionPhaseSession session = harness.Session;
-            session.AcceptInput(1, PhaseInput.Target("box_stool"));
-            foreach (int digit in new[] { 7, 1, 4, 8 })
-            {
-                session.AcceptInput(1, PhaseInput.Digit(digit));
-            }
 
-            ValidationResult wrong = session.AcceptInput(
-                1,
-                PhaseInput.Submit()
+            harness.AdvanceCompletedPhase();
+
+            Assert.That(harness.Session.CurrentPhaseId, Is.EqualTo(2));
+            Assert.That(
+                harness.Session.PresentationSnapshot.SafeDoorOpened,
+                Is.True
             );
-            ValidationResult staleDigit = session.AcceptInput(
+        }
+
+        [Test]
+        public void PhaseOne_WrongBoxRecordsErrorWithoutPasswordProgress()
+        {
+            var harness = new SessionHarness(CreatePlan());
+            ValidationResult wrong = harness.Session.AcceptInput(
                 1,
-                PhaseInput.Digit(9)
+                PhaseInput.Target("box_floor_a")
+            );
+            ValidationResult completed = harness.Session.AcceptInput(
+                1,
+                PhaseInput.Target("box_stool")
             );
 
+            Assert.That(wrong.Accepted, Is.False);
             Assert.That(wrong.InteractionError, Is.True);
-            Assert.That(wrong.ProgressReset, Is.True);
+            Assert.That(wrong.ProgressReset, Is.False);
             Assert.That(wrong.Progress, Is.Zero);
             Assert.That(
                 wrong.Error,
-                Is.EqualTo(PhaseValidationError.IncorrectPassword)
+                Is.EqualTo(PhaseValidationError.UnexpectedTarget)
             );
-            Assert.That(staleDigit.Accepted, Is.False);
-            Assert.That(staleDigit.ProgressReset, Is.True);
+            Assert.That(wrong.TargetId, Is.EqualTo("box_floor_a"));
+            Assert.That(completed.Accepted, Is.True);
+            Assert.That(completed.PhaseCompleted, Is.True);
+            Assert.That(completed.Progress, Is.EqualTo(1));
+            Assert.That(completed.RequiredProgress, Is.EqualTo(1));
         }
 
         [Test]
@@ -579,26 +581,25 @@ namespace SignVR.Interaction.Core.Tests
                 PhaseInput.Target("box_floor_b")
             );
 
-            Assert.That(staleDigit.ProgressReset, Is.True);
+            Assert.That(staleDigit.ProgressReset, Is.False);
             Assert.That(newBox.Accepted, Is.True);
             Assert.That(newBox.Progress, Is.EqualTo(1));
         }
 
         [Test]
-        public void DisableRejectsInputAndEnableResumesSameSnapshotProgress()
+        public void DisableRejectsInputAndEnableAllowsSingleBoxTouch()
         {
             var harness = new SessionHarness(CreatePlan());
-            harness.Session.AcceptInput(1, PhaseInput.Target("box_stool"));
             harness.Session.Disable();
 
             ValidationResult disabled = harness.Session.AcceptInput(
                 1,
-                PhaseInput.Digit(7)
+                PhaseInput.Target("box_stool")
             );
             harness.Session.Enable();
             ValidationResult resumed = harness.Session.AcceptInput(
                 1,
-                PhaseInput.Digit(7)
+                PhaseInput.Target("box_stool")
             );
 
             Assert.That(
@@ -607,7 +608,8 @@ namespace SignVR.Interaction.Core.Tests
             );
             Assert.That(disabled.ProgressReset, Is.False);
             Assert.That(resumed.Accepted, Is.True);
-            Assert.That(resumed.Progress, Is.EqualTo(2));
+            Assert.That(resumed.Progress, Is.EqualTo(1));
+            Assert.That(resumed.PhaseCompleted, Is.True);
         }
 
         [Test]
@@ -645,10 +647,6 @@ namespace SignVR.Interaction.Core.Tests
             Assert.That(published, Is.EqualTo(new[] { gateFailure }));
 
             session.Synchronize(lifecycle.CurrentPhase);
-            ValidationResult target = session.AcceptInput(
-                1,
-                PhaseInput.Target("box_stool")
-            );
             ValidationResult digit = session.AcceptInput(
                 1,
                 PhaseInput.Digit(7)
@@ -660,6 +658,10 @@ namespace SignVR.Interaction.Core.Tests
             ValidationResult submit = session.AcceptInput(
                 1,
                 PhaseInput.Submit()
+            );
+            ValidationResult target = session.AcceptInput(
+                1,
+                PhaseInput.Target("box_stool")
             );
             ValidationResult giveUp = session.GiveUpCurrentPhase(
                 lifecycle.CurrentPhase
@@ -677,7 +679,7 @@ namespace SignVR.Interaction.Core.Tests
             Assert.That(submit.InputKind, Is.EqualTo(PhaseInputKind.Submit));
             Assert.That(
                 giveUp.Error,
-                Is.EqualTo(PhaseValidationError.GiveUpUnavailable)
+                Is.EqualTo(PhaseValidationError.CompletedPhaseLocked)
             );
             Assert.That(giveUp.InputKind, Is.Null);
             Assert.That(giveUp.InputTargetId, Is.Null);
@@ -693,61 +695,10 @@ namespace SignVR.Interaction.Core.Tests
             var hintHarness = new SessionHarness(CreatePlan(
                 "001", "004", "013", "016", "025", "026"
             ));
-            Assert.That(
-                hintHarness.Session.PresentationSnapshot.SafePasswordVisible,
-                Is.False
-            );
-
-            var safeGiveUpHarness = new SessionHarness(CreatePlan(
-                "001", "004", "013", "016", "025", "026"
-            ));
-            safeGiveUpHarness.Session.AcceptInput(
-                1,
-                PhaseInput.Target("box_stool")
-            );
-            PhaseExecutionSnapshot phaseOneGiveUp =
-                safeGiveUpHarness.MakeGiveUpAvailable();
-            safeGiveUpHarness.Session.GiveUpCurrentPhase(phaseOneGiveUp);
-            Assert.That(
-                safeGiveUpHarness.Session.PresentationSnapshot
-                    .SafePasswordVisible,
-                Is.False
-            );
-
-            var newRunHarness = new SessionHarness(CreatePlan(
-                "001", "004", "013", "016", "025", "026"
-            ));
-            newRunHarness.Session.AcceptInput(
-                1,
-                PhaseInput.Target("box_stool")
-            );
-            newRunHarness.Session.Configure(CreatePlan(
-                "003", "012", "015", "018", "019", "031"
-            ));
-            Assert.That(
-                newRunHarness.Session.PresentationSnapshot.SafePasswordVisible,
-                Is.False
-            );
-            hintHarness.Session.AcceptInput(
-                1,
-                PhaseInput.Target("box_stool")
-            );
-            Assert.That(
-                hintHarness.Session.PresentationSnapshot.SafePasswordVisible,
-                Is.True
-            );
-            hintHarness.Session.AcceptInput(
-                1,
-                PhaseInput.Target("unexpected_after_reveal")
-            );
-            Assert.That(
-                hintHarness.Session.PresentationSnapshot.SafePasswordVisible,
-                Is.False
-            );
             FinishPhaseOneTask(hintHarness.Session);
             Assert.That(
-                hintHarness.Session.PresentationSnapshot.SafePasswordVisible,
-                Is.False
+                hintHarness.Session.PresentationSnapshot.SafeDoorOpened,
+                Is.True
             );
 
             var chestHintHarness = new SessionHarness(CreatePlan(
@@ -945,12 +896,7 @@ namespace SignVR.Interaction.Core.Tests
             InteractionPhaseSession session)
         {
             string box = session.Plan.Phases[0].TaskVariant.TargetIds[0];
-            session.AcceptInput(1, PhaseInput.Target(box));
-            foreach (int digit in session.Plan.SafePassword.Digits)
-            {
-                session.AcceptInput(1, PhaseInput.Digit(digit));
-            }
-            return session.AcceptInput(1, PhaseInput.Submit());
+            return session.AcceptInput(1, PhaseInput.Target(box));
         }
 
         private static ValidationResult FinishPhaseThreeTask(

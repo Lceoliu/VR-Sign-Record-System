@@ -14,9 +14,6 @@ namespace SignVR.Interaction.PhaseAdapters
         private InteractionPhaseCoordinator coordinator;
 
         [SerializeField]
-        private TextMesh safePasswordText;
-
-        [SerializeField]
         private TextMesh chestOrderText;
 
         private RunPlan plan;
@@ -28,7 +25,6 @@ namespace SignVR.Interaction.PhaseAdapters
                 new InteractionSubscriptionDiagnostic();
 #endif
 
-        public TextMesh SafePasswordText => safePasswordText;
         public TextMesh ChestOrderText => chestOrderText;
         public InteractionPhaseCoordinator Coordinator => coordinator;
 
@@ -52,13 +48,11 @@ namespace SignVR.Interaction.PhaseAdapters
 
         public void Configure(
             InteractionPhaseCoordinator targetCoordinator,
-            TextMesh targetSafePasswordText,
+            TextMesh obsoleteSafePasswordText,
             TextMesh targetChestOrderText)
         {
             InteractionPhaseCoordinator nextCoordinator = targetCoordinator ??
                 throw new ArgumentNullException(nameof(targetCoordinator));
-            TextMesh nextSafePasswordText = targetSafePasswordText ??
-                throw new ArgumentNullException(nameof(targetSafePasswordText));
             TextMesh nextChestOrderText = targetChestOrderText ??
                 throw new ArgumentNullException(nameof(targetChestOrderText));
             bool manageRuntimeSubscriptions =
@@ -68,8 +62,11 @@ namespace SignVR.Interaction.PhaseAdapters
                 Unbind();
             }
             HideHints();
+            if (obsoleteSafePasswordText != null)
+            {
+                obsoleteSafePasswordText.gameObject.SetActive(false);
+            }
             coordinator = nextCoordinator;
-            safePasswordText = nextSafePasswordText;
             chestOrderText = nextChestOrderText;
             plan = coordinator.Plan;
             if (manageRuntimeSubscriptions)
@@ -153,27 +150,6 @@ namespace SignVR.Interaction.PhaseAdapters
                 return;
             }
 
-            if (snapshot.SafePasswordVisible)
-            {
-                int enteredDigitCount = GetEnteredDigitCount(
-                    phaseOneResult
-                );
-                safePasswordText.text =
-                    string.Join(string.Empty, plan.SafePassword.Digits) +
-                    "\nINPUT: " + enteredDigitCount + " / " +
-                    SafePassword.DigitCount;
-                safePasswordText.gameObject.SetActive(true);
-            }
-            else if (phaseOneResult != null &&
-                     phaseOneResult.InteractionError &&
-                     !phaseOneResult.PhaseCompleted)
-            {
-                safePasswordText.text = phaseOneResult.Error ==
-                    PhaseValidationError.IncorrectPassword
-                        ? "PIN ERROR\nTOUCH THE BOX AGAIN"
-                        : "INPUT ERROR\nTOUCH THE BOX AGAIN";
-                safePasswordText.gameObject.SetActive(true);
-            }
             if (snapshot.ChestOrderVisible)
             {
                 chestOrderText.text = string.Join(
@@ -202,16 +178,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void HideHints()
         {
-            HideSafePassword();
             HideChestOrder();
-        }
-
-        private void HideSafePassword()
-        {
-            if (safePasswordText != null)
-            {
-                safePasswordText.gameObject.SetActive(false);
-            }
         }
 
         private void HideChestOrder()

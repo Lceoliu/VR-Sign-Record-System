@@ -100,7 +100,7 @@ namespace SignVR.Interaction.PhaseAdapters
                 return null;
             }
 
-            return adapter.SubmitPassword();
+            return adapter.AcceptInput(PhaseInput.Submit());
         }
 
         public void Poke()

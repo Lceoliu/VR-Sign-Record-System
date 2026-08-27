@@ -352,6 +352,7 @@ namespace SignVR.Editor.Interaction
                 phaseContentAnchor,
                 ProxyRootName
             );
+            RemoveObsoletePhaseOnePasswordObjects(proxyRoot);
 
             InteractionPhaseCoordinator coordinator =
                 GetOrAdd<InteractionPhaseCoordinator>(runtimeRoot.gameObject);
@@ -414,21 +415,12 @@ namespace SignVR.Editor.Interaction
                 EditorUtility.SetDirty(binding);
             }
 
-            PhaseOneInteractionAdapter phaseOne =
-                (PhaseOneInteractionAdapter)adapterByPhase[1];
             PhaseTwoInteractionAdapter phaseTwo =
                 (PhaseTwoInteractionAdapter)adapterByPhase[2];
             PhaseFourInteractionAdapter phaseFour =
                 (PhaseFourInteractionAdapter)adapterByPhase[4];
 
-            Transform safe = FindTarget(scene, "safe");
             Transform chest = FindTarget(scene, "chest");
-            EnsureSafeKeypad(
-                proxyRoot,
-                safe,
-                phaseOne,
-                allowedInteractorRoots
-            );
             DeterministicTargetStateBinding[] chestButtonStates =
                 EnsureChestButtons(
                     proxyRoot,
@@ -457,20 +449,14 @@ namespace SignVR.Editor.Interaction
 
             InteractionPlanHintPresenter hints =
                 GetOrAdd<InteractionPlanHintPresenter>(runtimeRoot.gameObject);
-            TextMesh safeHint = EnsureHintText(
-                proxyRoot,
-                "W7SafePasswordHint",
-                GetFrontPoint(safe, 0.12f) + Vector3.up * 0.22f
-            );
             TextMesh chestHint = EnsureHintText(
                 proxyRoot,
                 "W7ChestOrderHint",
                 GetFrontPoint(chest, 0.12f) + Vector3.up * 0.28f
             );
             RecordForUndo(hints);
-            RecordForUndo(safeHint.gameObject);
             RecordForUndo(chestHint.gameObject);
-            hints.Configure(coordinator, safeHint, chestHint);
+            hints.Configure(coordinator, null, chestHint);
 
             InteractionDeterministicPresentation presentation =
                 GetOrAdd<InteractionDeterministicPresentation>(
@@ -818,65 +804,11 @@ namespace SignVR.Editor.Interaction
                 }
             }
 
-            InteractionDigitBinding[] digits = objects
-                .Select(item => item.GetComponent<InteractionDigitBinding>())
-                .Where(item => item != null)
-                .OrderBy(item => item.Digit)
-                .ToArray();
-            if (digits.Length != 10 ||
-                !digits.Select(item => item.Digit)
-                    .SequenceEqual(Enumerable.Range(0, 10)))
-            {
-                failures.Add("Phase 1 requires one proxy for each digit 0-9.");
-            }
-            foreach (InteractionDigitBinding digit in digits)
-            {
-                if (digit.Adapter == null || digit.Adapter.PhaseId != 1 ||
-                    digit.InputCollider == null ||
-                    !digit.InputCollider.isTrigger ||
-                    relays.Count(item => item.InputReceiver == digit) != 1 ||
-                    !HasButtonLabel(digit.transform, digit.Digit.ToString()))
-                {
-                    failures.Add(
-                        $"Digit {digit.Digit} lacks its Phase 1 " +
-                        "collider/relay chain."
-                    );
-                }
-            }
-
-            InteractionPasswordBackspaceBinding[] backspaces = objects
-                .Select(item =>
-                    item.GetComponent<InteractionPasswordBackspaceBinding>())
-                .Where(item => item != null)
-                .ToArray();
-            if (backspaces.Length != 1 ||
-                backspaces[0].Adapter == null ||
-                backspaces[0].Adapter.PhaseId != 1 ||
-                backspaces[0].InputCollider == null ||
-                !backspaces[0].InputCollider.isTrigger ||
-                relays.Count(item =>
-                    item.InputReceiver == backspaces[0]) != 1 ||
-                !HasButtonLabel(backspaces[0].transform, "*"))
+            if (objects.Any(item =>
+                    IsObsoletePhaseOnePasswordObjectName(item.name)))
             {
                 failures.Add(
-                    "Phase 1 requires one '*' backspace collider/relay proxy."
-                );
-            }
-
-            InteractionPasswordSubmitBinding[] submits = objects
-                .Select(item =>
-                    item.GetComponent<InteractionPasswordSubmitBinding>())
-                .Where(item => item != null)
-                .ToArray();
-            if (submits.Length != 1 ||
-                submits[0].Adapter == null || submits[0].Adapter.PhaseId != 1 ||
-                submits[0].InputCollider == null ||
-                !submits[0].InputCollider.isTrigger ||
-                relays.Count(item => item.InputReceiver == submits[0]) != 1 ||
-                !HasButtonLabel(submits[0].transform, "#"))
-            {
-                failures.Add(
-                    "Phase 1 requires one '#' submit collider/relay proxy."
+                    "Phase 1 password hint and keypad proxies must be absent."
                 );
             }
 
@@ -925,10 +857,10 @@ namespace SignVR.Editor.Interaction
                 .Select(item => item.GetComponent<InteractionPlanHintPresenter>())
                 .FirstOrDefault(item => item != null);
             if (hints == null || hints.Coordinator != coordinator ||
-                hints.SafePasswordText == null || hints.ChestOrderText == null)
+                hints.ChestOrderText == null)
             {
                 failures.Add(
-                    "RunPlan safe-password and chest-order displays are missing."
+                    "RunPlan chest-order display is missing."
                 );
             }
 
@@ -1015,111 +947,34 @@ namespace SignVR.Editor.Interaction
             return collider;
         }
 
-        private static void EnsureSafeKeypad(
-            Transform proxyRoot,
-            Transform safe,
-            PhaseOneInteractionAdapter adapter,
-            Transform[] allowedInteractorRoots)
+        private static void RemoveObsoletePhaseOnePasswordObjects(
+            Transform proxyRoot)
         {
-            Vector3 origin = GetFrontPoint(safe, 0.08f) +
-                Vector3.up * 0.05f;
-            for (int digit = 0; digit <= 9; digit++)
+            Transform[] obsolete = proxyRoot
+                .GetComponentsInChildren<Transform>(true)
+                .Where(item => item != proxyRoot &&
+                    IsObsoletePhaseOnePasswordObjectName(item.name) &&
+                    !HasObsoletePhaseOnePasswordAncestor(item.parent))
+                .ToArray();
+            foreach (Transform item in obsolete)
             {
-                int layoutIndex = digit == 0 ? 10 : digit - 1;
-                int row = layoutIndex / 3;
-                int column = layoutIndex % 3;
-                GameObject button = EnsurePrimitive(
-                    proxyRoot,
-                    $"W7SafeDigit_{digit}",
-                    PrimitiveType.Cube
-                );
-                RecordForUndo(button.transform);
-                button.transform.SetPositionAndRotation(
-                    origin + new Vector3(
-                        (column - 1) * 0.085f,
-                        (1.5f - row) * 0.075f,
-                        0f
-                    ),
-                    Quaternion.identity
-                );
-                button.transform.localScale =
-                    new Vector3(0.065f, 0.055f, 0.025f);
-                BoxCollider collider = button.GetComponent<BoxCollider>();
-                RecordForUndo(collider);
-                InteractionDigitBinding digitBinding =
-                    GetOrAdd<InteractionDigitBinding>(button);
-                RecordForUndo(digitBinding);
-                digitBinding.Configure(digit, adapter, collider);
-                InteractionTriggerRelay digitRelay =
-                    GetOrAdd<InteractionTriggerRelay>(button);
-                RecordForUndo(digitRelay);
-                digitRelay.Configure(
-                    digitBinding,
-                    allowedInteractorRoots
-                );
-                EnsureTouchableTriggerBody(button);
-                EnsureButtonLabel(button.transform, digit.ToString());
-                EditorUtility.SetDirty(digitBinding);
-                EditorUtility.SetDirty(digitRelay);
+                Undo.DestroyObjectImmediate(item.gameObject);
             }
+        }
 
-            GameObject backspace = EnsurePrimitive(
-                proxyRoot,
-                "W7SafeBackspace",
-                PrimitiveType.Cube
-            );
-            RecordForUndo(backspace.transform);
-            backspace.transform.SetPositionAndRotation(
-                origin + new Vector3(-0.085f, -0.1125f, 0f),
-                Quaternion.identity
-            );
-            backspace.transform.localScale =
-                new Vector3(0.065f, 0.055f, 0.025f);
-            BoxCollider backspaceCollider =
-                backspace.GetComponent<BoxCollider>();
-            RecordForUndo(backspaceCollider);
-            InteractionPasswordBackspaceBinding backspaceBinding =
-                GetOrAdd<InteractionPasswordBackspaceBinding>(backspace);
-            RecordForUndo(backspaceBinding);
-            backspaceBinding.Configure(adapter, backspaceCollider);
-            InteractionTriggerRelay backspaceRelay =
-                GetOrAdd<InteractionTriggerRelay>(backspace);
-            RecordForUndo(backspaceRelay);
-            backspaceRelay.Configure(
-                backspaceBinding,
-                allowedInteractorRoots
-            );
-            EnsureTouchableTriggerBody(backspace);
-            EnsureButtonLabel(backspace.transform, "*");
-            EditorUtility.SetDirty(backspaceBinding);
-            EditorUtility.SetDirty(backspaceRelay);
-
-            GameObject submit = EnsurePrimitive(
-                proxyRoot,
-                "W7SafeSubmit",
-                PrimitiveType.Cube
-            );
-            RecordForUndo(submit.transform);
-            submit.transform.SetPositionAndRotation(
-                origin + new Vector3(0.085f, -0.1125f, 0f),
-                Quaternion.identity
-            );
-            submit.transform.localScale =
-                new Vector3(0.065f, 0.055f, 0.025f);
-            BoxCollider submitCollider = submit.GetComponent<BoxCollider>();
-            RecordForUndo(submitCollider);
-            InteractionPasswordSubmitBinding submitBinding =
-                GetOrAdd<InteractionPasswordSubmitBinding>(submit);
-            RecordForUndo(submitBinding);
-            submitBinding.Configure(adapter, submitCollider);
-            InteractionTriggerRelay submitRelay =
-                GetOrAdd<InteractionTriggerRelay>(submit);
-            RecordForUndo(submitRelay);
-            submitRelay.Configure(submitBinding, allowedInteractorRoots);
-            EnsureTouchableTriggerBody(submit);
-            EnsureButtonLabel(submit.transform, "#");
-            EditorUtility.SetDirty(submitBinding);
-            EditorUtility.SetDirty(submitRelay);
+        private static bool HasObsoletePhaseOnePasswordAncestor(
+            Transform parent)
+        {
+            Transform current = parent;
+            while (current != null)
+            {
+                if (IsObsoletePhaseOnePasswordObjectName(current.name))
+                {
+                    return true;
+                }
+                current = current.parent;
+            }
+            return false;
         }
 
         private static DeterministicTargetStateBinding[] EnsureChestButtons(
@@ -1947,22 +1802,7 @@ namespace SignVR.Editor.Interaction
                 ) ||
                 string.Equals(
                     objectName,
-                    "W7SafePasswordHint",
-                    StringComparison.Ordinal
-                ) ||
-                string.Equals(
-                    objectName,
                     "W7ChestOrderHint",
-                    StringComparison.Ordinal
-                ) ||
-                string.Equals(
-                    objectName,
-                    "W7SafeBackspace",
-                    StringComparison.Ordinal
-                ) ||
-                string.Equals(
-                    objectName,
-                    "W7SafeSubmit",
                     StringComparison.Ordinal
                 ) ||
                 string.Equals(
@@ -1984,16 +1824,9 @@ namespace SignVR.Editor.Interaction
                 return true;
             }
 
-            for (int digit = 0; digit <= 9; digit++)
+            if (IsObsoletePhaseOnePasswordObjectName(objectName))
             {
-                if (string.Equals(
-                        objectName,
-                        "W7SafeDigit_" + digit,
-                        StringComparison.Ordinal
-                    ))
-                {
-                    return true;
-                }
+                return true;
             }
 
             for (int index = 0; index < TargetSpecs.Length; index++)
@@ -2035,6 +1868,46 @@ namespace SignVR.Editor.Interaction
                     "W7Placement_plate_b",
                     StringComparison.Ordinal
                 );
+        }
+
+        private static bool IsObsoletePhaseOnePasswordObjectName(
+            string objectName)
+        {
+            if (string.IsNullOrEmpty(objectName))
+            {
+                return false;
+            }
+            if (string.Equals(
+                    objectName,
+                    "W7SafePasswordHint",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7SafeBackspace",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "W7SafeSubmit",
+                    StringComparison.Ordinal
+                ))
+            {
+                return true;
+            }
+
+            for (int digit = 0; digit <= 9; digit++)
+            {
+                if (string.Equals(
+                        objectName,
+                        "W7SafeDigit_" + digit,
+                        StringComparison.Ordinal
+                    ))
+                {
+                    return true;
+                }
+            }
+            return false;
         }
 
         private static bool HasW7OwnedAncestor(Transform parent)
@@ -2124,7 +1997,6 @@ namespace SignVR.Editor.Interaction
                     "scene object was created."
                 );
             }
-
             if (SceneManager.GetActiveScene() != scene &&
                 !SceneManager.SetActiveScene(scene))
             {

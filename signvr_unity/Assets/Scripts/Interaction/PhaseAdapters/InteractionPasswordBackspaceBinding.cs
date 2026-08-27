@@ -99,7 +99,7 @@ namespace SignVR.Interaction.PhaseAdapters
             {
                 return null;
             }
-            return adapter.BackspacePassword();
+            return adapter.AcceptInput(PhaseInput.Backspace());
         }
 
         public void Poke()

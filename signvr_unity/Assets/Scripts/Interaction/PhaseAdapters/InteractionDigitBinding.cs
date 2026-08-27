@@ -114,7 +114,7 @@ namespace SignVR.Interaction.PhaseAdapters
                 return null;
             }
 
-            return adapter.AcceptDigit(digit);
+            return adapter.AcceptInput(PhaseInput.Digit(digit));
         }
 
         public void Poke()

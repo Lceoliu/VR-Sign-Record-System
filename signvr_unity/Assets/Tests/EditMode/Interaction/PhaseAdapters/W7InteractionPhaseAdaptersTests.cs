@@ -135,18 +135,26 @@ namespace SignVR.Interaction.Editor.Tests
                 InvokeTestOwnedSetupAndValidate(scene);
                 InvokeValidateLoadedScene(scene);
 
-                object submit = FindGameObjectInScene(
-                    scene,
-                    "W7SafeSubmit"
+                Assert.That(
+                    FindGameObjectsInScene(scene, "W7SafePasswordHint"),
+                    Is.Empty
                 );
-                DestroyImmediate(submit);
+                Assert.That(
+                    FindGameObjectsInScene(scene, "W7SafeSubmit"),
+                    Is.Empty
+                );
+                object boxProxy = FindGameObjectInScene(
+                    scene,
+                    "W7Target_box_stool"
+                );
+                DestroyImmediate(boxProxy);
                 TargetInvocationException missingCritical = Assert.Throws<
                     TargetInvocationException>(() =>
                         InvokeValidateLoadedScene(scene)
                     );
                 Assert.That(
                     missingCritical.InnerException.Message,
-                    Does.Contain("submit collider/relay proxy")
+                    Does.Contain("Target 'box_stool' requires exactly one")
                 );
             });
         }
@@ -1182,12 +1190,12 @@ namespace SignVR.Interaction.Editor.Tests
             WithCleanInteractionScene(scene =>
             {
                 InvokeTestOwnedSetupAndValidate(scene);
-                object backspace = FindGameObjectInScene(
+                object chestButton = FindGameObjectInScene(
                     scene,
-                    "W7SafeBackspace"
+                    "W7ChestButton_blue"
                 );
                 object labelTransform = FindChild(
-                    GetTransform(backspace),
+                    GetTransform(chestButton),
                     "Label"
                 );
                 object label = GetComponent(
@@ -1447,23 +1455,6 @@ namespace SignVR.Interaction.Editor.Tests
                 SubscribePublicResultProduced(coordinator, resultEvents);
 
                 AcceptTarget(coordinator, 1, "box_stool");
-                for (int digit = 1; digit <= 4; digit++)
-                {
-                    AcceptInput(
-                        coordinator,
-                        1,
-                        CoreType("PhaseInput").GetMethod("Digit").Invoke(
-                            null,
-                            new object[] { digit }
-                        )
-                    );
-                }
-                AcceptInput(
-                    coordinator,
-                    1,
-                    CoreType("PhaseInput").GetMethod("Submit")
-                        .Invoke(null, null)
-                );
 
                 Assert.That(
                     coordinatorType.GetProperty("CurrentPhaseId")
@@ -2055,46 +2046,11 @@ namespace SignVR.Interaction.Editor.Tests
                     targetBehaviour
                 );
 
-                object digit = CreateKeypadBinding(
-                    rootTransform,
-                    "InteractionDigitBinding",
-                    phaseOneAdapter,
-                    out object digitCollider,
-                    1
-                );
-                object backspace = CreateKeypadBinding(
-                    rootTransform,
-                    "InteractionPasswordBackspaceBinding",
-                    phaseOneAdapter,
-                    out object backspaceCollider
-                );
-                object submit = CreateKeypadBinding(
-                    rootTransform,
-                    "InteractionPasswordSubmitBinding",
-                    phaseOneAdapter,
-                    out object submitCollider
-                );
-
                 AssertDisabledConfigureBoundary(
                     target,
                     phaseOneAdapter,
                     targetCollider,
                     targetBehaviour
-                );
-                AssertDisabledConfigureBoundary(
-                    digit,
-                    phaseOneAdapter,
-                    digitCollider
-                );
-                AssertDisabledConfigureBoundary(
-                    backspace,
-                    phaseOneAdapter,
-                    backspaceCollider
-                );
-                AssertDisabledConfigureBoundary(
-                    submit,
-                    phaseOneAdapter,
-                    submitCollider
                 );
             }
             finally
@@ -2246,7 +2202,7 @@ namespace SignVR.Interaction.Editor.Tests
                     hints,
                     AcceptTarget(coordinator, 1, "box_stool")
                 );
-                Assert.That(IsComponentGameObjectActive(safeText), Is.True);
+                Assert.That(IsComponentGameObjectActive(safeText), Is.False);
                 DispatchHintResult(
                     hints,
                     AcceptInput(

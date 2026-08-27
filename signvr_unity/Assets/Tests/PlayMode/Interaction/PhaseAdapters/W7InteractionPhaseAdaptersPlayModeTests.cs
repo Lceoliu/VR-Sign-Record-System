@@ -259,7 +259,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             AssertAccepted(first);
             Assert.That(coordinatorResults.Count, Is.EqualTo(1));
             Assert.That(adapterResults.Count, Is.EqualTo(1));
-            Assert.That(safeHint.gameObject.activeSelf, Is.True);
+            Assert.That(safeHint.gameObject.activeSelf, Is.False);
 
             ((Behaviour)fixture.Coordinator).enabled = false;
             InvokePublic(fixture.Coordinator, "Configure", fixture.Plan);
@@ -290,7 +290,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             AssertAccepted(InvokePublic(targetBinding, "AcceptInput"));
             Assert.That(coordinatorResults.Count, Is.EqualTo(4));
             Assert.That(adapterResults.Count, Is.EqualTo(4));
-            Assert.That(safeHint.gameObject.activeSelf, Is.True);
+            Assert.That(safeHint.gameObject.activeSelf, Is.False);
 
             RuntimeFixture replacement = CreateRuntimeFixture(
                 "AdapterPublisherB"
@@ -304,12 +304,12 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             InvokePublic(phaseOne, "Enable");
             int movedAdapterBefore = adapterResults.Count;
             int oldCoordinatorBefore = coordinatorResults.Count;
-            AssertAccepted(InvokePublic(
+            Assert.That(InvokePublic(
                 fixture.Coordinator,
                 "AcceptInput",
                 1,
                 InvokeCoreFactory("PhaseInput", "Digit", 1)
-            ));
+            ), Is.Not.Null);
             Assert.That(
                 coordinatorResults.Count,
                 Is.EqualTo(oldCoordinatorBefore + 1)
@@ -766,6 +766,57 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         }
 
         [UnityTest]
+        public IEnumerator PhaseTwoEntryAfterPhaseOneGiveUpOpensSafeDoor()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "PhaseOneGiveUpSafeDoor"
+            );
+            GameObject door = Track(new GameObject("SafeDoor"));
+            door.transform.SetParent(fixture.Root.transform, false);
+            GameObject hinge = Track(new GameObject("SafeHinge"));
+            hinge.transform.SetParent(fixture.Root.transform, false);
+            object safeDoorBinding = CreateHingeBinding(
+                door.transform,
+                hinge.transform
+            );
+            Component presentation = fixture.Root.AddComponent(
+                RuntimeType("InteractionDeterministicPresentation")
+            );
+            ConfigurePresentation(
+                presentation,
+                fixture.Coordinator,
+                safeDoorBinding
+            );
+            object giveUpSnapshot = CreateGiveUpAvailablePhaseSnapshot(1);
+            InvokePublic(
+                fixture.Coordinator,
+                "Synchronize",
+                giveUpSnapshot
+            );
+
+            AssertAccepted(InvokePublic(
+                fixture.Coordinator,
+                "GiveUpCurrentPhase",
+                giveUpSnapshot
+            ));
+            InvokePublic(
+                fixture.Coordinator,
+                "Synchronize",
+                CreatePhaseSnapshot(2)
+            );
+            yield return null;
+
+            Assert.That(
+                Quaternion.Angle(
+                    Quaternion.identity,
+                    door.transform.rotation
+                ),
+                Is.GreaterThan(0.1f),
+                "Entering Phase 2 must leave the safe door open."
+            );
+        }
+
+        [UnityTest]
         public IEnumerator ResultPresentersUseRealPlayModeSubscriptions()
         {
             RuntimeFixture fixture = CreateRuntimeFixture("ResultPresenters");
@@ -898,7 +949,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 presentation,
                 acceptedPresentationBefore + 1
             );
-            Assert.That(safeHint.gameObject.activeSelf, Is.True);
+            Assert.That(safeHint.gameObject.activeSelf, Is.False);
             AssertColor(
                 ReadBaseColor(feedbackRenderer),
                 new Color(0.15f, 1f, 0.35f, 1f)
@@ -910,11 +961,11 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             int passwordPresentationBefore =
                 GetSubscriptionInvocationCount(presentation);
             CompletePassword(fixture);
-            AssertSubscriptionCount(hints, passwordHintBefore + 5);
-            AssertSubscriptionCount(feedback, passwordFeedbackBefore + 5);
+            AssertSubscriptionCount(hints, passwordHintBefore);
+            AssertSubscriptionCount(feedback, passwordFeedbackBefore);
             AssertSubscriptionCount(
                 presentation,
-                passwordPresentationBefore + 5
+                passwordPresentationBefore
             );
             Assert.That(
                 Quaternion.Angle(Quaternion.identity, door.transform.rotation),
@@ -961,7 +1012,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 presentation,
                 reboundPresentationBefore + 1
             );
-            Assert.That(safeHint.gameObject.activeSelf, Is.True);
+            Assert.That(safeHint.gameObject.activeSelf, Is.False);
             CompletePassword(fixture);
             Assert.That(
                 Quaternion.Angle(Quaternion.identity, door.transform.rotation),
@@ -1025,7 +1076,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 presentation,
                 replacementPresentationBefore + 1
             );
-            Assert.That(safeHint.gameObject.activeSelf, Is.True);
+            Assert.That(safeHint.gameObject.activeSelf, Is.False);
             AssertColor(
                 ReadBaseColor(feedbackRenderer),
                 new Color(0.15f, 1f, 0.35f, 1f)
@@ -1240,36 +1291,14 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
 
             AssertAccepted(AcceptTarget(fixture, "box_stool"));
-            Assert.That(safeA.gameObject.activeSelf, Is.True);
-            Assert.That(safeA.text, Does.Contain("INPUT: 0 / 4"));
-            AssertAccepted(InvokePublic(
-                fixture.Coordinator,
-                "AcceptInput",
-                1,
-                InvokeCoreFactory("PhaseInput", "Digit", 1)
-            ));
-            Assert.That(safeA.text, Does.Contain("INPUT: 1 / 4"));
-            object incompleteSubmit = InvokePublic(
-                fixture.Coordinator,
-                "AcceptInput",
-                1,
-                InvokeCoreFactory("PhaseInput", "Submit")
-            );
-            Assert.That(
-                incompleteSubmit.GetType().GetProperty("InteractionError")
-                    .GetValue(incompleteSubmit),
-                Is.True
-            );
-            Assert.That(safeA.text, Does.Contain("INPUT ERROR"));
-            AssertAccepted(AcceptTarget(fixture, "box_stool"));
-            Assert.That(safeA.text, Does.Contain("INPUT: 0 / 4"));
+            Assert.That(safeA.gameObject.activeSelf, Is.False);
             ((Behaviour)presenter).enabled = false;
             Assert.That(safeA.gameObject.activeSelf, Is.False);
             ((Behaviour)presenter).enabled = true;
             Assert.That(
                 safeA.gameObject.activeSelf,
-                Is.True,
-                "Re-enable must rebuild the revealed password from authority."
+                Is.False,
+                "Phase 1 must not rebuild a removed password hint."
             );
 
             TextMesh safeB = CreateText(fixture.Root.transform, "SafeHintB");
@@ -1282,7 +1311,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 chestB
             );
             Assert.That(safeA.gameObject.activeSelf, Is.False);
-            Assert.That(safeB.gameObject.activeSelf, Is.True);
+            Assert.That(safeB.gameObject.activeSelf, Is.False);
 
             UnityEngine.Object.DestroyImmediate(presenter);
             Assert.That(safeB.gameObject.activeSelf, Is.False);
@@ -1298,8 +1327,8 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
             Assert.That(
                 safeB.gameObject.activeSelf,
-                Is.True,
-                "A recreated presenter must rebuild from the W7 snapshot."
+                Is.False,
+                "A recreated presenter must not show a Phase 1 password."
             );
 
             ResetPhaseOne(fixture);
@@ -1412,20 +1441,20 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 chestA
             );
             AssertAccepted(AcceptTarget(fixtureA, "box_stool"));
-            Assert.That(safeA.gameObject.activeSelf, Is.True);
+            Assert.That(safeA.gameObject.activeSelf, Is.False);
             TargetInvocationException hintFailure =
                 Assert.Throws<TargetInvocationException>(() => InvokePublic(
                     hints,
                     "Configure",
                     fixtureB.Coordinator,
-                    null,
-                    chestB
+                    safeB,
+                    null
                 ));
             Assert.That(
                 hintFailure.InnerException,
                 Is.TypeOf<ArgumentNullException>()
             );
-            Assert.That(safeA.gameObject.activeSelf, Is.True);
+            Assert.That(safeA.gameObject.activeSelf, Is.False);
             Assert.That(
                 hints.GetType().GetProperty("Coordinator").GetValue(hints),
                 Is.SameAs(fixtureA.Coordinator)
@@ -1446,7 +1475,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
             ResetPhaseOne(fixtureA);
             AssertAccepted(AcceptTarget(fixtureA, "box_stool"));
-            Assert.That(safeA.gameObject.activeSelf, Is.True);
+            Assert.That(safeA.gameObject.activeSelf, Is.False);
             InvokePublic(
                 hints,
                 "Configure",
@@ -1457,7 +1486,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Assert.That(safeA.gameObject.activeSelf, Is.False);
             Assert.That(safeB.gameObject.activeSelf, Is.False);
             AssertAccepted(AcceptTarget(fixtureB, "box_stool"));
-            Assert.That(safeB.gameObject.activeSelf, Is.True);
+            Assert.That(safeB.gameObject.activeSelf, Is.False);
             UnityEngine.Object.DestroyImmediate(hints);
             Assert.That(safeB.gameObject.activeSelf, Is.False);
 
@@ -1481,12 +1510,8 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 rendererA,
                 null
             );
-            AssertAccepted(InvokePublic(
-                fixtureA.Coordinator,
-                "AcceptInput",
-                1,
-                InvokeCoreFactory("PhaseInput", "Digit", 1)
-            ));
+            ResetPhaseOne(fixtureA);
+            AssertAccepted(AcceptTarget(fixtureA, "box_stool"));
             AssertColor(
                 ReadBaseColor(rendererA),
                 new Color(0.15f, 1f, 0.35f, 1f)
@@ -1512,6 +1537,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                     .GetValue(feedback),
                 Is.SameAs(fixtureA.Coordinator)
             );
+            ResetPhaseOne(fixtureA);
             Assert.That(
                 InvokePublic(
                     fixtureA.Coordinator,
@@ -1540,12 +1566,8 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 ReadBaseColor(rendererB),
                 new Color(0.2f, 0.35f, 0.55f, 1f)
             );
-            AssertAccepted(InvokePublic(
-                fixtureB.Coordinator,
-                "AcceptInput",
-                1,
-                InvokeCoreFactory("PhaseInput", "Digit", 1)
-            ));
+            ResetPhaseOne(fixtureB);
+            AssertAccepted(AcceptTarget(fixtureB, "box_stool"));
             AssertColor(
                 ReadBaseColor(rendererB),
                 new Color(0.15f, 1f, 0.35f, 1f)
@@ -1804,12 +1826,8 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 presenter,
                 "ResultProducedCount"
             );
-            AssertAccepted(InvokePublic(
-                fixtureA.Coordinator,
-                "AcceptInput",
-                1,
-                InvokeCoreFactory("PhaseInput", "Digit", 1)
-            ));
+            ResetPhaseOne(fixtureA);
+            AssertAccepted(AcceptTarget(fixtureA, "box_stool"));
             Assert.That(
                 GetSubscriptionEventCount(
                     presenter,
@@ -1852,12 +1870,8 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
 
             ((Behaviour)presenter).enabled = true;
-            AssertAccepted(InvokePublic(
-                fixtureB.Coordinator,
-                "AcceptInput",
-                1,
-                InvokeCoreFactory("PhaseInput", "Digit", 1)
-            ));
+            ResetPhaseOne(fixtureB);
+            AssertAccepted(AcceptTarget(fixtureB, "box_stool"));
             Assert.That(sourceB.isPlaying, Is.True);
             UnityEngine.Object.DestroyImmediate(presenter);
             Assert.That(
@@ -2063,13 +2077,9 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 fixtureB.Coordinator,
                 fixtureB.Plan
             );
+            ResetPhaseOne(fixtureB);
             InvokePublic(adapter, "Enable");
-            AssertAccepted(InvokePublic(
-                fixtureB.Coordinator,
-                "AcceptInput",
-                1,
-                InvokeCoreFactory("PhaseInput", "Digit", 1)
-            ));
+            AssertAccepted(AcceptTarget(fixtureB, "box_stool"));
             Assert.That(
                 acceptedResults.Count,
                 Is.EqualTo(2),
@@ -2380,21 +2390,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
 
         private static void CompletePassword(RuntimeFixture fixture)
         {
-            for (int digit = 1; digit <= 4; digit++)
-            {
-                AssertAccepted(InvokePublic(
-                    fixture.Coordinator,
-                    "AcceptInput",
-                    1,
-                    InvokeCoreFactory("PhaseInput", "Digit", digit)
-                ));
-            }
-            AssertAccepted(InvokePublic(
-                fixture.Coordinator,
-                "AcceptInput",
-                1,
-                InvokeCoreFactory("PhaseInput", "Submit")
-            ));
+            // Phase 1 completes when the planned box is touched.
         }
 
         private static void ConfigureAvailabilitySubscriber(

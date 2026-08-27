@@ -44,10 +44,10 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         }
 
         [Test]
-        public void WrongInputResetsW7ProgressAndSnapshotNeverGuessesProgress()
+        public void WrongBoxRecordsErrorWithoutPasswordProgress()
         {
             InvokeDriver(nameof(
-                WrongInputResetsW7ProgressAndSnapshotNeverGuessesProgress));
+                WrongBoxRecordsErrorWithoutPasswordProgress));
         }
 
         [Test]
