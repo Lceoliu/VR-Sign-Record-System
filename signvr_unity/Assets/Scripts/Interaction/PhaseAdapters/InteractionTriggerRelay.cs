@@ -24,6 +24,20 @@ namespace SignVR.Interaction.PhaseAdapters
         ValidationResult AcceptInput();
     }
 
+    /// <summary>
+    /// Optional target-level gate used to merge trigger contacts with direct
+    /// UnityEvent/Meta input callbacks. A contact cycle starts with the first
+    /// allowed collider and ends only after every allowed collider exits.
+    /// </summary>
+    public interface IInteractionContactCycleInput
+    {
+        void ConfigureSameTargetCooldown(float seconds);
+
+        ValidationResult BeginContactCycle();
+
+        void EndContactCycle();
+    }
+
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Collider))]
     public sealed class InteractionTriggerRelay : MonoBehaviour
@@ -37,10 +51,12 @@ namespace SignVR.Interaction.PhaseAdapters
         [SerializeField]
         private Transform[] allowedInteractorRoots = Array.Empty<Transform>();
 
-        [SerializeField, Min(0.05f)]
+        [SerializeField, Min(0f)]
         private float debounceSeconds = 0.3f;
 
         private float lastTriggerTime = float.NegativeInfinity;
+        private readonly HashSet<Collider> overlappingInteractorColliders =
+            new HashSet<Collider>();
 
         [SerializeField, HideInInspector]
         private Collider authoredTriggerCollider;
@@ -57,6 +73,8 @@ namespace SignVR.Interaction.PhaseAdapters
             allowedInteractorRoots;
 
         public Collider TriggerCollider => GetComponent<Collider>();
+
+        public float SameTargetCooldownSeconds => debounceSeconds;
 
         public bool IsConfigured =>
             inputReceiver is IInteractionTriggerInput &&
@@ -104,13 +122,20 @@ namespace SignVR.Interaction.PhaseAdapters
                 copy.Add(root);
             }
 
+            EndActiveContactCycle();
             inputReceiver = receiver;
             allowedInteractorRoots = copy.ToArray();
-            debounceSeconds = Mathf.Max(0.05f, triggerDebounceSeconds);
+            debounceSeconds = float.IsNaN(triggerDebounceSeconds)
+                ? 0f
+                : Mathf.Max(0f, triggerDebounceSeconds);
             Collider trigger = TriggerCollider;
             CaptureTriggerOwnership(trigger);
             trigger.isTrigger = true;
             lastTriggerTime = float.NegativeInfinity;
+            if (receiver is IInteractionContactCycleInput contactInput)
+            {
+                contactInput.ConfigureSameTargetCooldown(debounceSeconds);
+            }
         }
 
         public ValidationResult AcceptInput()
@@ -153,14 +178,43 @@ namespace SignVR.Interaction.PhaseAdapters
             IInteractionTriggerInput receiver =
                 inputReceiver as IInteractionTriggerInput;
             if (receiver == null || !receiver.IsInputAvailable ||
-                !IsAllowedInteractor(other) ||
-                Time.unscaledTime - lastTriggerTime < debounceSeconds)
+                !IsAllowedInteractor(other))
             {
                 return null;
             }
 
+            if (!overlappingInteractorColliders.Add(other) ||
+                overlappingInteractorColliders.Count != 1)
+            {
+                return null;
+            }
+
+            if (receiver is IInteractionContactCycleInput contactInput)
+            {
+                return contactInput.BeginContactCycle();
+            }
+
+            if (Time.unscaledTime - lastTriggerTime < debounceSeconds)
+            {
+                return null;
+            }
             lastTriggerTime = Time.unscaledTime;
             return receiver.AcceptInput();
+        }
+
+        public void ReleaseTrigger(Collider other)
+        {
+            if (other == null ||
+                !overlappingInteractorColliders.Remove(other) ||
+                overlappingInteractorColliders.Count != 0)
+            {
+                return;
+            }
+
+            if (inputReceiver is IInteractionContactCycleInput contactInput)
+            {
+                contactInput.EndContactCycle();
+            }
         }
 
         private void OnTriggerEnter(Collider other)
@@ -168,9 +222,25 @@ namespace SignVR.Interaction.PhaseAdapters
             AcceptTrigger(other);
         }
 
+        private void OnTriggerExit(Collider other)
+        {
+            ReleaseTrigger(other);
+        }
+
         private void OnDisable()
         {
+            EndActiveContactCycle();
             lastTriggerTime = float.NegativeInfinity;
+        }
+
+        private void EndActiveContactCycle()
+        {
+            if (overlappingInteractorColliders.Count > 0 &&
+                inputReceiver is IInteractionContactCycleInput contactInput)
+            {
+                contactInput.EndContactCycle();
+            }
+            overlappingInteractorColliders.Clear();
         }
 
         private void CaptureTriggerOwnership(Collider trigger)
@@ -207,6 +277,7 @@ namespace SignVR.Interaction.PhaseAdapters
                 );
             }
             enabled = false;
+            EndActiveContactCycle();
             inputReceiver = null;
             allowedInteractorRoots = Array.Empty<Transform>();
             ReleaseTriggerOwnership();
@@ -215,6 +286,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void OnDestroy()
         {
+            EndActiveContactCycle();
             ReleaseTriggerOwnership();
         }
     }

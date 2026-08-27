@@ -55,10 +55,10 @@ namespace SignVR.Editor.Interaction
             new TargetSpec(3, "picture_frame_b", "fancy_picture_frame", true),
             new TargetSpec(3, "picture_frame_c", "white_photo_frame", true),
 
-            // Phase 4 selects/releases the key; Phase 5 accepts using it.
-            new TargetSpec(5, "key_a", "chest/key", true),
-            new TargetSpec(5, "key_b", "chest/key (1)", true),
-            new TargetSpec(5, "motorbike_key", "chest/motorbike_key", true),
+            // Phase 4 selects/releases each key through its existing proxy.
+            new TargetSpec(4, "key_a", "chest/key", true),
+            new TargetSpec(4, "key_b", "chest/key (1)", true),
+            new TargetSpec(4, "motorbike_key", "chest/motorbike_key", true),
 
             new TargetSpec(5, "button_a", "industrial_button", true),
             new TargetSpec(5, "button_b", "red_button", true),
@@ -841,12 +841,44 @@ namespace SignVR.Editor.Interaction
                         spec.TargetId,
                         StringComparison.Ordinal
                     ));
+                string proxyName = "W7Target_" + spec.TargetId;
+                GameObject[] proxyObjects = objects.Where(item =>
+                    string.Equals(
+                        item.name,
+                        proxyName,
+                        StringComparison.Ordinal
+                    )).ToArray();
+                Collider proxyCollider = proxyObjects.Length == 1
+                    ? proxyObjects[0].GetComponent<Collider>()
+                    : null;
+                InteractionTriggerRelay proxyRelay =
+                    proxyObjects.Length == 1
+                        ? proxyObjects[0]
+                            .GetComponent<InteractionTriggerRelay>()
+                        : null;
+                Transform authoredTarget = FindTarget(scene, spec.ScenePath);
+                bool authoredTargetHasRelay = authoredTarget != null &&
+                    authoredTarget
+                        .GetComponentsInChildren<InteractionTriggerRelay>(true)
+                        .Length > 0;
+                bool hasExclusiveProxyInput = binding != null &&
+                    proxyCollider != null &&
+                    binding.InputColliders.Count == 1 &&
+                    ReferenceEquals(
+                        binding.InputColliders[0],
+                        proxyCollider
+                    );
                 if (binding == null ||
-                    relays.Count(item => item.InputReceiver == binding) != 1)
+                    proxyObjects.Length != 1 ||
+                    proxyRelay == null ||
+                    proxyRelay.InputReceiver != binding ||
+                    relays.Count(item => item.InputReceiver == binding) != 1 ||
+                    !hasExclusiveProxyInput ||
+                    authoredTargetHasRelay)
                 {
                     failures.Add(
-                        $"Target '{spec.TargetId}' requires exactly one " +
-                        "bare-hand trigger relay."
+                        $"Target '{spec.TargetId}' must use only its exact " +
+                        $"'{proxyName}' bare-hand trigger proxy."
                     );
                 }
             }
