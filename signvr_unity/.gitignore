@@ -39,6 +39,11 @@ sysinfo.txt
 /Assets/Resources/PerformanceTestRunSettings.json*
 /Assets/Resources/DevAgentSettings.asset*
 
+# Meta XR editor/operator local state and compiler scratch output
+/Assets/#Meta/
+/Assets/#Meta.meta
+/TempAssembly.dll
+
 # Unity Android native build cache
 .utmp/
 
