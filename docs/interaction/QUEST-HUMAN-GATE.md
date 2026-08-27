@@ -1,193 +1,236 @@
-# Interaction Quest Human Gate
+# Interaction Quest Human Gate — Local Study Mode
 
-Updated: 2026-08-26
+Updated: 2026-08-28
 
-Use this checklist for the first physical Quest + webcam validation batch. A
-check is evidence of device behavior only when the exact APK below was used and
-the corresponding Host/device artifact was inspected.
+This is the physical acceptance checklist for the Quest-authoritative local
+Interaction flow. Chrome, an Interaction Host, LAN readiness, and webcam
+capture are not prerequisites. Unity's Editor-only QA Console may accelerate
+engineering checks, but normal bare-hand Quest operation remains the final
+truth.
 
-## Frozen build identity
+## Fill in the build under test
 
-| Item | Required value |
+Do not reuse an earlier pilot hash or commit value. Fill this table from the
+exact APK and release record used for this run.
+
+| Item | Runtime value |
 | --- | --- |
-| APK | `signvr_unity/Builds/SignVR_Interaction_Local.apk` |
-| APK SHA-256 | `94B8D66592BCC9DC5BC849CABE9880C8DFCCAD7947D1335BF508F59119AC8619` |
+| APK path | `<fill at run time>` |
+| APK SHA-256 | `<fill at run time>` |
+| Source commit/build identity | `<fill at run time>` |
 | Package | `com.signvr.interaction` |
-| Quest Build Identity field | `ed00636` |
-| Host URL | `http://192.168.1.114:8011` |
-| Instruction signer | `wang` |
-| Instruction entries | 31, grouped `3/9/3/3/7/6` |
+| Quest serial | `<fill at run time>` |
+| Test UTC/local time | `<fill at run time>` |
+| Operator | `<fill at run time>` |
+| Batch / participant ID | `<fill at run time>` |
 
-## Human prerequisites
+Record the APK hash immediately before installation:
 
-- Connect a real webcam. Windows must show a present Camera device.
-- Open `http://127.0.0.1:8011/?mode=interaction` in Chrome, allow camera
-  access, select the intended camera, and keep the page open.
-- Connect the Quest by USB, wear it once, and accept the USB debugging prompt.
-- Keep the Quest connected to this signed-in Host PC so the station always-on
-  watcher can reapply the proximity override after a headset reboot.
-- Keep the Quest and Host PC on the same LAN as `192.168.1.114`.
-- Before collecting evidence, verify that the Quest wall clock agrees with the
-  Host PC. Do not accept a Run whose device timestamps are materially wrong.
-- Choose one pseudonymous participant ID such as `P001`. Enter the exact same
-  value in the Host page and the Quest Start surface.
-- Do not delete partial local or Host data during the gate.
+```powershell
+$apk = '<absolute-path-to-SignVR-Interaction.apk>'
+Get-FileHash -LiteralPath $apk -Algorithm SHA256
+```
 
-The Orchestrator should not proceed until all four Host cards show READY:
-Backend, Quest, Camera, and Participant.
+## Device preparation and ADB evidence
 
-## Orchestrator setup
-
-Run these from the repository root using Unity's bundled Android SDK:
+Use Unity's bundled Android SDK or another known ADB of the same device:
 
 ```powershell
 $adb = 'C:\Program Files\Unity\Hub\Editor\6000.5.6f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe'
-$apk = 'D:\work\Unity6\VR-Sign-Record-System\signvr_unity\Builds\SignVR_Interaction_Local.apk'
+$apk = '<absolute-path-to-SignVR-Interaction.apk>'
 & $adb devices -l
 & $adb install -r $apk
+& $adb shell dumpsys package com.signvr.interaction |
+    Select-String 'versionCode|versionName'
 & $adb shell am force-stop com.signvr.interaction
 & $adb shell am start -n com.signvr.interaction/com.unity3d.player.UnityPlayerGameActivity
 ```
 
-Record the reported Quest serial and verify the installed package before
-starting the participant:
+In a second terminal, retain a timestamped Unity/Android log for the complete
+gate. Start it before the Run and stop it after the files have sealed:
 
 ```powershell
-& $adb shell dumpsys package com.signvr.interaction | Select-String 'versionCode|versionName'
+$adb = 'C:\Program Files\Unity\Hub\Editor\6000.5.6f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe'
+$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+& $adb logcat -c
+& $adb logcat -v threadtime 'Unity:I' 'AndroidRuntime:E' '*:S' |
+    Tee-Object -FilePath ".\interaction-quest-$stamp.log"
 ```
 
-The lab station has a persistent always-on watcher for Quest 3
-`2G0YC5ZF84043B`. It sets Android's plugged-in stay-awake value to `7`, applies
-Meta's virtual proximity `CLOSE` override, and wakes the headset whenever it
-reconnects over ADB. Inspect it without changing state:
+Do not delete partial local data. If the headset is kept awake by an ADB or
+proximity override, supervise charging and temperature and restore normal
+sleep behavior after the gate.
+
+## A. Cold start and PreStart
+
+- [ ] The application reaches the Interaction scene without a crash or
+  missing-scene screen.
+- [ ] Naked hands, not controllers or QA injection, are the active participant
+  input source.
+- [ ] Startup partial-Run recovery finishes or reports an actionable failure.
+- [ ] A pseudonymous Participant Session ID is visible/configured without a
+  Host page.
+- [ ] Start creates exactly one Run ID and one immutable six-phase Run Plan.
+- [ ] The plan assigns only `TextAndPointing`, `TextOnly`, or `SignOnly` for the
+  complete Run; ray-only never appears.
+- [ ] Starting, retrying a blocked action, Replay, or wrong input does not
+  replace the Run ID or rerandomize targets.
+
+Optional Editor preparation: open
+`Tools/SignVR/Interaction/Open QA Console` in Play Mode to inspect public state
+and Ghost diagnostics. Do not count a QA-injected success as evidence for any
+bare-hand checkbox below.
+
+## B. Six-phase bare-hand Run
+
+For every phase verify first playback, optional Replay, task feedback, wrong
+input, reset behavior, and exactly-once advance. Record the planned target IDs
+before manipulating the scene.
+
+### Phase 1 — planned box
+
+- [ ] All relevant boxes are visible and reachable.
+- [ ] Touching a wrong box produces error feedback without advancing.
+- [ ] Touching the planned box produces safe-door feedback and advances once.
+
+### Phase 2 — coin and plate stability
+
+- [ ] All three coins and three plates are visible with correct logical IDs.
+- [ ] A grabbed coin remains stable in the participant's hand; it does not
+  jitter, teleport, fall through the hand, or retain an old grab owner.
+- [ ] Releasing the planned coin on the planned plate yields one accepted
+  coin-plate pair and stable snapped presentation.
+- [ ] A wrong coin or wrong plate is rejected without moving to Phase 3.
+- [ ] Repeated contact/release does not produce duplicate completion.
+
+### Phase 3 — picture frame
+
+- [ ] The signer instruction and planned frame agree with the frozen plan.
+- [ ] A wrong frame produces feedback without advancing.
+- [ ] The planned frame completes exactly once and exposes the next
+  deterministic presentation state.
+
+### Phase 4 — three direct key choices
+
+- [ ] All three candidate keys remain visible; there is no chest-button input
+  sequence before key selection.
+- [ ] Each key has a nearby participant-visible Touch Target Proxy with the
+  same semantic target identity.
+- [ ] One physical proxy contact produces at most one interaction step.
+- [ ] A wrong key gives feedback but leaves Phase 4 active.
+- [ ] The planned key completes Phase 4 and the released-key/chest presentation
+  matches that planned key.
+
+### Phase 5 — direct cabinet buttons
+
+- [ ] Phase 5 begins without a key prerequisite.
+- [ ] The cabinet doors and button feedback are in their authored/reset start
+  state on phase entry.
+- [ ] Each planned button visibly acknowledges one accepted press.
+- [ ] An incorrect or repeated button resets current button progress and all
+  Phase 5 button feedback, without reintroducing a key task.
+- [ ] Re-entering the correct one-, two-, or three-button set completes once;
+  cabinet-door feedback matches completion.
+
+### Phase 6 — signer pointing and downward breakers
+
+- [ ] The three breaker targets are reachable and their authored activation is
+  a clear downward operation.
+- [ ] The planned breaker order in the Run Plan matches the instruction.
+- [ ] An out-of-order breaker resets progress and visible breaker feedback.
+- [ ] Under `TextAndPointing`, `GhostPointingDetector` reports
+  `PhaseConfigured`, a complete index-finger rig, and the current real hit.
+- [ ] Ray and highlight appear only when the signer fingertip ray actually
+  intersects a current eligible target; no hit produces no fabricated visual.
+- [ ] Under `TextOnly` or `SignOnly`, pointing visibility follows the assigned
+  condition.
+- [ ] The correct downward breaker order completes the Run exactly once.
+
+## C. Replay, Give Up, Abort, and result review
+
+- [ ] Replay is unavailable before first playback completion, available once
+  afterward, and cannot be consumed twice in one phase.
+- [ ] Give Up is unavailable until the allowed Replay completes; then it
+  records Stuck and advances without rewriting the Run Plan.
+- [ ] Abort can be requested for safety from an active Run and retains partial
+  evidence.
+- [ ] A Completed Run reaches a participant-visible result review only after
+  its five local artifacts have sealed.
+- [ ] A person wearing the headset explicitly confirms the Completed review
+  before the application returns to PreStart.
+- [ ] Repeat with a disposable Run: Aborted review shows the abort outcome and
+  is explicitly confirmed before returning to PreStart.
+
+The Editor QA Console's **Confirm Result** action must use the same public
+`TryAcknowledgeResult` authority and must never reset lifecycle state directly.
+It is engineering evidence only: the two physical checks above still require a
+visible Result Review and normal bare-hand confirmation by the headset wearer.
+
+## D. Pull the Quest-local Run artifacts
+
+The Android external persistent-data root for the Interaction package is:
+
+```text
+/storage/emulated/0/Android/data/com.signvr.interaction/files/
+```
+
+List and pull the complete local Interaction tree after the Run seals:
 
 ```powershell
-& .\vr-sign-host\scripts\configure-quest-always-on.ps1 -Mode Status
+$adb = 'C:\Program Files\Unity\Hub\Editor\6000.5.6f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe'
+$deviceRoot = '/storage/emulated/0/Android/data/com.signvr.interaction/files/interaction-tests'
+$pullRoot = Join-Path (Get-Location) ('quest-interaction-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+& $adb shell ls -la $deviceRoot
+& $adb pull $deviceRoot $pullRoot
 ```
 
-The expected result is `Task=Running`, `proximity=CLOSE`, and
-`plugged-in=7`. The watcher runs every 30 seconds and was verified by rebooting
-the Quest: the firmware first restored normal proximity behavior, then the
-watcher reapplied `CLOSE` after ADB returned. To deliberately restore normal
-wear/sleep behavior and remove the scheduled task, connect the Quest and run:
+For each accepted Completed or Aborted Run, locate:
 
-```powershell
-& .\vr-sign-host\scripts\configure-quest-always-on.ps1 -Mode Uninstall
+```text
+interaction-tests/<batch_id>/<participant_id>/<run_id>/
 ```
 
-Do not leave the always-on headset enclosed, covered, or charging unattended;
-the override increases battery use and heat.
+and verify exactly the authoritative five-file set:
 
-## Batch A: readiness and PreStart
+- [ ] `run.manifest.json` exists, parses, and contains the frozen six-phase
+  plan and the observed Run ID.
+- [ ] `events.jsonl` exists, every non-empty line parses, and terminal plus
+  phase events agree with the observed Run.
+- [ ] `poses.jsonl` exists and contains actual HMD and distinct left/right hand
+  samples rather than synthetic fallbacks.
+- [ ] `objects.jsonl` exists and covers required planned probes.
+- [ ] `summary.json` exists, parses, and agrees with the manifest/events.
+- [ ] No Host ACK or `webcam.webm` is required or expected.
 
-- [ ] The Quest launches without a crash or missing-scene screen.
-- [ ] Naked hands, not controllers, are the active interaction source.
-- [ ] The Host Quest card becomes READY and stays fresh.
-- [ ] The Host Camera card becomes READY with a visible 1280×720 preview.
-- [ ] Enter the same participant ID on Host and Quest.
-- [ ] Enter `ed00636` as the Quest Build Identity.
-- [ ] Start remains blocked on any readiness or identity mismatch.
-- [ ] Pressing Start once creates exactly one Run ID and freezes one Run Plan.
-- [ ] The Run Plan records one of only three conditions: text+ray, text-only,
-  or neither. Ray-only must never appear.
-- [ ] The Run Plan contains one sentence from each of the six phase groups, one
-  signer/take per sentence, and one four-digit password with no repeated digit.
+Do not remove the Quest copy until the pulled copy has been parsed and backed
+up under the lab's retention policy.
 
-Capture a Host screenshot containing the four READY cards and the Run ID.
+## E. Summary semantics and quality acceptance
 
-## Batch B: one six-phase participant Run
+For every phase in `summary.json`:
 
-For every phase, record pass/fail and any observed deviation:
+- [ ] `first_attempt_correct_semantics` equals
+  `legacy_alias_of_first_action_correct`.
+- [ ] `first_attempt_correct` equals `first_action_correct`; the former is a
+  compatibility alias, not whole-phase success.
+- [ ] `first_attempt_success` is true only when the phase completed without a
+  wrong input or task reset.
 
-| Phase | Allowed sentences | Required task evidence |
-| --- | --- | --- |
-| 1 | 001–003 | Task accepts the correct simplified interaction |
-| 2 | 004–012 | Password/button ordering is correct; one wrong input resets the whole current task |
-| 3 | 013–015 | Task completion advances exactly once |
-| 4 | 016–018 | Task completion or explicit stuck/give-up is recorded correctly |
-| 5 | 019–025 | Task state resets cleanly before/after the phase |
-| 6 | 026–031 | Final task completes the Run exactly once |
+Check `data_completeness` separately from `capture_quality`:
 
-Common checks across all six phases:
+- [ ] `data_completeness.quest_artifacts_complete` is true for the sealed
+  five-file set.
+- [ ] `capture_quality.measurement_available` is true for a normally captured
+  Run.
+- [ ] `capture_quality.sample_rate.actual_hz` and status are plausible.
+- [ ] HMD, left-hand, and right-hand validity rates and combined status are
+  recorded.
+- [ ] Required-probe count, coverage rate, and status are recorded.
+- [ ] Gap count/status agree with `capture_gap` evidence.
+- [ ] Overall `Pass`, `Warning`, or `Fail` equals the worst quality component.
+- [ ] A Warning/Fail quality grade did not delete files or prevent safe sealing;
+  retain the Run and record the analytical exclusion decision separately.
 
-- [ ] The signer ghost starts the instruction and the response timer together.
-- [ ] The participant can interact at any time; interaction is not locked to
-  animation playback.
-- [ ] The first instruction plays once automatically.
-- [ ] In a text-bearing condition, the text bubble appears as soon as the
-  Instruction Signer becomes visible and first playback starts,
-  remains visible thereafter, and is above the signer ghost's head. Its text
-  and visual style match the prior recording UI.
-- [ ] The Replay button is disabled until playback completes, can be used at
-  most once, and the Run records whether it was used.
-- [ ] In ray-enabled condition, a valid hit shows ray/highlight immediately,
-  with no dwell. No hit means no ray/highlight.
-- [ ] Text and ray/highlight obey the frozen condition for the whole Run.
-- [ ] Success, wrong input, stuck/give-up, replay count, and phase duration are
-  attributed to the correct phase and sentence.
-- [ ] The next phase begins only after the previous presentation/task/capture
-  acknowledgement chain completes.
-
-During this internal gate it is acceptable to use simplified object motions;
-the task order, validation, reset, timing, and data semantics must remain exact.
-
-## Batch C: terminal and recovery checks
-
-- [ ] Complete one normal Run and observe Completed on both Quest and Host.
-- [ ] Start a second disposable Run, press whole-Run Abort, and confirm the
-  Quest returns to PreStart without retaining the frozen plan.
-- [ ] Host releases the active Run after Completed and after Abort.
-- [ ] If Replay has already been used and the participant is still stuck, the
-  stuck/give-up path terminates the task as designed and is recorded.
-- [ ] A temporary Host/readiness loss does not rerandomize an already frozen
-  plan; retry uses the same Run ID and manifest bytes.
-
-Pause/resume and hot reconfiguration soak are follow-up hardening checks, not a
-blocker for the first supervised participant Run.
-
-## Artifact acceptance
-
-For every accepted Run, locate the directory under
-`vr-sign-host/data/interaction-tests` and verify:
-
-- [ ] `run.manifest.json` exists and matches the Quest-authored frozen plan.
-- [ ] `events.jsonl` exists, parses, and contains all six phase transitions.
-- [ ] `poses.jsonl` exists and contains tracked HMD plus distinct left/right
-  hand samples rather than synthetic fallbacks.
-- [ ] `objects.jsonl` exists and contains stable state for the active targets.
-- [ ] `summary.json` exists and agrees with events for condition, sentence,
-  signer/take, password, success/stuck, Replay, and duration.
-- [ ] `webcam.webm` exists, is non-empty, and covers the participant Run.
-- [ ] Host ACK reports no missing artifact before Quest local retention may be
-  cleared.
-
-Record the Run ID, participant ID, condition, APK SHA-256, Host directory, file
-sizes, and final ACK in the W8 report. Do not mark the physical gate complete
-from screenshots alone.
-
-## Current physical-gate state
-
-The Quest 3 (`2G0YC5ZF84043B`) is authorized over USB and the frozen APK above
-is installed. A cold start reached `InteractionLab` without the prior
-`PointableCanvas` / missing-`GraphicRaycaster` assertion or an app crash. The
-HIK 1080P Camera is selected in the Chrome Study page and its live 1280x720
-preview has been observed.
-
-An accepted participant Run is still open. The Quest clock was corrected to
-`2026-08-26`, automatic time remains enabled, `PILOT01` is the selected
-anonymous participant ID, and Quest 3 `2G0YC5ZF84043B` is again authorized over
-ADB. The `SignVR Quest Always On` scheduled task is running: virtual proximity
-is `CLOSE`, plugged-in stay-awake is `7`, and a real reboot test confirmed that
-the watcher reapplies the override after ADB reconnects. It depends on this Host
-PC remaining signed in and the Quest being connected over USB.
-
-The Host runtime has been restarted and its Interaction storage is writable.
-`e265c23` repaired the Study page so a failed default camera still exposes the
-available camera selector and the last successful device is remembered. The
-HIK camera currently enumerates in Windows, DirectShow, and Chrome, but both
-Chrome and an independent FFmpeg capture probe fail to open it. Physically
-replug or otherwise reset the HIK device, select it again, and require a live
-1280x720 preview before accepting Camera READY. Then wear the headset, enter
-`PILOT01` and `ed00636` on Quest, wait for all four Host cards to remain READY,
-and execute the physical batches above. Cold-start evidence alone does not
-prove naked-hand button activation or artifact completeness.
+Record the Run ID, artifact directory, five file sizes, terminal outcome,
+quality grade, APK SHA-256, source/build identity, Quest serial, log filename,
+and every failed checkbox in the gate report.
