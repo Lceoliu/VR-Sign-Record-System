@@ -40,6 +40,18 @@ _Avoid_: Take, session, single task
 One of the six participant-visible instruction units in an Interaction Run.
 _Avoid_: Development phase, component
 
+**Key Selection**:
+The fourth Instruction Phase task in which all three candidate keys remain visible and the Participant selects one through its associated Touch Target Proxy. The planned key completes the phase; another key produces feedback without ending the phase.
+_Avoid_: Chest-button sequence, released key, Phase 5 key gate
+
+**Button Combination**:
+The fifth Instruction Phase task in which the Participant selects the Run Plan's one-, two-, or three-button set. An incorrect or repeated selection resets the current set without reintroducing a key prerequisite.
+_Avoid_: Cabinet unlock sequence, single fixed button
+
+**Touch Target Proxy**:
+A participant-visible touch surface that represents one nearby task object while keeping that object's semantic identity. One physical contact cycle produces at most one Interaction Step.
+_Avoid_: Invisible trigger, second target, object body input
+
 **Interaction Step**:
 One concrete manipulation within an Instruction Phase, such as entering a password, opening a lid, or pressing a button.
 _Avoid_: Phase, task variant
@@ -107,6 +119,26 @@ _Avoid_: Offline demo, EngineeringLocal
 **Sealed Run Artifact Set**:
 The Quest-authoritative local files for one Completed or Aborted Interaction Run: its manifest, events, poses, objects, and summary. Once all five files are sealed, the Run is complete and never waits for upload or acknowledgement; staff export the retained files later through USB or ADB.
 _Avoid_: Pending upload, Host archive, acknowledged Run
+
+**Result Review**:
+The terminal participant-visible view held after a Completed or Aborted Run has sealed its artifacts. Any person currently wearing the headset and able to interact may confirm the review and return the application to pre-start.
+_Avoid_: Staff-only screen, automatic reset, seventh phase
+
+**Capture Completeness**:
+The structural status of a Sealed Run Artifact Set: required files and streams exist, parse, and agree sufficiently to preserve the Run. It is distinct from whether the recorded tracking is analytically useful.
+_Avoid_: Tracking quality, successful task performance
+
+**Capture Quality**:
+The graded analytical usability of an Experiment Capture, based on sampling, tracking validity, object coverage, gaps, and temporal consistency. A low grade never causes already captured evidence to be discarded.
+_Avoid_: File existence, Run completion status
+
+**First Action Correct**:
+Whether the first task input received in an Instruction Phase matches the Run Plan at that point.
+_Avoid_: First-attempt success, phase completion
+
+**First Attempt Success**:
+Whether an Instruction Phase is completed without an incorrect input or task reset.
+_Avoid_: First action correct, eventual completion
 
 **Experiment Capture**:
 The time-aligned record of participant motion, interaction events, and scene state produced during an Interaction Run.
