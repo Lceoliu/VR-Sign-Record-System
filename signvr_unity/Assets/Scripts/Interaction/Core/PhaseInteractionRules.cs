@@ -320,8 +320,6 @@ namespace SignVR.Interaction.Core
         private PhaseExecutionSnapshot lifecycleSnapshot;
         private bool locallyEnabled;
         private bool phaseTaskLocked;
-        private int phaseFourProgress;
-        private bool phaseFiveKeyAccepted;
         private readonly HashSet<string> phaseFiveButtons =
             new HashSet<string>(StringComparer.Ordinal);
         private ValidationResult lastResult;
@@ -477,6 +475,10 @@ namespace SignVR.Interaction.Core
             if (snapshot.PhaseId >= 2)
             {
                 safeDoorOpened = true;
+            }
+            if (snapshot.PhaseId >= 5)
+            {
+                cabinetUnlocked = true;
             }
             if (!snapshot.InteractionsEnabled)
             {
@@ -701,71 +703,45 @@ namespace SignVR.Interaction.Core
 
         private ValidationResult AcceptPhaseFour(PhaseInput input)
         {
-            IReadOnlyList<string> order = plan.ChestButtonOrder.ButtonIds;
-            string expectedTarget = order[phaseFourProgress];
+            string plannedKey = plan.Phases[3].TaskVariant.TargetIds[0];
             if (input.Kind != PhaseInputKind.Target ||
                 !string.Equals(
                     input.TargetId,
-                    expectedTarget,
+                    plannedKey,
                     StringComparison.Ordinal
                 ))
             {
-                phaseFourProgress = 0;
-                presentationChestButtons.Clear();
                 return new ValidationResult(
                     4,
                     false,
                     true,
-                    true,
+                    false,
                     false,
                     0,
-                    order.Count,
+                    1,
                     PhaseFeedbackCue.None,
                     PhaseValidationError.UnexpectedTarget,
                     input.TargetId
                 );
             }
 
-            phaseFourProgress++;
-            AddPresentationTarget(
-                presentationChestButtons,
-                input.TargetId
-            );
-            if (phaseFourProgress < order.Count)
-            {
-                return new ValidationResult(
-                    4,
-                    true,
-                    false,
-                    false,
-                    false,
-                    phaseFourProgress,
-                    order.Count,
-                    PhaseFeedbackCue.ChestButtonAccepted,
-                    PhaseValidationError.None,
-                    input.TargetId
-                );
-            }
-
-            string releasedKey =
-                plan.Phases[3].TaskVariant.TargetIds[0];
             chestOpened = true;
             chestOrderVisible = false;
-            releasedKeyTargetId = releasedKey;
+            releasedKeyTargetId = plannedKey;
             phaseTaskLocked = true;
-            phaseFourProgress = 0;
+            presentationChestButtons.Clear();
             return new ValidationResult(
                 4,
                 true,
                 false,
                 false,
                 true,
-                order.Count,
-                order.Count,
+                1,
+                1,
                 PhaseFeedbackCue.ChestOpened,
                 PhaseValidationError.None,
                 input.TargetId,
-                releasedKey
+                plannedKey
             );
         }
 
@@ -773,36 +749,7 @@ namespace SignVR.Interaction.Core
         {
             IReadOnlyList<string> plannedButtons =
                 plan.Phases[4].TaskVariant.TargetIds;
-            int requiredProgress = plannedButtons.Count + 1;
-            string plannedKey = plan.Phases[3].TaskVariant.TargetIds[0];
-
-            if (!phaseFiveKeyAccepted)
-            {
-                if (input.Kind != PhaseInputKind.Target ||
-                    !string.Equals(
-                        input.TargetId,
-                        plannedKey,
-                        StringComparison.Ordinal
-                    ))
-                {
-                    return PhaseFiveError(input.TargetId, requiredProgress);
-                }
-
-                phaseFiveKeyAccepted = true;
-                cabinetUnlocked = true;
-                return new ValidationResult(
-                    5,
-                    true,
-                    false,
-                    false,
-                    false,
-                    1,
-                    requiredProgress,
-                    PhaseFeedbackCue.CabinetUnlocked,
-                    PhaseValidationError.None,
-                    input.TargetId
-                );
-            }
+            int requiredProgress = plannedButtons.Count;
 
             if (input.Kind != PhaseInputKind.Target ||
                 !ContainsOrdinal(plannedButtons, input.TargetId) ||
@@ -811,7 +758,7 @@ namespace SignVR.Interaction.Core
                 return PhaseFiveError(input.TargetId, requiredProgress);
             }
 
-            int progress = phaseFiveButtons.Count + 1;
+            int progress = phaseFiveButtons.Count;
             AddPresentationTarget(
                 presentationCabinetButtons,
                 input.TargetId
@@ -833,7 +780,6 @@ namespace SignVR.Interaction.Core
             }
 
             phaseTaskLocked = true;
-            phaseFiveKeyAccepted = false;
             phaseFiveButtons.Clear();
             return new ValidationResult(
                 5,
@@ -861,7 +807,7 @@ namespace SignVR.Interaction.Core
                 true,
                 true,
                 false,
-                phaseFiveKeyAccepted ? 1 : 0,
+                0,
                 requiredProgress,
                 PhaseFeedbackCue.None,
                 PhaseValidationError.UnexpectedTarget,
@@ -1201,8 +1147,6 @@ namespace SignVR.Interaction.Core
 
         private void ResetTaskProgress()
         {
-            phaseFourProgress = 0;
-            phaseFiveKeyAccepted = false;
             phaseFiveButtons.Clear();
             phaseSixProgress = 0;
             lastResult = null;
