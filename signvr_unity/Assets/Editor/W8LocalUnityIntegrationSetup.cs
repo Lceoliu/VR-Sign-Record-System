@@ -1282,7 +1282,7 @@ namespace SignVR.Editor.Interaction
             Undo.RecordObject(rect, "Layout W8 Result surface");
             rect.anchorMin = rect.anchorMax = rect.pivot =
                 new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(780f, 500f);
+            rect.sizeDelta = new Vector2(820f, 680f);
             rect.localPosition = new Vector3(0f, 0.20f, 0f);
             rect.localRotation = Quaternion.identity;
             rect.localScale = Vector3.one * 0.001f;
@@ -1329,8 +1329,8 @@ namespace SignVR.Editor.Interaction
             );
             SetRect(
                 outcome.rectTransform,
-                new Vector2(0f, 120f),
-                new Vector2(700f, 100f)
+                new Vector2(0f, 235f),
+                new Vector2(740f, 90f)
             );
 
             TMP_Text saveStatus = EnsureText(
@@ -1338,7 +1338,7 @@ namespace SignVR.Editor.Interaction
                 "SaveStatus",
                 "正在安全保存数据，请稍候…",
                 font,
-                23f
+                21f
             );
             if (saveStatus.textWrappingMode != TextWrappingModes.Normal)
             {
@@ -1351,8 +1351,8 @@ namespace SignVR.Editor.Interaction
             }
             SetRect(
                 saveStatus.rectTransform,
-                new Vector2(0f, 5f),
-                new Vector2(700f, 90f)
+                new Vector2(0f, 15f),
+                new Vector2(740f, 300f)
             );
 
             Button acknowledge = EnsureButton(
@@ -1364,8 +1364,8 @@ namespace SignVR.Editor.Interaction
             );
             SetRect(
                 acknowledge.GetComponent<RectTransform>(),
-                new Vector2(0f, -130f),
-                new Vector2(520f, 110f)
+                new Vector2(0f, -250f),
+                new Vector2(520f, 100f)
             );
 
             SetLayerRecursively(root.transform, uiAnchor.gameObject.layer);

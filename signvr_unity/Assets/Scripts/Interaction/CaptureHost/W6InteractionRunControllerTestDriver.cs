@@ -73,6 +73,15 @@ namespace SignVR.Interaction.CaptureHost
                     controller.State == RunState.Completed && writer.IsSealed,
                     "Original Completed seal did not retain Controller ownership."
                 );
+                InteractionRunSummary sealedSummary =
+                    controller.LastSealedSummary;
+                W6InteractionCaptureHostTestDriver.Require(
+                    sealedSummary != null &&
+                    sealedSummary.RunId == machine.Plan.RunId &&
+                    sealedSummary.CaptureQuality != null &&
+                    sealedSummary.DataCompleteness.QuestArtifactsComplete,
+                    "Controller did not publish the sealed Result Review summary."
+                );
                 AssertTerminalArtifacts(
                     writer.RunDirectory,
                     expectedStatus: "completed",
@@ -207,6 +216,12 @@ namespace SignVR.Interaction.CaptureHost
                         lateWriter.IsSealed,
                         "Main-thread reconciliation did not publish one late Abort."
                     );
+                    W6InteractionCaptureHostTestDriver.Require(
+                        controller.LastSealedSummary != null &&
+                        controller.LastSealedSummary.RunId ==
+                            machine.Plan.RunId,
+                        "Lifecycle reconciliation did not publish its sealed summary."
+                    );
                     AssertTerminalArtifacts(
                         lateWriter.RunDirectory,
                         expectedStatus: "aborted",
@@ -216,6 +231,10 @@ namespace SignVR.Interaction.CaptureHost
                     W6InteractionCaptureHostTestDriver.Require(
                         controller.ResetToPreStart(),
                         "Controller could not safely reset after late Abort seal."
+                    );
+                    W6InteractionCaptureHostTestDriver.Require(
+                        controller.LastSealedSummary == null,
+                        "Acknowledged Result Review retained a stale summary."
                     );
                 }
                 catch (Exception exception)

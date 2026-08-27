@@ -77,6 +77,7 @@ namespace SignVR.Interaction.CaptureHost
             captureInitialization;
         private InteractionBackgroundOperation<InteractionCaptureSealResult>
             captureTerminalization;
+        private InteractionRunSummary lastSealedSummary;
         private InteractionBackgroundOperation<bool> activePhaseCheckpoint;
         private InteractionCaptureTerminalKind? captureTerminalKind;
         private bool captureInitializationReconciled;
@@ -122,6 +123,12 @@ namespace SignVR.Interaction.CaptureHost
         public bool ForceTextAndPointingForTesting =>
             forceTextAndPointingForTesting;
         public InteractionCaptureSampler CaptureSampler => captureSampler;
+        /// <summary>
+        /// Immutable summary from the most recently completed local seal.
+        /// It remains available while the terminal Result Review is visible
+        /// and is cleared only after that result returns to PreStart.
+        /// </summary>
+        public InteractionRunSummary LastSealedSummary => lastSealedSummary;
         public InteractionStandaloneLocalRunRecoveryStatus StartupRecoveryStatus =>
             startupRecovery == null
                 ? InteractionStandaloneLocalRunRecoveryStatus.NotStarted
@@ -1024,6 +1031,7 @@ namespace SignVR.Interaction.CaptureHost
             captureWriter = null;
             captureInitialization = null;
             captureTerminalization = null;
+            lastSealedSummary = null;
             activePhaseCheckpoint = null;
             captureTerminalKind = null;
             captureInitializationReconciled = false;
@@ -1558,6 +1566,7 @@ namespace SignVR.Interaction.CaptureHost
                 terminalSealArbiter.MarkTerminal();
                 return;
             }
+            lastSealedSummary = captureTerminalization.GetResult().Summary;
             if (terminalKind == InteractionCaptureTerminalKind.Completed)
             {
                 stateMachine.MarkRunCompleted();
@@ -1953,6 +1962,7 @@ namespace SignVR.Interaction.CaptureHost
                 }
                 if (result.Succeeded)
                 {
+                    lastSealedSummary = result.SealResult.Summary;
                     if (State == RunState.Aborting)
                     {
                         stateMachine.MarkRunAborted();

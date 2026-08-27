@@ -482,9 +482,14 @@ namespace SignVR.Interaction.Orchestration
                 );
                 fixture.Flow.Tick();
                 Require(
-                    saveStatus.text == "数据已安全保存。" &&
+                    saveStatus.text.StartsWith(
+                        InteractionStudyParticipantText.SavedResult,
+                        StringComparison.Ordinal
+                    ) &&
+                        saveStatus.text.Contains("录制统计暂不可用") &&
                         acknowledge.interactable,
-                    "Completed result was not confirmable after cleanup."
+                    "Completed result did not expose missing statistics " +
+                    "before confirmation."
                 );
 
                 typeof(InteractionStudyFlowController).GetField(
@@ -1972,6 +1977,55 @@ namespace SignVR.Interaction.Orchestration
                     );
                 }
             }
+        }
+
+        public static void ResultReviewShowsCaptureQualityAndRunStatistics()
+        {
+            var summary = new InteractionStudyResultReviewSummary(
+                InteractionCaptureQualityLevel.Warning,
+                captureMeasurementAvailable: true,
+                localArtifactsComplete: true,
+                completedPhaseCount: 5,
+                totalPhaseCount: 6,
+                errorCount: 2,
+                replayCount: 1,
+                stuckCount: 1,
+                durationSeconds: 123.4d,
+                actualSampleRateHz: 19.5d,
+                minimumTrackingValidityRate: 0.96d,
+                requiredProbeCoverageRate: 0.88d,
+                captureGapCount: 3L
+            );
+
+            string message =
+                InteractionStudyParticipantText.ForSavedResult(summary);
+            string[] requiredTokens =
+            {
+                "Warning",
+                "19.5 Hz",
+                "最低跟踪",
+                "探针覆盖",
+                "缺口 3",
+                "阶段 5/6",
+                "错误 2",
+                "重播 1",
+                "卡住 1",
+                "123.4 秒",
+                "5/5 完整",
+                "低质量数据仍会保留"
+            };
+            foreach (string token in requiredTokens)
+            {
+                Require(
+                    message.Contains(token),
+                    "Result Review omitted aggregate token: " + token
+                );
+            }
+            Require(
+                InteractionStudyParticipantText.ForSavedResult(null)
+                    .Contains("录制统计暂不可用"),
+                "Missing sealed summary did not fail visibly for review."
+            );
         }
 
         public static void StandaloneStudyRequiresStrictXrGate()

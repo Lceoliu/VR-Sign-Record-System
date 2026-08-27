@@ -124,6 +124,154 @@ namespace SignVR.Interaction.Orchestration
         }
     }
 
+    /// <summary>
+    /// Narrow, immutable projection of the sealed W6 summary for the
+    /// participant-facing Result Review. The five local artifacts remain the
+    /// source of truth; this object only exposes safe aggregate diagnostics.
+    /// </summary>
+    public sealed class InteractionStudyResultReviewSummary
+    {
+        public InteractionStudyResultReviewSummary(
+            InteractionCaptureQualityLevel captureQuality,
+            bool captureMeasurementAvailable,
+            bool localArtifactsComplete,
+            int completedPhaseCount,
+            int totalPhaseCount,
+            int errorCount,
+            int replayCount,
+            int stuckCount,
+            double durationSeconds,
+            double actualSampleRateHz,
+            double minimumTrackingValidityRate,
+            double requiredProbeCoverageRate,
+            long captureGapCount)
+        {
+            if (!Enum.IsDefined(
+                    typeof(InteractionCaptureQualityLevel),
+                    captureQuality))
+            {
+                throw new ArgumentOutOfRangeException(nameof(captureQuality));
+            }
+            ValidateCount(completedPhaseCount, nameof(completedPhaseCount));
+            ValidateCount(totalPhaseCount, nameof(totalPhaseCount));
+            ValidateCount(errorCount, nameof(errorCount));
+            ValidateCount(replayCount, nameof(replayCount));
+            ValidateCount(stuckCount, nameof(stuckCount));
+            if (completedPhaseCount > totalPhaseCount)
+            {
+                throw new ArgumentOutOfRangeException(
+                    nameof(completedPhaseCount)
+                );
+            }
+            ValidateFiniteNonNegative(
+                durationSeconds,
+                nameof(durationSeconds)
+            );
+            ValidateFiniteNonNegative(
+                actualSampleRateHz,
+                nameof(actualSampleRateHz)
+            );
+            ValidateRate(
+                minimumTrackingValidityRate,
+                nameof(minimumTrackingValidityRate)
+            );
+            ValidateRate(
+                requiredProbeCoverageRate,
+                nameof(requiredProbeCoverageRate)
+            );
+            if (captureGapCount < 0L)
+            {
+                throw new ArgumentOutOfRangeException(nameof(captureGapCount));
+            }
+
+            CaptureQuality = captureQuality;
+            CaptureMeasurementAvailable = captureMeasurementAvailable;
+            LocalArtifactsComplete = localArtifactsComplete;
+            CompletedPhaseCount = completedPhaseCount;
+            TotalPhaseCount = totalPhaseCount;
+            ErrorCount = errorCount;
+            ReplayCount = replayCount;
+            StuckCount = stuckCount;
+            DurationSeconds = durationSeconds;
+            ActualSampleRateHz = actualSampleRateHz;
+            MinimumTrackingValidityRate = minimumTrackingValidityRate;
+            RequiredProbeCoverageRate = requiredProbeCoverageRate;
+            CaptureGapCount = captureGapCount;
+        }
+
+        public InteractionCaptureQualityLevel CaptureQuality { get; }
+        public bool CaptureMeasurementAvailable { get; }
+        public bool LocalArtifactsComplete { get; }
+        public int CompletedPhaseCount { get; }
+        public int TotalPhaseCount { get; }
+        public int ErrorCount { get; }
+        public int ReplayCount { get; }
+        public int StuckCount { get; }
+        public double DurationSeconds { get; }
+        public double ActualSampleRateHz { get; }
+        public double MinimumTrackingValidityRate { get; }
+        public double RequiredProbeCoverageRate { get; }
+        public long CaptureGapCount { get; }
+
+        internal static InteractionStudyResultReviewSummary FromCapture(
+            InteractionRunSummary summary)
+        {
+            if (summary == null)
+            {
+                return null;
+            }
+            InteractionCaptureQuality quality = summary.CaptureQuality;
+            return new InteractionStudyResultReviewSummary(
+                quality.Overall,
+                quality.MeasurementAvailable,
+                summary.DataCompleteness.QuestArtifactsComplete,
+                summary.CompletedPhaseCount,
+                summary.Phases.Count,
+                summary.TotalErrorCount,
+                summary.TotalReplayCount,
+                summary.TotalStuckCount,
+                summary.TotalDurationSeconds,
+                quality.ActualSampleRateHz,
+                Math.Min(
+                    quality.HmdValidityRate,
+                    Math.Min(
+                        quality.LeftHandValidityRate,
+                        quality.RightHandValidityRate
+                    )
+                ),
+                quality.RequiredProbeCoverageRate,
+                quality.CaptureGapCount
+            );
+        }
+
+        private static void ValidateCount(int value, string parameterName)
+        {
+            if (value < 0)
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+        }
+
+        private static void ValidateRate(double value, string parameterName)
+        {
+            ValidateFiniteNonNegative(value, parameterName);
+            if (value > 1d)
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+        }
+
+        private static void ValidateFiniteNonNegative(
+            double value,
+            string parameterName)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value) || value < 0d)
+            {
+                throw new ArgumentOutOfRangeException(parameterName);
+            }
+        }
+    }
+
     public sealed class InteractionStudyFlowSnapshot
     {
         internal InteractionStudyFlowSnapshot(
@@ -138,7 +286,8 @@ namespace SignVR.Interaction.Orchestration
             bool isResultVisible,
             bool canAcknowledgeResult,
             RunResult? terminalOutcome,
-            string status)
+            string status,
+            InteractionStudyResultReviewSummary resultReviewSummary = null)
         {
             RunState = runState;
             PhaseId = phaseId;
@@ -151,6 +300,7 @@ namespace SignVR.Interaction.Orchestration
             IsResultVisible = isResultVisible;
             CanAcknowledgeResult = canAcknowledgeResult;
             TerminalOutcome = terminalOutcome;
+            ResultReviewSummary = resultReviewSummary;
             Status = status ?? string.Empty;
         }
 
@@ -165,7 +315,28 @@ namespace SignVR.Interaction.Orchestration
         public bool IsResultVisible { get; }
         public bool CanAcknowledgeResult { get; }
         public RunResult? TerminalOutcome { get; }
+        public InteractionStudyResultReviewSummary ResultReviewSummary { get; }
         public string Status { get; }
+
+        internal InteractionStudyFlowSnapshot WithResultReviewSummary(
+            InteractionStudyResultReviewSummary summary)
+        {
+            return new InteractionStudyFlowSnapshot(
+                RunState,
+                PhaseId,
+                Progress,
+                RequiredProgress,
+                CanStart,
+                CanReplay,
+                CanGiveUp,
+                AbortInProgress,
+                IsResultVisible,
+                CanAcknowledgeResult,
+                TerminalOutcome,
+                Status,
+                summary
+            );
+        }
     }
 
     public interface IInteractionStudyRunPort

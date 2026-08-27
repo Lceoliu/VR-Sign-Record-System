@@ -79,7 +79,22 @@ namespace SignVR.Interaction.Orchestration
         public string InitializationStatus => initializationStatus;
         public string IdentityStatus => identityStatus;
         public InteractionStudyFlow Flow => flow;
-        public InteractionStudyFlowSnapshot Snapshot => flow?.Snapshot;
+        public InteractionStudyFlowSnapshot Snapshot
+        {
+            get
+            {
+                InteractionStudyFlowSnapshot snapshot = flow?.Snapshot;
+                if (snapshot == null || !snapshot.IsResultVisible)
+                {
+                    return snapshot;
+                }
+                return snapshot.WithResultReviewSummary(
+                    InteractionStudyResultReviewSummary.FromCapture(
+                        runController?.LastSealedSummary
+                    )
+                );
+            }
+        }
 
         public void Configure(
             InteractionRunController run,
@@ -694,7 +709,7 @@ namespace SignVR.Interaction.Orchestration
 
         private string BuildFingerprint()
         {
-            InteractionStudyFlowSnapshot snapshot = flow?.Snapshot;
+            InteractionStudyFlowSnapshot snapshot = Snapshot;
             if (snapshot == null)
             {
                 return manifestReady + "|" + initializationStatus + "|" +
@@ -715,6 +730,8 @@ namespace SignVR.Interaction.Orchestration
                 snapshot.IsResultVisible + "|" +
                 snapshot.CanAcknowledgeResult + "|" +
                 snapshot.TerminalOutcome + "|" +
+                snapshot.ResultReviewSummary?.CaptureQuality + "|" +
+                snapshot.ResultReviewSummary?.CaptureGapCount + "|" +
                 snapshot.Status;
         }
 

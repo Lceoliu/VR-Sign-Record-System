@@ -119,6 +119,13 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
         }
 
         [Test]
+        public void ResultReviewShowsCaptureQualityAndRunStatistics()
+        {
+            InvokeDriver(nameof(
+                ResultReviewShowsCaptureQualityAndRunStatistics));
+        }
+
+        [Test]
         public void StandaloneStudyRequiresStrictXrGate()
         {
             InvokeDriver(nameof(StandaloneStudyRequiresStrictXrGate));

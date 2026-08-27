@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using SignVR.Interaction.Core;
 using SignVR.Interaction.Presentation;
 using TMPro;
@@ -21,6 +22,44 @@ namespace SignVR.Interaction.Orchestration
         internal const string AbortedResult = "本次体验已安全结束。";
         internal const string SavingResult = "正在安全保存数据，请稍候…";
         internal const string SavedResult = "数据已安全保存。";
+
+        internal static string ForSavedResult(
+            InteractionStudyResultReviewSummary summary)
+        {
+            if (summary == null)
+            {
+                return SavedResult + "\n录制统计暂不可用，已保存文件可供复核。";
+            }
+
+            string qualityDetails = summary.CaptureMeasurementAvailable
+                ? summary.ActualSampleRateHz.ToString(
+                        "0.0",
+                        CultureInfo.InvariantCulture
+                    ) + " Hz；最低跟踪 " +
+                    summary.MinimumTrackingValidityRate.ToString(
+                        "P0",
+                        CultureInfo.InvariantCulture
+                    ) + "；探针覆盖 " +
+                    summary.RequiredProbeCoverageRate.ToString(
+                        "P0",
+                        CultureInfo.InvariantCulture
+                    ) + "；缺口 " + summary.CaptureGapCount
+                : "采样测量不可用";
+            string artifactStatus = summary.LocalArtifactsComplete
+                ? "本地文件：5/5 完整。"
+                : "本地文件：需要复核。";
+
+            return SavedResult + "\n录制质量：" + summary.CaptureQuality +
+                "（" + qualityDetails + "；低质量数据仍会保留）。\n" +
+                "流程统计：阶段 " + summary.CompletedPhaseCount + "/" +
+                summary.TotalPhaseCount + "，错误 " + summary.ErrorCount +
+                "，重播 " + summary.ReplayCount + "，卡住 " +
+                summary.StuckCount + "，用时 " +
+                summary.DurationSeconds.ToString(
+                    "0.0",
+                    CultureInfo.InvariantCulture
+                ) + " 秒。\n" + artifactStatus;
+        }
 
         internal static string ForFailure(string error)
         {
@@ -517,7 +556,9 @@ namespace SignVR.Interaction.Orchestration
             {
                 resultSaveStatusLabel.text =
                     snapshot?.CanAcknowledgeResult == true
-                        ? InteractionStudyParticipantText.SavedResult
+                        ? InteractionStudyParticipantText.ForSavedResult(
+                            snapshot.ResultReviewSummary
+                        )
                         : InteractionStudyParticipantText.SavingResult;
             }
             if (acknowledgeResultButton != null)
