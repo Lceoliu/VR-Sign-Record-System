@@ -59,6 +59,32 @@ namespace SignVR.Interaction.Core
             State == PhaseState.FirstPlayback ||
             State == PhaseState.Active ||
             State == PhaseState.ReplayPlayback;
+
+        /// <summary>
+        /// Creates lifecycle authority for a standalone engineering lab that
+        /// intentionally starts at one active phase without running the
+        /// participant-facing playback sequence. Production Runs must use
+        /// InteractionRunStateMachine snapshots instead.
+        /// </summary>
+        public static PhaseExecutionSnapshot CreateEngineeringLabActivePhase(
+            int phaseId)
+        {
+            if (phaseId < 1 || phaseId > PhaseSentenceRanges.PhaseCount)
+            {
+                throw new ArgumentOutOfRangeException(nameof(phaseId));
+            }
+            return new PhaseExecutionSnapshot(
+                phaseId,
+                PhaseState.Active,
+                null,
+                true,
+                false,
+                false,
+                0,
+                0,
+                TimeSpan.Zero
+            );
+        }
     }
 
     public sealed class InteractionRunResult

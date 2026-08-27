@@ -24,10 +24,13 @@ namespace SignVR.Editor
         private const string RecorderBuildPathArgument = "-recorderBuildPath";
         private const string InteractionBuildPathArgument =
             "-interactionBuildPath";
+        private const string CoinLabBuildPathArgument = "-coinLabBuildPath";
         private const string DefaultRecorderBuildPath =
             "Builds/SignVR_Unity_Local.apk";
         private const string DefaultInteractionBuildPath =
             "Builds/SignVR_Interaction_Local.apk";
+        private const string DefaultCoinLabBuildPath =
+            "Builds/SignVR_CoinInteractionLab_Local.apk";
         private const string RecorderScenePath =
             "Assets/Scenes/VRroom.unity";
 
@@ -221,6 +224,17 @@ namespace SignVR.Editor
             BuildAndroid(CreateProfile(SignVRProduct.Interaction));
         }
 
+        [MenuItem("SignVR/Build/Interaction/Coin Lab Android APK")]
+        public static void BuildCoinInteractionLabAndroid()
+        {
+            BuildAndroid(new AndroidBuildProfile(
+                SignVRProduct.Interaction,
+                CoinInteractionLabSetup.ScenePath,
+                CoinLabBuildPathArgument,
+                DefaultCoinLabBuildPath
+            ));
+        }
+
         internal static string[] GetScenesForValidation(SignVRProduct product)
         {
             return new[] { CreateProfile(product).ScenePath };
@@ -334,12 +348,24 @@ namespace SignVR.Editor
                     break;
                 case SignVRProduct.Interaction:
                     InteractionLabValidator.ValidateBuildContractForAutomation();
-                    InteractionLabSceneTool.GenerateOrUpdateSceneForAutomation();
-                    InteractionLabValidator.ValidateLoadedScene(
-                        SceneManager.GetSceneByPath(
-                            InteractionLabContract.ScenePath
-                        )
-                    );
+                    if (string.Equals(
+                            profile.ScenePath,
+                            CoinInteractionLabSetup.ScenePath,
+                            StringComparison.Ordinal))
+                    {
+                        CoinInteractionLabSetup.GenerateAndSaveForAutomation();
+                        CoinInteractionLabSetup.ValidateForAutomation();
+                    }
+                    else
+                    {
+                        InteractionLabSceneTool
+                            .GenerateOrUpdateSceneForAutomation();
+                        InteractionLabValidator.ValidateLoadedScene(
+                            SceneManager.GetSceneByPath(
+                                InteractionLabContract.ScenePath
+                            )
+                        );
+                    }
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(

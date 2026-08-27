@@ -489,7 +489,7 @@ MonoBehaviour:
   m_spriteAsset: {fileID: 0}
   m_tintAllSprites: 0
   m_StyleSheet: {fileID: 0}
-  m_TextStyleHashCode: 0
+  m_TextStyleHashCode: -1183493901
   m_overrideHtmlColors: 0
   m_faceColor:
     serializedVersion: 2
@@ -1401,7 +1401,11 @@ MonoBehaviour:
   - {fileID: 190444709}
   - {fileID: 541758044}
   - {fileID: 541758043}
-  inputColliders: []
+  inputColliders:
+  - {fileID: 190444710}
+  availabilityObjects:
+  - {fileID: 541758041}
+  enableMovablePhysicsWhenAvailable: 1
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -3.914, y: 1.184, z: -5.277}
   authoredLocalRotation: {x: -0.7071068, y: 0, z: 0, w: 0.7071068}
@@ -1410,14 +1414,22 @@ MonoBehaviour:
   - {fileID: 190444711}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 00000000
+  authoredBodyCollisionDetection: 00000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 190444709}
   - {fileID: 541758044}
   - {fileID: 541758043}
   authoredBehaviourEnabled: 000000
-  authoredInputColliders: []
-  authoredColliderEnabled:
+  authoredInputColliders:
+  - {fileID: 190444710}
+  authoredColliderEnabled: 00
+  authoredAvailabilityObjects:
+  - {fileID: 541758041}
+  authoredAvailabilityObjectActive: 00
 --- !u!1 &206355297
 GameObject:
   m_ObjectHideFlags: 0
@@ -1853,7 +1865,11 @@ MonoBehaviour:
   - {fileID: 218051944}
   - {fileID: 797882021}
   - {fileID: 797882020}
-  inputColliders: []
+  inputColliders:
+  - {fileID: 218051945}
+  availabilityObjects:
+  - {fileID: 797882018}
+  enableMovablePhysicsWhenAvailable: 1
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -4.335, y: 1.302, z: -5.448}
   authoredLocalRotation: {x: -0.45275, y: 0.26512912, z: -0.43018916, w: 0.73461646}
@@ -1862,14 +1878,22 @@ MonoBehaviour:
   - {fileID: 218051946}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 00000000
+  authoredBodyCollisionDetection: 00000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 218051944}
   - {fileID: 797882021}
   - {fileID: 797882020}
   authoredBehaviourEnabled: 000000
-  authoredInputColliders: []
-  authoredColliderEnabled:
+  authoredInputColliders:
+  - {fileID: 218051945}
+  authoredColliderEnabled: 00
+  authoredAvailabilityObjects:
+  - {fileID: 797882018}
+  authoredAvailabilityObjectActive: 00
 --- !u!1 &219521441
 GameObject:
   m_ObjectHideFlags: 0
@@ -2107,6 +2131,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 221139047}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 4.2339997, y: 1.0355217, z: -4.250945}
   authoredLocalRotation: {x: -0, y: -0, z: -0, w: 1}
@@ -2114,12 +2140,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 221139047}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!23 &221139046
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -2482,6 +2514,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 236316930}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 4.504, y: 1.0355217, z: -4.250945}
   authoredLocalRotation: {x: -0, y: -0, z: -0, w: 1}
@@ -2489,12 +2523,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 236316930}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!23 &236316929
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -2987,6 +3027,8 @@ MonoBehaviour:
   - {fileID: 1641215331}
   - {fileID: 1641215330}
   inputColliders: []
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -4.801, y: 1.151, z: -5.163}
   authoredLocalRotation: {x: -0.7071068, y: 0, z: 0, w: 0.7071068}
@@ -2995,6 +3037,10 @@ MonoBehaviour:
   - {fileID: 316214055}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 00000000
+  authoredBodyCollisionDetection: 00000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 316214053}
@@ -3003,6 +3049,8 @@ MonoBehaviour:
   authoredBehaviourEnabled: 000000
   authoredInputColliders: []
   authoredColliderEnabled:
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!1 &322089210
 GameObject:
   m_ObjectHideFlags: 0
@@ -4350,6 +4398,8 @@ MonoBehaviour:
   - {fileID: 472736713}
   inputColliders:
   - {fileID: 322939902}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -0.02650403, y: -0.271063, z: -0.32231355}
   authoredLocalRotation: {x: -0, y: -0, z: 0.7071068, w: 0.7071068}
@@ -4358,6 +4408,10 @@ MonoBehaviour:
   - {fileID: 415216305}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 01000000
+  authoredBodyCollisionDetection: 02000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 415216303}
@@ -4367,6 +4421,8 @@ MonoBehaviour:
   authoredInputColliders:
   - {fileID: 322939902}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &415216309
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5245,6 +5301,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 1230864583}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -0.888, y: 2.602, z: -6.0022}
   authoredLocalRotation: {x: 2.220446e-16, y: 0, z: 0, w: 1}
@@ -5252,12 +5310,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 1230864583}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &460201120
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -7854,6 +7918,7 @@ MonoBehaviour:
   signerRoot: {fileID: 1946498003}
   participantHmd: {fileID: 362137456}
   heightAboveSignerRoot: 2.15
+  heightAboveSignerHead: 0.25
   font: {fileID: 11400000, guid: 9518dca7f743c1342b5467fa26b5c38f, type: 2}
   borderColor: {r: 0.32, g: 0.38, b: 0.42, a: 0.98}
   backgroundColor: {r: 0.025, g: 0.032, b: 0.038, a: 0.97}
@@ -8489,6 +8554,8 @@ MonoBehaviour:
   - {fileID: 235576917}
   inputColliders:
   - {fileID: 1902550388}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -5.013, y: 0.209, z: -3.189}
   authoredLocalRotation: {x: -0.70172495, y: 0.0870755, z: 0.08707543, w: 0.70172495}
@@ -8497,6 +8564,10 @@ MonoBehaviour:
   - {fileID: 796127733}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 00000000
+  authoredBodyCollisionDetection: 00000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 796127731}
@@ -8506,6 +8577,8 @@ MonoBehaviour:
   authoredInputColliders:
   - {fileID: 1902550388}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &796127736
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -9110,6 +9183,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 2039407056}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -1.56, y: 1.206, z: -5.951}
   authoredLocalRotation: {x: -0.5, y: 0.5, z: 0.5, w: 0.5}
@@ -9117,12 +9192,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 2039407056}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &830119461
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -10553,6 +10634,8 @@ MonoBehaviour:
   - {fileID: 372888950}
   inputColliders:
   - {fileID: 219521442}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -0.6250532, y: -0.14350408, z: -0.0035290052}
   authoredLocalRotation: {x: -0, y: -0, z: 1, w: 0}
@@ -10561,6 +10644,10 @@ MonoBehaviour:
   - {fileID: 1022656835}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 01000000
+  authoredBodyCollisionDetection: 02000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 1022656833}
@@ -10570,6 +10657,8 @@ MonoBehaviour:
   authoredInputColliders:
   - {fileID: 219521442}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1022656839
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -12593,6 +12682,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 1898560231}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 6.0256176, y: 1.8894475, z: -0.819}
   authoredLocalRotation: {x: -0.5, y: -0.5, z: -0.5, w: 0.5}
@@ -12600,12 +12691,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 1898560231}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1294734540
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -13336,6 +13433,8 @@ MonoBehaviour:
   - {fileID: 495228084}
   inputColliders:
   - {fileID: 206355298}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 0.55511194, y: -0.26209417, z: 0.21762048}
   authoredLocalRotation: {x: -0, y: -0, z: 1, w: 0}
@@ -13344,6 +13443,10 @@ MonoBehaviour:
   - {fileID: 1315380222}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 01000000
+  authoredBodyCollisionDetection: 02000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 1315380220}
@@ -13353,6 +13456,8 @@ MonoBehaviour:
   authoredInputColliders:
   - {fileID: 206355298}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1315380226
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -14184,7 +14289,11 @@ MonoBehaviour:
   - {fileID: 1453701085}
   - {fileID: 1455752215}
   - {fileID: 1455752214}
-  inputColliders: []
+  inputColliders:
+  - {fileID: 1453701086}
+  availabilityObjects:
+  - {fileID: 1455752212}
+  enableMovablePhysicsWhenAvailable: 1
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -3.9011002, y: 1.294, z: -5.601}
   authoredLocalRotation: {x: -0.8606564, y: 2.8260364e-17, z: -1.1014375e-16, w: 0.50918627}
@@ -14193,14 +14302,22 @@ MonoBehaviour:
   - {fileID: 1453701087}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 00000000
+  authoredBodyCollisionDetection: 00000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 1453701085}
   - {fileID: 1455752215}
   - {fileID: 1455752214}
   authoredBehaviourEnabled: 000000
-  authoredInputColliders: []
-  authoredColliderEnabled:
+  authoredInputColliders:
+  - {fileID: 1453701086}
+  authoredColliderEnabled: 00
+  authoredAvailabilityObjects:
+  - {fileID: 1455752212}
+  authoredAvailabilityObjectActive: 00
 --- !u!1 &1455752212
 GameObject:
   m_ObjectHideFlags: 0
@@ -14660,6 +14777,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 2143103909}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -2.48, y: 2.687, z: -5.968}
   authoredLocalRotation: {x: -0.5038023, y: 0.4961686, z: 0.5042026, w: 0.49576184}
@@ -14667,12 +14786,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 2143103909}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1559902753
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -14763,6 +14888,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 1132425107}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 5.86, y: 1.161, z: -2.9186}
   authoredLocalRotation: {x: 0.7071068, y: 0, z: -0.7071068, w: 0}
@@ -14770,12 +14897,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 1132425107}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1569744956
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -15086,6 +15219,8 @@ MonoBehaviour:
   - {fileID: 957879620}
   inputColliders:
   - {fileID: 1763597669}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -4.857, y: 0.928, z: -4.294}
   authoredLocalRotation: {x: -0.60805845, y: 0.36092234, z: 0.36092225, w: 0.60805845}
@@ -15094,6 +15229,10 @@ MonoBehaviour:
   - {fileID: 1582841166}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 00000000
+  authoredBodyCollisionDetection: 00000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 1582841164}
@@ -15103,6 +15242,8 @@ MonoBehaviour:
   authoredInputColliders:
   - {fileID: 1763597669}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1582841170
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -16327,6 +16468,8 @@ MonoBehaviour:
   - {fileID: 378966473}
   - {fileID: 378966472}
   inputColliders: []
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -3.967, y: -0.391, z: -5.5}
   authoredLocalRotation: {x: -0.7071068, y: 0, z: 0, w: 0.7071068}
@@ -16335,6 +16478,10 @@ MonoBehaviour:
   - {fileID: 1738414012}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 00000000
+  authoredBodyCollisionDetection: 00000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 1738414010}
@@ -16343,6 +16490,8 @@ MonoBehaviour:
   authoredBehaviourEnabled: 000000
   authoredInputColliders: []
   authoredColliderEnabled:
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!1 &1749892268
 GameObject:
   m_ObjectHideFlags: 0
@@ -16954,6 +17103,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 1787972575}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 4.324, y: 1.0355217, z: -4.250945}
   authoredLocalRotation: {x: -0, y: -0, z: -0, w: 1}
@@ -16961,12 +17112,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 1787972575}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!23 &1787972574
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -17247,6 +17404,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 1078859191}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 5.828, y: 2.618, z: -2.584}
   authoredLocalRotation: {x: 0, y: -0.7071068, z: 0, w: 0.7071068}
@@ -17254,12 +17413,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 1078859191}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1788320190
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -17607,6 +17772,8 @@ MonoBehaviour:
   - {fileID: 1125399369}
   inputColliders:
   - {fileID: 1737511138}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -3.902, y: 0.223, z: -4.372}
   authoredLocalRotation: {x: -0.55219436, y: 0.4416803, z: 0.44168025, w: 0.5521943}
@@ -17615,6 +17782,10 @@ MonoBehaviour:
   - {fileID: 1801750170}
   authoredBodyKinematic: 01
   authoredBodyGravity: 00
+  authoredBodyDetectCollisions: 01
+  authoredBodyConstraints: 7e000000
+  authoredBodyInterpolation: 00000000
+  authoredBodyCollisionDetection: 00000000
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours:
   - {fileID: 1801750168}
@@ -17624,6 +17795,8 @@ MonoBehaviour:
   authoredInputColliders:
   - {fileID: 1737511138}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1801750173
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -17792,6 +17965,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 1826340281}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 4.414, y: 1.0355217, z: -4.250945}
   authoredLocalRotation: {x: -0, y: -0, z: -0, w: 1}
@@ -17799,12 +17974,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 1826340281}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!23 &1826340280
 MeshRenderer:
   m_ObjectHideFlags: 0
@@ -18193,6 +18374,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 111849643}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 6.0256176, y: 2.662, z: -1.175}
   authoredLocalRotation: {x: -0.5, y: -0.5, z: -0.5, w: 0.5}
@@ -18200,12 +18383,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 111849643}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1862765445
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -18730,6 +18919,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 322089214}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 5.991, y: 1.575, z: -4.348}
   authoredLocalRotation: {x: -0.7071068, y: 0, z: 0, w: 0.7071068}
@@ -18737,12 +18928,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 322089214}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &1920074676
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -20014,6 +20211,8 @@ MonoBehaviour:
   interactionBehaviours: []
   inputColliders:
   - {fileID: 687171833}
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: 6.0256176, y: 1.115, z: -0.067}
   authoredLocalRotation: {x: -0.5, y: -0.5, z: -0.5, w: 0.5}
@@ -20021,12 +20220,18 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders:
   - {fileID: 687171833}
   authoredColliderEnabled: 01
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!114 &2079535450
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -20885,6 +21090,8 @@ MonoBehaviour:
   adapter: {fileID: 1505632639}
   interactionBehaviours: []
   inputColliders: []
+  availabilityObjects: []
+  enableMovablePhysicsWhenAvailable: 0
   authoredPoseAndPhysicsCaptured: 1
   authoredLocalPosition: {x: -5.323, y: 1.091, z: -5.021}
   authoredLocalRotation: {x: -0.70704883, y: 0.0001328339, z: -0.001185904, w: 0.70716375}
@@ -20892,11 +21099,17 @@ MonoBehaviour:
   bodies: []
   authoredBodyKinematic:
   authoredBodyGravity:
+  authoredBodyDetectCollisions:
+  authoredBodyConstraints:
+  authoredBodyInterpolation:
+  authoredBodyCollisionDetection:
   authoredInputStateCaptured: 1
   authoredInteractionBehaviours: []
   authoredBehaviourEnabled:
   authoredInputColliders: []
   authoredColliderEnabled:
+  authoredAvailabilityObjects: []
+  authoredAvailabilityObjectActive:
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0

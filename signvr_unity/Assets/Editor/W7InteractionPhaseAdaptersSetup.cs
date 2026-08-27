@@ -44,9 +44,9 @@ namespace SignVR.Editor.Interaction
             new TargetSpec(1, "box_floor_a", "box (1)", true),
             new TargetSpec(1, "box_floor_b", "box (2)", true),
 
-            new TargetSpec(2, "coin_dragon", "dragon_coin", false),
-            new TargetSpec(2, "coin_a", "golden_coin", false),
-            new TargetSpec(2, "coin_b", "golden_coin (1)", false),
+            new TargetSpec(2, "coin_dragon", "dragon_coin", false, true),
+            new TargetSpec(2, "coin_a", "golden_coin", false, true),
+            new TargetSpec(2, "coin_b", "golden_coin (1)", false, true),
             new TargetSpec(2, "plate_dragon", "dragon_plate", false),
             new TargetSpec(2, "plate_a", "plate", false),
             new TargetSpec(2, "plate_b", "plate (1)", false),
@@ -403,14 +403,38 @@ namespace SignVR.Editor.Interaction
                     );
                 }
 
-                binding.Configure(
-                    spec.TargetId,
-                    adapterByPhase[spec.InputPhaseId],
-                    interactionBehaviours,
-                    proxyCollider != null
-                        ? new[] { proxyCollider }
-                        : Array.Empty<Collider>()
-                );
+                if (spec.RestoreGrabTopology)
+                {
+                    Collider[] inputColliders = authoredTarget
+                        .GetComponentsInChildren<Collider>(true);
+                    GameObject[] availabilityObjects = interactionBehaviours
+                        .Select(item => item.gameObject)
+                        .Where(item =>
+                            item != authoredTarget.gameObject &&
+                            !item.activeSelf)
+                        .Distinct()
+                        .ToArray();
+                    RecordForUndo(inputColliders);
+                    RecordForUndo(availabilityObjects);
+                    binding.ConfigureMovable(
+                        spec.TargetId,
+                        adapterByPhase[spec.InputPhaseId],
+                        interactionBehaviours,
+                        inputColliders,
+                        availabilityObjects
+                    );
+                }
+                else
+                {
+                    binding.Configure(
+                        spec.TargetId,
+                        adapterByPhase[spec.InputPhaseId],
+                        interactionBehaviours,
+                        proxyCollider != null
+                            ? new[] { proxyCollider }
+                            : Array.Empty<Collider>()
+                    );
+                }
                 bindingByTarget.Add(spec.TargetId, binding);
                 EditorUtility.SetDirty(binding);
             }
@@ -751,6 +775,46 @@ namespace SignVR.Editor.Interaction
                     failures.Add(
                         $"Target '{binding.TargetId}' is not bound to its " +
                         "required phase adapter."
+                    );
+                }
+            }
+            foreach (TargetSpec spec in TargetSpecs.Where(
+                         item => item.RestoreGrabTopology))
+            {
+                InteractionTargetBinding binding = targetBindings
+                    .SingleOrDefault(item => string.Equals(
+                        item.TargetId,
+                        spec.TargetId,
+                        StringComparison.Ordinal
+                    ));
+                Transform target = FindTarget(scene, spec.ScenePath);
+                Collider[] targetColliders = target == null
+                    ? Array.Empty<Collider>()
+                    : target.GetComponentsInChildren<Collider>(true);
+                Rigidbody[] targetBodies = target == null
+                    ? Array.Empty<Rigidbody>()
+                    : target.GetComponentsInChildren<Rigidbody>(true);
+                bool hasInactiveGrabRoot = binding != null &&
+                    binding.AvailabilityObjects.Any(item =>
+                        item != null &&
+                        string.Equals(
+                            item.name,
+                            "ISDK_HandGrabInteraction",
+                            StringComparison.Ordinal
+                        ));
+                if (binding == null ||
+                    !binding.EnablesMovablePhysicsWhenAvailable ||
+                    targetBodies.Length != 1 ||
+                    targetColliders.Length == 0 ||
+                    !new HashSet<Collider>(binding.InputColliders)
+                        .SetEquals(targetColliders) ||
+                    binding.InteractionBehaviours.Count == 0 ||
+                    !hasInactiveGrabRoot)
+                {
+                    failures.Add(
+                        $"Phase 2 coin '{spec.TargetId}' must bind its " +
+                        "inactive grab root, grab behaviours, colliders, " +
+                        "and movable Rigidbody lifecycle."
                     );
                 }
             }
@@ -2101,18 +2165,21 @@ namespace SignVR.Editor.Interaction
                 int inputPhaseId,
                 string targetId,
                 string scenePath,
-                bool createTriggerProxy)
+                bool createTriggerProxy,
+                bool restoreGrabTopology = false)
             {
                 InputPhaseId = inputPhaseId;
                 TargetId = targetId;
                 ScenePath = scenePath;
                 CreateTriggerProxy = createTriggerProxy;
+                RestoreGrabTopology = restoreGrabTopology;
             }
 
             public int InputPhaseId { get; }
             public string TargetId { get; }
             public string ScenePath { get; }
             public bool CreateTriggerProxy { get; }
+            public bool RestoreGrabTopology { get; }
         }
     }
 }

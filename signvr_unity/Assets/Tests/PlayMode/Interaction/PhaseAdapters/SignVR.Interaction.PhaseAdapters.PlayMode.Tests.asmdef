@@ -1,7 +1,9 @@
 {
   "name": "SignVR.Interaction.PhaseAdapters.PlayMode.Tests",
   "rootNamespace": "SignVR.Interaction.PhaseAdapters.PlayMode.Tests",
-  "references": [],
+  "references": [
+    "Unity.TextMeshPro"
+  ],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,

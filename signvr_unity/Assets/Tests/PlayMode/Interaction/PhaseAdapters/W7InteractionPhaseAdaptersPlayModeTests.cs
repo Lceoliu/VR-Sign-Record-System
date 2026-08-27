@@ -3,8 +3,10 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
+using TMPro;
 using UnityEngine;
 using UnityEngine.TestTools;
+using UnityEngine.UI;
 
 namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
 {
@@ -101,6 +103,229 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 "A real Meta-style kinematic hand overlap must reach the " +
                 "phase adapter through OnTriggerEnter exactly once."
             );
+        }
+
+        [UnityTest]
+        public IEnumerator MovableTargetLifecycleRestoresAuthoredState()
+        {
+            GameObject adapterObject = Track(
+                new GameObject("PhaseTwoMovableLifecycle")
+            );
+            Component phaseTwo = adapterObject.AddComponent(
+                RuntimeType("PhaseTwoInteractionAdapter")
+            );
+
+            GameObject coin = Track(new GameObject("MovableCoin"));
+            coin.transform.localPosition = new Vector3(1f, 2f, 3f);
+            Rigidbody body = coin.AddComponent<Rigidbody>();
+            body.useGravity = false;
+            body.isKinematic = true;
+            body.detectCollisions = false;
+            body.constraints = RigidbodyConstraints.FreezeAll;
+            body.interpolation = RigidbodyInterpolation.None;
+            body.collisionDetectionMode = CollisionDetectionMode.Discrete;
+            BoxCollider collider = coin.AddComponent<BoxCollider>();
+            collider.enabled = false;
+
+            GameObject grabRoot = new GameObject("ISDK_HandGrabInteraction");
+            grabRoot.transform.SetParent(coin.transform, false);
+            Behaviour grabBehaviour = grabRoot.AddComponent<AudioSource>();
+            grabBehaviour.enabled = false;
+            grabRoot.SetActive(false);
+
+            Component binding = coin.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                binding,
+                "ConfigureMovable",
+                "coin_dragon",
+                phaseTwo,
+                new[] { grabBehaviour },
+                new Collider[] { collider },
+                new[] { grabRoot }
+            );
+
+            InvokePublic(phaseTwo, "Enable");
+            Assert.That(grabRoot.activeSelf, Is.True);
+            Assert.That(grabBehaviour.enabled, Is.True);
+            Assert.That(collider.enabled, Is.True);
+            Assert.That(body.isKinematic, Is.False);
+            Assert.That(body.useGravity, Is.True);
+            Assert.That(body.detectCollisions, Is.True);
+            Assert.That(body.constraints, Is.EqualTo(RigidbodyConstraints.None));
+            Assert.That(
+                body.interpolation,
+                Is.EqualTo(RigidbodyInterpolation.Interpolate)
+            );
+            Assert.That(
+                body.collisionDetectionMode,
+                Is.EqualTo(CollisionDetectionMode.ContinuousDynamic)
+            );
+
+            coin.transform.localPosition = Vector3.one * 9f;
+            InvokePublic(phaseTwo, "Disable");
+            Assert.That(grabRoot.activeSelf, Is.False);
+            Assert.That(grabBehaviour.enabled, Is.False);
+            Assert.That(collider.enabled, Is.False);
+            Assert.That(body.isKinematic, Is.True);
+            Assert.That(body.useGravity, Is.False);
+            Assert.That(body.detectCollisions, Is.False);
+            Assert.That(
+                body.constraints,
+                Is.EqualTo(RigidbodyConstraints.FreezeAll)
+            );
+            Assert.That(
+                coin.transform.localPosition,
+                Is.EqualTo(Vector3.one * 9f),
+                "Phase isolation must freeze the released pose without " +
+                "silently resetting it."
+            );
+
+            InvokePublic(phaseTwo, "Enable");
+            coin.transform.localPosition = Vector3.one * 7f;
+            InvokePublic(phaseTwo, "Reset");
+            Assert.That(
+                coin.transform.localPosition,
+                Is.EqualTo(new Vector3(1f, 2f, 3f))
+            );
+            Assert.That(grabRoot.activeSelf, Is.False);
+            Assert.That(collider.enabled, Is.False);
+            Assert.That(body.isKinematic, Is.True);
+
+            UnityEngine.Object.DestroyImmediate(binding);
+            Assert.That(grabRoot.activeSelf, Is.False);
+            Assert.That(grabBehaviour.enabled, Is.False);
+            Assert.That(collider.enabled, Is.False);
+            Assert.That(body.isKinematic, Is.True);
+            Assert.That(body.useGravity, Is.False);
+            Assert.That(body.detectCollisions, Is.False);
+            Assert.That(
+                body.constraints,
+                Is.EqualTo(RigidbodyConstraints.FreezeAll)
+            );
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator CoinLabSelectsTargetsReportsResultsAndResets()
+        {
+            GameObject root = Track(new GameObject("CoinLabRuntime"));
+            Component coordinator = root.AddComponent(
+                RuntimeType("InteractionPhaseCoordinator")
+            );
+            Array adapters = Array.CreateInstance(
+                RuntimeType("InteractionPhaseAdapter"),
+                6
+            );
+            string[] adapterNames =
+            {
+                "PhaseOneInteractionAdapter",
+                "PhaseTwoInteractionAdapter",
+                "PhaseThreeInteractionAdapter",
+                "PhaseFourInteractionAdapter",
+                "PhaseFiveInteractionAdapter",
+                "PhaseSixInteractionAdapter"
+            };
+            for (int index = 0; index < adapterNames.Length; index++)
+            {
+                GameObject adapterObject = new GameObject(adapterNames[index]);
+                adapterObject.transform.SetParent(root.transform, false);
+                adapters.SetValue(
+                    adapterObject.AddComponent(RuntimeType(adapterNames[index])),
+                    index
+                );
+            }
+            InvokePublic(coordinator, "ConfigureAdapters", adapters);
+
+            GameObject ui = new GameObject("CoinLabUi");
+            ui.transform.SetParent(root.transform, false);
+            TextMeshProUGUI status = NewLabText(ui.transform, "Status");
+            Button[] coinButtons =
+            {
+                NewLabButton(ui.transform, "DragonCoin"),
+                NewLabButton(ui.transform, "CoinA"),
+                NewLabButton(ui.transform, "CoinB")
+            };
+            Button[] plateButtons =
+            {
+                NewLabButton(ui.transform, "DragonPlate"),
+                NewLabButton(ui.transform, "PlateA"),
+                NewLabButton(ui.transform, "PlateB")
+            };
+            Button reset = NewLabButton(ui.transform, "Reset");
+
+            GameObject controllerObject = new GameObject("CoinLabController");
+            controllerObject.SetActive(false);
+            controllerObject.transform.SetParent(root.transform, false);
+            Component controller = controllerObject.AddComponent(
+                RuntimeType("CoinInteractionLabController")
+            );
+            InvokePublic(
+                controller,
+                "Configure",
+                coordinator,
+                status,
+                coinButtons,
+                plateButtons,
+                reset
+            );
+            controllerObject.SetActive(true);
+            yield return null;
+
+            Assert.That(
+                coordinator.GetType().GetProperty("CurrentPhaseId")
+                    .GetValue(coordinator),
+                Is.EqualTo(2)
+            );
+            Assert.That(status.text, Does.Contain("龙纹金币"));
+            Assert.That(status.text, Does.Contain("龙纹盘"));
+
+            coinButtons[2].onClick.Invoke();
+            plateButtons[1].onClick.Invoke();
+            Assert.That(
+                controller.GetType().GetProperty("SelectedCoinId")
+                    .GetValue(controller),
+                Is.EqualTo("coin_b")
+            );
+            Assert.That(
+                controller.GetType().GetProperty("SelectedPlateId")
+                    .GetValue(controller),
+                Is.EqualTo("plate_a")
+            );
+            Assert.That(status.text, Does.Contain("金币 B"));
+            Assert.That(status.text, Does.Contain("盘子 A"));
+
+            Component phaseTwo = (Component)adapters.GetValue(1);
+            InvokePublic(
+                phaseTwo,
+                "AcceptPlacement",
+                "coin_a",
+                "plate_a"
+            );
+            Assert.That(status.text, Does.Contain("错误组合"));
+
+            InvokePublic(
+                phaseTwo,
+                "AcceptPlacement",
+                "coin_b",
+                "plate_a"
+            );
+            Assert.That(status.text, Does.Contain("正确"));
+            Assert.That(
+                phaseTwo.GetType().GetProperty("IsEnabled")
+                    .GetValue(phaseTwo),
+                Is.False,
+                "A correct placement must lock the completed lab trial."
+            );
+
+            reset.onClick.Invoke();
+            Assert.That(
+                phaseTwo.GetType().GetProperty("IsEnabled")
+                    .GetValue(phaseTwo),
+                Is.True
+            );
+            Assert.That(status.text, Does.Contain("当前目标"));
         }
 
         [UnityTest]
@@ -2893,6 +3118,35 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 methodName,
                 BindingFlags.Public | BindingFlags.Static
             ).Invoke(null, arguments);
+        }
+
+        private static TextMeshProUGUI NewLabText(
+            Transform parent,
+            string name)
+        {
+            var gameObject = new GameObject(
+                name,
+                typeof(RectTransform),
+                typeof(CanvasRenderer),
+                typeof(TextMeshProUGUI)
+            );
+            gameObject.transform.SetParent(parent, false);
+            return gameObject.GetComponent<TextMeshProUGUI>();
+        }
+
+        private static Button NewLabButton(Transform parent, string name)
+        {
+            var gameObject = new GameObject(
+                name,
+                typeof(RectTransform),
+                typeof(CanvasRenderer),
+                typeof(Image),
+                typeof(Button)
+            );
+            gameObject.transform.SetParent(parent, false);
+            Button button = gameObject.GetComponent<Button>();
+            button.targetGraphic = gameObject.GetComponent<Image>();
+            return button;
         }
 
         private static object CreatePhaseSnapshot(int phaseId)

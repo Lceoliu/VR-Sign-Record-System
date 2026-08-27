@@ -159,6 +159,113 @@ namespace SignVR.Interaction.Editor.Tests
             });
         }
 
+        [TestCase("dragon_coin")]
+        [TestCase("golden_coin")]
+        [TestCase("golden_coin (1)")]
+        public void PhaseTwoMakesCoinGrabbableAndMovable(string coinName)
+        {
+            WithCleanInteractionScene(scene =>
+            {
+                InvokeTestOwnedSetupAndValidate(scene);
+                InvokeTestOwnedSetupAndValidate(scene);
+
+                object runtimeRoot = FindGameObjectInScene(
+                    scene,
+                    "W7PhaseInteractionAdapters"
+                );
+                object phaseTwoObject = GetGameObject(
+                    FindChild(GetTransform(runtimeRoot), "Phase2Adapter")
+                );
+                object phaseTwo = GetComponent(
+                    phaseTwoObject,
+                    RuntimeType("PhaseTwoInteractionAdapter")
+                );
+                phaseTwo.GetType().GetMethod("Enable").Invoke(phaseTwo, null);
+
+                object coin = FindGameObjectInScene(scene, coinName);
+                object binding = GetComponent(
+                    coin,
+                    RuntimeType("InteractionTargetBinding")
+                );
+                Assert.That(
+                    binding,
+                    Is.Not.Null,
+                    $"{coinName} must have its Phase 2 target binding."
+                );
+                binding.GetType().GetMethod(
+                    "RefreshAvailabilityWithoutRuntimeSubscription",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).Invoke(binding, null);
+
+                object[] grabBehaviours = GetComponentsInChildren(
+                        coin,
+                        UnityType("Behaviour"),
+                        includeInactive: true
+                    )
+                    .Where(IsOculusGrabBehaviour)
+                    .ToArray();
+                Assert.That(
+                    grabBehaviours,
+                    Is.Not.Empty,
+                    $"{coinName} must retain its authored Meta grab " +
+                    "components."
+                );
+                Assert.That(
+                    grabBehaviours.All(item =>
+                        (bool)item.GetType().GetProperty("enabled")
+                            .GetValue(item) &&
+                        (bool)GetGameObject(item).GetType()
+                            .GetProperty("activeInHierarchy")
+                            .GetValue(GetGameObject(item))),
+                    Is.True,
+                    $"Phase 2 must activate and enable every authored " +
+                    $"grab component for {coinName}."
+                );
+
+                object[] colliders = GetComponentsInChildren(
+                    coin,
+                    UnityPhysicsType("Collider"),
+                    includeInactive: true
+                );
+                Assert.That(colliders, Is.Not.Empty);
+                Assert.That(
+                    colliders.Any(item =>
+                        (bool)item.GetType().GetProperty("enabled")
+                            .GetValue(item)),
+                    Is.True,
+                    $"Phase 2 must enable a physical collider for " +
+                    $"{coinName}."
+                );
+
+                object[] bodies = GetComponentsInChildren(
+                    coin,
+                    UnityPhysicsType("Rigidbody"),
+                    includeInactive: true
+                );
+                Assert.That(bodies, Has.Length.EqualTo(1));
+                object body = bodies[0];
+                Assert.That(
+                    body.GetType().GetProperty("isKinematic")
+                        .GetValue(body),
+                    Is.False,
+                    $"Phase 2 must make {coinName} movable."
+                );
+                Assert.That(
+                    Convert.ToInt32(body.GetType()
+                        .GetProperty("constraints").GetValue(body)),
+                    Is.Zero,
+                    $"Phase 2 must remove recording FreezeAll from " +
+                    $"{coinName}."
+                );
+                Assert.That(
+                    body.GetType().GetProperty("detectCollisions")
+                        .GetValue(body),
+                    Is.True,
+                    $"Phase 2 must restore collisions for {coinName}."
+                );
+            });
+        }
+
         [Test]
         public void TestOwnedSceneGuardRejectsMissingDuplicateAndMalformedOwners()
         {
@@ -3811,6 +3918,39 @@ namespace SignVR.Interaction.Editor.Tests
                 "GetComponent",
                 new[] { typeof(Type) }
             ).Invoke(gameObject, new object[] { type });
+        }
+
+        private static object[] GetComponentsInChildren(
+            object gameObject,
+            Type type,
+            bool includeInactive)
+        {
+            return ((Array)gameObject.GetType().GetMethod(
+                "GetComponentsInChildren",
+                new[] { typeof(Type), typeof(bool) }
+            ).Invoke(
+                gameObject,
+                new object[] { type, includeInactive }
+            )).Cast<object>().ToArray();
+        }
+
+        private static bool IsOculusGrabBehaviour(object component)
+        {
+            Type type = component?.GetType();
+            string typeName = type?.Name ?? string.Empty;
+            string typeNamespace = type?.Namespace ?? string.Empty;
+            return typeNamespace.StartsWith(
+                       "Oculus.Interaction",
+                       StringComparison.Ordinal
+                   ) &&
+                   (typeName.IndexOf(
+                        "Interactable",
+                        StringComparison.OrdinalIgnoreCase
+                    ) >= 0 ||
+                    typeName.IndexOf(
+                        "Grabbable",
+                        StringComparison.OrdinalIgnoreCase
+                    ) >= 0);
         }
 
         private static Array CreateSixAdapters(object parent)
