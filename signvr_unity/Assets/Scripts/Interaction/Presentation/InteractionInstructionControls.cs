@@ -22,7 +22,8 @@ namespace SignVR.Interaction.Presentation
     }
 
     /// <summary>
-    /// Minimal independent controls for Replay, Give Up Phase, and Abort Run.
+    /// Shared auxiliary controls for seated movement, Replay, Give Up Phase,
+    /// and Abort Run.
     /// It contains no Recorder countdown, Take progress, or recording action.
     /// </summary>
     [DisallowMultipleComponent]
@@ -47,6 +48,9 @@ namespace SignVR.Interaction.Presentation
         private TMP_FontAsset font;
 
         [SerializeField]
+        private InteractionSeatedRigMover seatedRigMover;
+
+        [SerializeField]
         [Tooltip(
             "When enabled by W8 scene setup, commands fail closed until the " +
             "authoritative Study Flow sink is installed."
@@ -55,12 +59,24 @@ namespace SignVR.Interaction.Presentation
 
         private GameObject visualRoot;
         private Canvas canvas;
+        private Button moveButton;
         private Button replayButton;
         private Button giveUpButton;
         private Button abortButton;
         private InteractionHoldToConfirm abortHold;
         private bool bound;
         private IInteractionInstructionCommandSink commandSink;
+
+        public Button MoveButton
+        {
+            get
+            {
+                ResolveExistingVisualReferences();
+                return moveButton;
+            }
+        }
+
+        public InteractionSeatedRigMover SeatedRigMover => seatedRigMover;
 
         public Button ReplayButton
         {
@@ -103,6 +119,15 @@ namespace SignVR.Interaction.Presentation
             participantHmd = hmd;
             ResolveCamera();
             AttachToParticipantHmd();
+        }
+
+        public void ConfigureSeatedMovement(InteractionSeatedRigMover mover)
+        {
+            Unbind();
+            seatedRigMover = mover;
+            EnsureVisuals(forceRefresh: true);
+            Bind();
+            Refresh();
         }
 
         public bool RequireCommandSink => requireCommandSink;
@@ -240,31 +265,33 @@ namespace SignVR.Interaction.Presentation
             }
         }
 
-        private void EnsureVisuals()
+        private void EnsureVisuals(bool forceRefresh = false)
         {
-            if (visualRoot != null)
+            if (visualRoot != null && !forceRefresh)
             {
                 return;
             }
-
-            Transform existing = transform.Find(VisualRootName);
-            visualRoot = existing != null
-                ? existing.gameObject
-                : new GameObject(
-                    VisualRootName,
-                    typeof(RectTransform),
-                    typeof(Canvas),
-                    typeof(CanvasScaler),
-                    typeof(CanvasGroup),
-                    typeof(GraphicRaycaster)
-                );
-            if (existing == null)
+            if (visualRoot == null)
             {
-                visualRoot.transform.SetParent(transform, false);
+                Transform existing = transform.Find(VisualRootName);
+                visualRoot = existing != null
+                    ? existing.gameObject
+                    : new GameObject(
+                        VisualRootName,
+                        typeof(RectTransform),
+                        typeof(Canvas),
+                        typeof(CanvasScaler),
+                        typeof(CanvasGroup),
+                        typeof(GraphicRaycaster)
+                    );
+                if (existing == null)
+                {
+                    visualRoot.transform.SetParent(transform, false);
+                }
             }
 
             RectTransform rect = visualRoot.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(720f, 130f);
+            rect.sizeDelta = new Vector2(960f, 130f);
             rect.localPosition = Vector3.zero;
             rect.localRotation = Quaternion.identity;
             rect.localScale = Vector3.one * 0.001f;
@@ -286,23 +313,30 @@ namespace SignVR.Interaction.Presentation
             }
 
             font ??= Resources.Load<TMP_FontAsset>("Fonts/SignVRChinese SDF");
+            moveButton = EnsureButton(
+                "MoveAlongView",
+                new Vector2(-360f, 0f),
+                new Color(0.08f, 0.42f, 0.78f, 0.96f),
+                "向视线方向移动 20 cm",
+                out _
+            );
             replayButton = EnsureButton(
                 "Replay",
-                new Vector2(-240f, 0f),
+                new Vector2(-120f, 0f),
                 new Color(0.08f, 0.42f, 0.68f, 0.96f),
                 "重播手语",
                 out _
             );
             giveUpButton = EnsureButton(
                 "GiveUpPhase",
-                Vector2.zero,
+                new Vector2(120f, 0f),
                 new Color(0.62f, 0.39f, 0.08f, 0.96f),
                 "放弃当前任务",
                 out _
             );
             abortButton = EnsureButton(
                 "AbortRun",
-                new Vector2(240f, 0f),
+                new Vector2(360f, 0f),
                 new Color(0.67f, 0.12f, 0.12f, 0.96f),
                 "按住中止本轮",
                 out TextMeshProUGUI abortLabel
@@ -331,6 +365,8 @@ namespace SignVR.Interaction.Presentation
                 return;
             }
 
+            moveButton ??= visualRoot.transform.Find("MoveAlongView")
+                ?.GetComponent<Button>();
             replayButton ??= visualRoot.transform.Find("Replay")
                 ?.GetComponent<Button>();
             giveUpButton ??= visualRoot.transform.Find("GiveUpPhase")
@@ -419,19 +455,23 @@ namespace SignVR.Interaction.Presentation
 
         private void Bind()
         {
-            if (bound || !isActiveAndEnabled || controller == null ||
-                replayButton == null)
+            if (bound || !isActiveAndEnabled || replayButton == null ||
+                moveButton == null)
             {
                 return;
             }
 
-            controller.StateChanged += Refresh;
+            if (controller != null)
+            {
+                controller.StateChanged += Refresh;
+            }
             IInteractionInstructionCommandSink liveSink =
                 ResolveLiveCommandSink();
             if (liveSink != null)
             {
                 liveSink.StateChanged += Refresh;
             }
+            moveButton.onClick.AddListener(HandleMove);
             replayButton.onClick.AddListener(HandleReplay);
             giveUpButton.onClick.AddListener(HandleGiveUp);
             abortHold.Confirmed += HandleAbort;
@@ -455,6 +495,7 @@ namespace SignVR.Interaction.Presentation
             {
                 liveSink.StateChanged -= Refresh;
             }
+            moveButton?.onClick.RemoveListener(HandleMove);
             replayButton?.onClick.RemoveListener(HandleReplay);
             giveUpButton?.onClick.RemoveListener(HandleGiveUp);
             if (abortHold != null)
@@ -469,6 +510,8 @@ namespace SignVR.Interaction.Presentation
             EnsureVisuals();
             IInteractionInstructionCommandSink liveSink =
                 ResolveLiveCommandSink();
+            moveButton.interactable = seatedRigMover != null &&
+                seatedRigMover.isActiveAndEnabled;
             replayButton.interactable =
                 liveSink != null
                     ? liveSink.CanReplay
@@ -483,6 +526,11 @@ namespace SignVR.Interaction.Presentation
             abortButton.interactable = liveSink != null
                 ? liveSink.CanAbort
                 : !requireCommandSink;
+        }
+
+        private void HandleMove()
+        {
+            seatedRigMover?.MoveAlongCurrentView();
         }
 
         private void HandleReplay()

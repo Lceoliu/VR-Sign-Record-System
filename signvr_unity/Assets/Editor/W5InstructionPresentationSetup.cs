@@ -407,13 +407,15 @@ namespace SignVR.Editor.Interaction
                     "animated signer skeleton."
                 );
             }
-            if (controls != null && (controls.ReplayButton == null ||
+            if (controls != null && (controls.MoveButton == null ||
+                controls.ReplayButton == null ||
                 controls.GiveUpButton == null || controls.AbortButton == null ||
+                controls.MoveButton == controls.ReplayButton ||
                 controls.GiveUpButton == controls.AbortButton))
             {
                 failures.Add(
-                    "Replay, Give Up Phase, and Abort Run controls are not " +
-                    "three distinct controls."
+                    "Move, Replay, Give Up Phase, and Abort Run controls are " +
+                    "not four distinct shared controls."
                 );
             }
             Canvas controlCanvas = controls?.ReplayButton != null

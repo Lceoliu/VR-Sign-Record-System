@@ -4,12 +4,14 @@ using System.Linq;
 using System.Reflection;
 using SignVR.EditorTools;
 using SignVR.Interaction;
+using SignVR.Interaction.Presentation;
 using SignVR.SceneFlow;
 using TMPro;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 namespace SignVR.Editor.Interaction
 {
@@ -498,20 +500,37 @@ namespace SignVR.Editor.Interaction
             }
 
             if (mover.Hmd == null || mover.Hmd != player?.Head ||
-                mover.MoveButton == null || !Mathf.Approximately(
+                !Mathf.Approximately(
                     mover.StepDistance,
                     InteractionSeatedRigMover.DefaultStepDistance))
             {
                 failures.Add(
                     "Interaction seated mover must reference the canonical HMD, " +
-                    "button, and exact 0.1 metre step."
+                    "and exact 0.2 metre step."
+                );
+                return;
+            }
+
+            InteractionInstructionControls[] controls = gameObjects
+                .SelectMany(value =>
+                    value.GetComponents<InteractionInstructionControls>())
+                .ToArray();
+            InteractionInstructionControls sharedControls =
+                controls.Length == 1 ? controls[0] : null;
+            Button moveButton = sharedControls?.MoveButton;
+            if (controls.Length != 1 ||
+                sharedControls.SeatedRigMover != mover || moveButton == null)
+            {
+                failures.Add(
+                    "Seated movement must be bound through the one shared " +
+                    "InteractionInstructionControls component."
                 );
                 return;
             }
 
             if (!mover.enabled || !mover.gameObject.activeInHierarchy ||
-                !mover.MoveButton.interactable ||
-                !mover.MoveButton.gameObject.activeInHierarchy)
+                !moveButton.interactable ||
+                !moveButton.gameObject.activeInHierarchy)
             {
                 failures.Add(
                     "Interaction seated movement and its button must remain " +
@@ -519,23 +538,35 @@ namespace SignVR.Editor.Interaction
                 );
             }
 
-            Transform canvas = mover.MoveButton.transform.parent;
-            TMP_Text label = mover.MoveButton.GetComponentInChildren<TMP_Text>(
+            Canvas canvas = moveButton.GetComponentInParent<Canvas>();
+            TMP_Text label = moveButton.GetComponentInChildren<TMP_Text>(
                 true
             );
-            if (canvas == null || canvas.parent != mover.Hmd ||
-                !string.Equals(canvas.name, InteractionSeatedMoveSetup.CanvasName,
+            if (canvas == null || canvas.transform.parent !=
+                    sharedControls.transform ||
+                !string.Equals(canvas.name, "InstructionControlCanvas",
                     StringComparison.Ordinal) ||
-                canvas.GetComponent<Canvas>() == null ||
                 canvas.GetComponent<WorldSpacePokeCanvas>() == null ||
+                moveButton.GetComponent<InteractionRoundedRectangleGraphic>() ==
+                    null ||
                 label == null || !string.Equals(
                     label.text,
                     InteractionSeatedMoveSetup.ButtonLabel,
                     StringComparison.Ordinal))
             {
                 failures.Add(
-                    "The seated move button must be the canonical HMD-child " +
-                    "world-space naked-hand Poke canvas and label."
+                    "The seated move button must use the shared auxiliary " +
+                    "world-space Poke canvas, button style, and label."
+                );
+            }
+
+            if (gameObjects.Any(value => string.Equals(
+                    value.name,
+                    InteractionSeatedMoveSetup.LegacyCanvasName,
+                    StringComparison.Ordinal)))
+            {
+                failures.Add(
+                    "The legacy independent seated-move Canvas must be removed."
                 );
             }
         }

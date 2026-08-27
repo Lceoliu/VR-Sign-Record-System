@@ -49,8 +49,11 @@ Contract baseline
 ## InteractionLab seated positioning aid
 
 InteractionLab always includes a head-following world-space Poke button labelled
-`向视线方向移动 10 cm`. Each successful naked-hand Poke translates the complete XR
-subtree exactly 0.1 metres along the HMD's world-space forward vector at the
+`向视线方向移动 20 cm`. It is the fourth sibling in the existing shared auxiliary
+control panel alongside Replay, Give Up, and Abort, and therefore uses the same
+rounded Button, world-space Canvas, GraphicRaycaster, and naked-hand Poke route.
+Each successful Poke translates the complete XR subtree exactly 0.2 metres
+along the HMD's world-space forward vector at the
 click instant. The full X/Y/Z direction is retained: looking up, down, sideways,
 or behind the authored starting view therefore produces the corresponding
 three-dimensional translation.
@@ -60,8 +63,8 @@ use `CharacterController`, gravity, or planar thumbstick locomotion and may pass
 through furniture, walls, or the floor. The application-owned
 `VRPlayer/InteractionSeatedRigOffset` sits above `OVRCameraRig`; the fixed
 `VRPlayer` root and Meta/OpenXR-owned tracking origin retain their established
-ownership. The HMD-child `InteractionSeatedMoveCanvas` stays reachable after
-movement, while static task targets remain in the authored world frame.
+ownership. The HMD-following shared `InstructionControlCanvas` stays reachable
+after movement, while static task targets remain in the authored world frame.
 
 Because capture samples HMD and hands in world space, using this aid changes the
 subsequently recorded HMD/hand world coordinates. The accumulated offset is

@@ -45,19 +45,29 @@ namespace SignVR.Interaction.Editor.Tests
                 "SignVR.Interaction.InteractionSeatedRigMover, Assembly-CSharp",
                 throwOnError: true
             );
+            Assert.That(
+                (float)moverType.GetField("DefaultStepDistance")
+                    ?.GetRawConstantValue(),
+                Is.EqualTo(0.2f)
+            );
             var player = new GameObject("VRPlayer");
             var offset = new GameObject("InteractionSeatedRigOffset");
             var xrOrigin = new GameObject("OVRCameraRig");
             var hmd = new GameObject("CenterEyeAnchor");
             var staticTarget = new GameObject("StaticTaskTarget");
-            var buttonObject = new GameObject("Move", typeof(RectTransform));
+            var controlsObject = new GameObject("InteractionUiAnchor");
             try
             {
                 offset.transform.SetParent(player.transform, false);
                 xrOrigin.transform.SetParent(offset.transform, false);
                 hmd.transform.SetParent(xrOrigin.transform, false);
-                Button button = buttonObject.AddComponent<Button>();
                 Component mover = offset.AddComponent(moverType);
+                Type controlsType = Type.GetType(
+                    "SignVR.Interaction.Presentation." +
+                    "InteractionInstructionControls, Assembly-CSharp",
+                    throwOnError: true
+                );
+                Component controls = controlsObject.AddComponent(controlsType);
                 Vector3 forward = new Vector3(-2f, 3f, -6f).normalized;
                 hmd.transform.rotation = Quaternion.LookRotation(
                     forward,
@@ -66,11 +76,31 @@ namespace SignVR.Interaction.Editor.Tests
                 Vector3 playerBefore = player.transform.position;
                 Vector3 staticTargetBefore = new Vector3(4f, 2f, -3f);
                 staticTarget.transform.position = staticTargetBefore;
-                Vector3 expected = offset.transform.position + forward * 0.1f;
+                Vector3 expected = offset.transform.position + forward * 0.2f;
 
                 moverType.GetMethod("Configure")?.Invoke(
                     mover,
-                    new object[] { hmd.transform, button, 0.1f }
+                    new object[] { hmd.transform, 0.2f }
+                );
+                controlsType.GetMethod("ConfigureSeatedMovement")?.Invoke(
+                    controls,
+                    new object[] { mover }
+                );
+                Button button = controlsType.GetProperty("MoveButton")
+                    ?.GetValue(controls) as Button;
+                Button replay = controlsType.GetProperty("ReplayButton")
+                    ?.GetValue(controls) as Button;
+                Assert.That(button, Is.Not.Null);
+                Assert.That(replay, Is.Not.Null);
+                Assert.That(button.transform.parent, Is.EqualTo(
+                    replay.transform.parent
+                ));
+                Assert.That(button.targetGraphic.GetType(), Is.EqualTo(
+                    replay.targetGraphic.GetType()
+                ));
+                Assert.That(
+                    button.GetComponentInParent<GraphicRaycaster>(),
+                    Is.Not.Null
                 );
                 button.onClick.Invoke();
 
@@ -88,7 +118,7 @@ namespace SignVR.Interaction.Editor.Tests
             }
             finally
             {
-                UnityEngine.Object.DestroyImmediate(buttonObject);
+                UnityEngine.Object.DestroyImmediate(controlsObject);
                 UnityEngine.Object.DestroyImmediate(staticTarget);
                 UnityEngine.Object.DestroyImmediate(player);
             }

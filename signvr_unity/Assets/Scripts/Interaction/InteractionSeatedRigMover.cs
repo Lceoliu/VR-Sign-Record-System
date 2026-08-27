@@ -1,6 +1,4 @@
 using UnityEngine;
-using UnityEngine.UI;
-
 namespace SignVR.Interaction
 {
     /// <summary>
@@ -11,52 +9,21 @@ namespace SignVR.Interaction
     [DisallowMultipleComponent]
     public sealed class InteractionSeatedRigMover : MonoBehaviour
     {
-        public const float DefaultStepDistance = 0.1f;
+        public const float DefaultStepDistance = 0.2f;
 
         [SerializeField] private Transform hmd;
-        [SerializeField] private Button moveButton;
         [SerializeField, Min(0.001f)]
         private float stepDistance = DefaultStepDistance;
 
         public Transform Hmd => hmd;
-        public Button MoveButton => moveButton;
         public float StepDistance => stepDistance;
 
         public void Configure(
             Transform participantHmd,
-            Button participantMoveButton,
             float distance = DefaultStepDistance)
         {
-            if (isActiveAndEnabled && moveButton != null)
-            {
-                moveButton.onClick.RemoveListener(MoveAlongCurrentView);
-            }
-
             hmd = participantHmd;
-            moveButton = participantMoveButton;
             stepDistance = Mathf.Max(0.001f, distance);
-
-            if (isActiveAndEnabled && moveButton != null)
-            {
-                moveButton.onClick.AddListener(MoveAlongCurrentView);
-            }
-        }
-
-        private void OnEnable()
-        {
-            if (moveButton != null)
-            {
-                moveButton.onClick.RemoveListener(MoveAlongCurrentView);
-                moveButton.onClick.AddListener(MoveAlongCurrentView);
-            }
-        }
-
-        private void OnDisable()
-        {
-            if (moveButton != null)
-            {
-                moveButton.onClick.RemoveListener(MoveAlongCurrentView);
-            }
         }
 
         /// <summary>
