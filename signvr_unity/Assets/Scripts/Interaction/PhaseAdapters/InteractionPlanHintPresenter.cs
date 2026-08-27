@@ -138,26 +138,6 @@ namespace SignVR.Interaction.PhaseAdapters
             }
 
             plan = coordinator.Plan;
-            InteractionTaskPresentationSnapshot snapshot =
-                coordinator.PresentationSnapshot;
-            ValidationResult phaseOneResult = coordinator.LastResult;
-            if (phaseOneResult != null && phaseOneResult.PhaseId != 1)
-            {
-                phaseOneResult = null;
-            }
-            if (plan == null || snapshot == null)
-            {
-                return;
-            }
-
-            if (snapshot.ChestOrderVisible)
-            {
-                chestOrderText.text = string.Join(
-                    "  ",
-                    plan.ChestButtonOrder.ButtonIds
-                );
-                chestOrderText.gameObject.SetActive(true);
-            }
         }
 
         private static int GetEnteredDigitCount(

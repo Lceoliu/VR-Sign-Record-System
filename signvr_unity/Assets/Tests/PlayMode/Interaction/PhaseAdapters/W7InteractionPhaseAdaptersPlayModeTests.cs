@@ -1537,7 +1537,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             InvokePublic(
                 inputBinding,
                 "Configure",
-                "blue",
+                "key_a",
                 phaseFour,
                 Array.Empty<Behaviour>(),
                 new Collider[] { inputCollider }
@@ -1623,15 +1623,12 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
 
             ((Behaviour)presentation).enabled = false;
-            foreach (string buttonId in buttonIds)
-            {
-                AssertAccepted(InvokePublic(
-                    fixture.Coordinator,
-                    "AcceptInput",
-                    4,
-                    CreateTargetInput(buttonId)
-                ));
-            }
+            AssertAccepted(InvokePublic(
+                fixture.Coordinator,
+                "AcceptInput",
+                4,
+                CreateTargetInput("key_a")
+            ));
             yield return null;
 
             Assert.That(
@@ -1655,16 +1652,13 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                     Quaternion.identity,
                     lid.transform.localRotation
                 ),
-                Is.LessThan(0.01f)
+                Is.GreaterThan(0.1f)
             );
             foreach (GameObject buttonObject in buttonObjects)
             {
                 Assert.That(
-                    Quaternion.Angle(
-                        Quaternion.identity,
-                        buttonObject.transform.localRotation
-                    ),
-                    Is.LessThan(0.01f)
+                    buttonObject.activeSelf,
+                    Is.False
                 );
             }
             key.AssertLocked();
@@ -1681,15 +1675,12 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             foreach (GameObject buttonObject in buttonObjects)
             {
                 Assert.That(
-                    Quaternion.Angle(
-                        Quaternion.identity,
-                        buttonObject.transform.localRotation
-                    ),
-                    Is.GreaterThan(0.1f),
-                    "PlayMode OnEnable did not rebuild a chest button."
+                    buttonObject.activeSelf,
+                    Is.False,
+                    "Deprecated colour buttons must stay disabled."
                 );
             }
-            key.AssertReleased();
+            key.AssertLocked();
 
             ((Behaviour)fixture.Coordinator).enabled = false;
             ((Behaviour)fixture.Coordinator).enabled = true;
@@ -1711,7 +1702,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         }
 
         [UnityTest]
-        public IEnumerator HintPresenterRebuildsAuthorityAcrossLifecycle()
+        public IEnumerator DeprecatedHintPresenterStaysHiddenAcrossLifecycle()
         {
             RuntimeFixture fixture = CreateRuntimeFixture("HintAuthority");
             TextMesh safeA = CreateText(fixture.Root.transform, "SafeHintA");
@@ -1797,27 +1788,23 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 3,
                 CreateTargetInput("picture_frame_a")
             ));
-            Assert.That(chestB.gameObject.activeSelf, Is.True);
+            Assert.That(chestB.gameObject.activeSelf, Is.False);
             ((Behaviour)presenter).enabled = false;
             Assert.That(chestB.gameObject.activeSelf, Is.False);
             ((Behaviour)presenter).enabled = true;
-            Assert.That(chestB.gameObject.activeSelf, Is.True);
+            Assert.That(chestB.gameObject.activeSelf, Is.False);
 
             InvokePublic(
                 fixture.Coordinator,
                 "Synchronize",
                 CreatePhaseSnapshot(4)
             );
-            foreach (string targetId in
-                     new[] { "blue", "red", "yellow", "green" })
-            {
-                AssertAccepted(InvokePublic(
-                    fixture.Coordinator,
-                    "AcceptInput",
-                    4,
-                    CreateTargetInput(targetId)
-                ));
-            }
+            AssertAccepted(InvokePublic(
+                fixture.Coordinator,
+                "AcceptInput",
+                4,
+                CreateTargetInput("key_a")
+            ));
             Assert.That(chestB.gameObject.activeSelf, Is.False);
             ((Behaviour)presenter).enabled = false;
             ((Behaviour)presenter).enabled = true;
@@ -1844,10 +1831,10 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
                 "GiveUpCurrentPhase",
                 giveUpSnapshot
             ));
-            Assert.That(chestB.gameObject.activeSelf, Is.True);
+            Assert.That(chestB.gameObject.activeSelf, Is.False);
             ((Behaviour)presenter).enabled = false;
             ((Behaviour)presenter).enabled = true;
-            Assert.That(chestB.gameObject.activeSelf, Is.True);
+            Assert.That(chestB.gameObject.activeSelf, Is.False);
 
             InvokePublic(fixture.Coordinator, "Abort");
             Assert.That(chestB.gameObject.activeSelf, Is.False);
@@ -3722,7 +3709,6 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
 
             public void AssertLocked()
             {
-                Assert.That(key.activeSelf, Is.True);
                 for (int index = 0; index < bodies.Length; index++)
                 {
                     Assert.That(bodies[index].isKinematic, Is.True);

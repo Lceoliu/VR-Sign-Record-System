@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using SignVR.Interaction.PhaseAdapters;
+using SignVR.Interaction.Presentation;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -37,6 +38,9 @@ namespace SignVR.Editor.Interaction
             "/InteractionLab_W7Test.unity";
         private const string TestSceneMarkerName =
             "__W7_TEST_OWNED_INTERACTION_SCENE__";
+        private const string BreakerHandlerPath =
+            "switchHandler.fbx/RootNode/handler";
+        private const float ChestLidClosedLocalEulerX = 108.03f;
 
         private static readonly TargetSpec[] TargetSpecs =
         {
@@ -297,6 +301,12 @@ namespace SignVR.Editor.Interaction
             return matches;
         }
 
+        public static Transform ResolveBreakerHandler(
+            Transform physicalSwitchRoot)
+        {
+            return physicalSwitchRoot?.Find(BreakerHandlerPath);
+        }
+
         public static void SetupLoadedScene(Scene scene)
         {
             RequireInteractionScene(scene);
@@ -441,18 +451,10 @@ namespace SignVR.Editor.Interaction
 
             PhaseTwoInteractionAdapter phaseTwo =
                 (PhaseTwoInteractionAdapter)adapterByPhase[2];
-            PhaseFourInteractionAdapter phaseFour =
-                (PhaseFourInteractionAdapter)adapterByPhase[4];
-
             Transform chest = FindTarget(scene, "chest");
+            DisableLegacyPhaseFourControls(proxyRoot);
             DeterministicTargetStateBinding[] chestButtonStates =
-                EnsureChestButtons(
-                    proxyRoot,
-                    chest,
-                    phaseFour,
-                    bindingByTarget,
-                    allowedInteractorRoots
-                );
+                Array.Empty<DeterministicTargetStateBinding>();
             EnsurePlatePlacements(
                 scene,
                 proxyRoot,
@@ -480,6 +482,7 @@ namespace SignVR.Editor.Interaction
             );
             RecordForUndo(hints);
             RecordForUndo(chestHint.gameObject);
+            chestHint.gameObject.SetActive(false);
             hints.Configure(coordinator, null, chestHint);
 
             InteractionDeterministicPresentation presentation =
@@ -493,16 +496,14 @@ namespace SignVR.Editor.Interaction
             DeterministicHingeBinding finalLeftDoor =
                 CreateFinalLeftDoorBinding(scene);
             DeterministicTargetStateBinding[] cabinetButtons =
-                CreateTargetStates(
+                CreateCabinetButtonStates(
                     bindingByTarget,
-                    new[] { "button_a", "button_b", "button_c" },
-                    new Vector3(-10f, 0f, 0f)
+                    new[] { "button_a", "button_b", "button_c" }
                 );
             DeterministicTargetStateBinding[] breakers =
-                CreateTargetStates(
+                CreateBreakerStates(
                     bindingByTarget,
-                    new[] { "breaker_a", "breaker_b", "breaker_c" },
-                    new Vector3(-18f, 0f, 0f)
+                    new[] { "breaker_a", "breaker_b", "breaker_c" }
                 );
             PlannedKeyReleaseBinding[] keys = CreateKeyBindings(
                 bindingByTarget,
@@ -521,11 +522,82 @@ namespace SignVR.Editor.Interaction
                 breakers,
                 keys
             );
+            ConfigurePointingCompanions(scene, bindingByTarget);
 
             EditorUtility.SetDirty(coordinator);
             EditorUtility.SetDirty(feedback);
             EditorUtility.SetDirty(hints);
             EditorUtility.SetDirty(presentation);
+        }
+
+        private static void ConfigurePointingCompanions(
+            Scene scene,
+            IReadOnlyDictionary<string, InteractionTargetBinding> bindings)
+        {
+            GhostPointingDetector detector = Enumerate(scene)
+                .Select(item => item.GetComponent<GhostPointingDetector>())
+                .FirstOrDefault(item => item != null);
+            if (detector == null)
+            {
+                return;
+            }
+
+            var updated = new List<GhostPointingTargetBinding>(
+                detector.TargetBindings.Count
+            );
+            for (int index = 0;
+                index < detector.TargetBindings.Count;
+                index++)
+            {
+                GhostPointingTargetBinding existing =
+                    detector.TargetBindings[index];
+                if (existing == null || !bindings.TryGetValue(
+                        existing.TargetId,
+                        out InteractionTargetBinding physicalBinding) ||
+                    !IsKeyTargetId(existing.TargetId))
+                {
+                    updated.Add(existing);
+                    continue;
+                }
+
+                Collider proxyCollider = physicalBinding.InputColliders
+                    .FirstOrDefault(item => item != null && string.Equals(
+                        item.gameObject.name,
+                        "W7Target_" + existing.TargetId,
+                        StringComparison.Ordinal
+                    ));
+                if (proxyCollider == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Pointing key '{existing.TargetId}' requires its " +
+                        "exact W7Target proxy."
+                    );
+                }
+                updated.Add(new GhostPointingTargetBinding(
+                    existing.TargetId,
+                    proxyCollider.transform,
+                    new[]
+                    {
+                        proxyCollider.transform,
+                        physicalBinding.transform
+                    }
+                ));
+            }
+
+            RecordForUndo(detector);
+            detector.ConfigureTargetBindings(updated.ToArray());
+            EditorUtility.SetDirty(detector);
+        }
+
+        private static bool IsKeyTargetId(string targetId)
+        {
+            return string.Equals(targetId, "key_a", StringComparison.Ordinal) ||
+                string.Equals(targetId, "key_b", StringComparison.Ordinal) ||
+                string.Equals(
+                    targetId,
+                    "motorbike_key",
+                    StringComparison.Ordinal
+                );
         }
 
         private static void PreflightScene(Scene scene)
@@ -739,7 +811,6 @@ namespace SignVR.Editor.Interaction
                 .ToArray();
             string[] expectedTargets = TargetSpecs
                 .Select(spec => spec.TargetId)
-                .Concat(ChestButtonIds)
                 .OrderBy(value => value, StringComparer.Ordinal)
                 .ToArray();
             string[] actualTargets = targetBindings
@@ -749,8 +820,8 @@ namespace SignVR.Editor.Interaction
             if (!actualTargets.SequenceEqual(expectedTargets))
             {
                 failures.Add(
-                    "Stable W7 target bindings do not exactly match the 25 " +
-                    "required box/coin/plate/frame/chest-button/key/button/" +
+                    "Stable W7 target bindings do not exactly match the 21 " +
+                    "required box/coin/plate/frame/key/button/" +
                     "breaker IDs."
                 );
             }
@@ -760,10 +831,6 @@ namespace SignVR.Editor.Interaction
                 item => item.InputPhaseId,
                 StringComparer.Ordinal
             );
-            foreach (string chestButtonId in ChestButtonIds)
-            {
-                expectedPhaseByTarget.Add(chestButtonId, 4);
-            }
             foreach (InteractionTargetBinding binding in targetBindings)
             {
                 if (!expectedPhaseByTarget.TryGetValue(
@@ -882,23 +949,6 @@ namespace SignVR.Editor.Interaction
                     );
                 }
             }
-            foreach (string targetId in ChestButtonIds)
-            {
-                InteractionTargetBinding binding = targetBindings
-                    .SingleOrDefault(item => string.Equals(
-                        item.TargetId,
-                        targetId,
-                        StringComparison.Ordinal
-                    ));
-                if (binding == null ||
-                    relays.Count(item => item.InputReceiver == binding) != 1)
-                {
-                    failures.Add(
-                        $"Chest button '{targetId}' requires exactly one " +
-                        "bare-hand trigger relay."
-                    );
-                }
-            }
 
             if (objects.Any(item =>
                     IsObsoletePhaseOnePasswordObjectName(item.name)))
@@ -953,10 +1003,11 @@ namespace SignVR.Editor.Interaction
                 .Select(item => item.GetComponent<InteractionPlanHintPresenter>())
                 .FirstOrDefault(item => item != null);
             if (hints == null || hints.Coordinator != coordinator ||
-                hints.ChestOrderText == null)
+                hints.ChestOrderText == null ||
+                hints.ChestOrderText.gameObject.activeSelf)
             {
                 failures.Add(
-                    "RunPlan chest-order display is missing."
+                    "Deprecated Phase 4 colour-order hint must stay hidden."
                 );
             }
 
@@ -972,6 +1023,7 @@ namespace SignVR.Editor.Interaction
                 );
             }
             ValidatePresentation(scene, presentation, failures);
+            ValidatePointingBindings(scene, objects, failures);
 
             if (failures.Count > 0)
             {
@@ -1130,6 +1182,26 @@ namespace SignVR.Editor.Interaction
             return states;
         }
 
+        private static void DisableLegacyPhaseFourControls(
+            Transform proxyRoot)
+        {
+            if (proxyRoot == null)
+            {
+                return;
+            }
+            for (int index = 0; index < ChestButtonIds.Length; index++)
+            {
+                Transform button = proxyRoot.Find(
+                    "W7ChestButton_" + ChestButtonIds[index]
+                );
+                if (button == null)
+                {
+                    continue;
+                }
+                Undo.DestroyObjectImmediate(button.gameObject);
+            }
+        }
+
         private static void EnsurePlatePlacements(
             Scene scene,
             Transform proxyRoot,
@@ -1249,7 +1321,7 @@ namespace SignVR.Editor.Interaction
             return CreateHingeBinding(panel, hinge, Vector3.up, 105f);
         }
 
-        private static DeterministicHingeBinding CreateChestLidBinding(
+        public static DeterministicHingeBinding CreateChestLidBinding(
             Transform chest)
         {
             Transform lid = chest?.Find(ChestLidPath);
@@ -1263,7 +1335,21 @@ namespace SignVR.Editor.Interaction
                 "W7ChestLidHinge",
                 new Vector3(bounds.center.x, bounds.center.y, bounds.min.z)
             );
-            return CreateHingeBinding(lid, hinge, Vector3.right, -100f);
+            Vector3 closedLocalEulerAngles = new Vector3(
+                ChestLidClosedLocalEulerX,
+                0f,
+                0f
+            );
+            var binding = new DeterministicHingeBinding();
+            binding.ConfigureAbsolute(
+                lid,
+                hinge,
+                Vector3.right,
+                -100f,
+                lid.localPosition,
+                closedLocalEulerAngles
+            );
+            return binding;
         }
 
         private static DeterministicHingeBinding[] CreateCabinetBindings(
@@ -1280,8 +1366,18 @@ namespace SignVR.Editor.Interaction
             );
             return new[]
             {
-                CreateHingeBinding(left, leftHinge, Vector3.up, 105f),
-                CreateHingeBinding(right, rightHinge, Vector3.up, -105f)
+                CreateAbsoluteHingeBindingFromCurrent(
+                    left,
+                    leftHinge,
+                    Vector3.up,
+                    105f
+                ),
+                CreateAbsoluteHingeBindingFromCurrent(
+                    right,
+                    rightHinge,
+                    Vector3.up,
+                    -105f
+                )
             };
         }
 
@@ -1317,6 +1413,28 @@ namespace SignVR.Editor.Interaction
             return binding;
         }
 
+        private static DeterministicHingeBinding
+            CreateAbsoluteHingeBindingFromCurrent(
+                Transform movingPart,
+                Transform hinge,
+                Vector3 axis,
+                float angle)
+        {
+            var binding = new DeterministicHingeBinding();
+            if (movingPart != null && hinge != null)
+            {
+                binding.ConfigureAbsolute(
+                    movingPart,
+                    hinge,
+                    axis,
+                    angle,
+                    movingPart.localPosition,
+                    movingPart.localEulerAngles
+                );
+            }
+            return binding;
+        }
+
         private static DeterministicTargetStateBinding[] CreateTargetStates(
             IReadOnlyDictionary<string, InteractionTargetBinding> bindings,
             IReadOnlyList<string> targetIds,
@@ -1336,6 +1454,81 @@ namespace SignVR.Editor.Interaction
             return result;
         }
 
+        private static DeterministicTargetStateBinding[]
+            CreateCabinetButtonStates(
+                IReadOnlyDictionary<string, InteractionTargetBinding>
+                    bindings,
+                IReadOnlyList<string> targetIds)
+        {
+            var result = new DeterministicTargetStateBinding[
+                targetIds.Count
+            ];
+            for (int index = 0; index < targetIds.Count; index++)
+            {
+                string targetId = targetIds[index];
+                Transform target = bindings[targetId].transform;
+                result[index] = new DeterministicTargetStateBinding();
+                result[index].ConfigureFeedback(
+                    targetId,
+                    target,
+                    new Vector3(0f, -0.01f, 0f),
+                    new Vector3(-10f, 0f, 0f),
+                    target.GetComponentsInChildren<Renderer>(true),
+                    new Color(0.15f, 0.85f, 0.2f, 1f),
+                    new Color(0.95f, 0.1f, 0.1f, 1f)
+                );
+            }
+            return result;
+        }
+
+        private static DeterministicTargetStateBinding[] CreateBreakerStates(
+            IReadOnlyDictionary<string, InteractionTargetBinding> bindings,
+            IReadOnlyList<string> targetIds)
+        {
+            var result = new DeterministicTargetStateBinding[targetIds.Count];
+            for (int index = 0; index < targetIds.Count; index++)
+            {
+                string targetId = targetIds[index];
+                result[index] = CreateBreakerStateBinding(
+                    targetId,
+                    bindings[targetId].transform
+                );
+            }
+            return result;
+        }
+
+        public static DeterministicTargetStateBinding
+            CreateBreakerStateBinding(
+                string targetId,
+                Transform physicalSwitchRoot)
+        {
+            Transform handler = ResolveBreakerHandler(physicalSwitchRoot);
+            if (handler == null)
+            {
+                throw new InvalidOperationException(
+                    $"Breaker '{physicalSwitchRoot?.name ?? "<missing>"}' " +
+                    $"requires exact handler path '{BreakerHandlerPath}'."
+                );
+            }
+
+            Vector3 idleEuler = handler.localEulerAngles;
+            Vector3 activeEuler = new Vector3(
+                60f,
+                idleEuler.y,
+                idleEuler.z
+            );
+            var result = new DeterministicTargetStateBinding();
+            result.ConfigureAbsolute(
+                targetId,
+                handler,
+                handler.localPosition,
+                idleEuler,
+                handler.localPosition,
+                activeEuler
+            );
+            return result;
+        }
+
         private static PlannedKeyReleaseBinding[] CreateKeyBindings(
             IReadOnlyDictionary<string, InteractionTargetBinding> bindings,
             IReadOnlyList<string> targetIds)
@@ -1346,9 +1539,22 @@ namespace SignVR.Editor.Interaction
                 string targetId = targetIds[index];
                 InteractionTargetBinding target = bindings[targetId];
                 result[index] = new PlannedKeyReleaseBinding();
-                result[index].Configure(
+                Collider proxyCollider = target.InputColliders
+                    .FirstOrDefault(item => item != null && string.Equals(
+                        item.gameObject.name,
+                        "W7Target_" + targetId,
+                        StringComparison.Ordinal
+                    ));
+                if (proxyCollider == null)
+                {
+                    throw new InvalidOperationException(
+                        $"Key '{targetId}' requires its exact W7Target proxy."
+                    );
+                }
+                result[index].ConfigureVisualOnly(
                     targetId,
                     target.gameObject,
+                    proxyCollider.gameObject,
                     target.GetComponentsInChildren<Rigidbody>(true),
                     FindInteractionBehaviours(target.transform),
                     target.GetComponentsInChildren<Collider>(true)
@@ -1468,17 +1674,29 @@ namespace SignVR.Editor.Interaction
             if (!HasExactMovingPartPath(
                     chest,
                     presentation.ChestLid,
-                    ChestLidPath))
+                    ChestLidPath) ||
+                !presentation.ChestLid.UsesExplicitClosedPose ||
+                Quaternion.Angle(
+                    presentation.ChestLid.ClosedLocalRotation,
+                    Quaternion.Euler(
+                        ChestLidClosedLocalEulerX,
+                        0f,
+                        0f
+                    )) > 0.1f)
             {
                 failures.Add(
-                    "Chest lid MovingPart must equal the frozen exact path '" +
-                    ChestLidPath + "'."
+                    "Chest lid must use its frozen exact path and explicit " +
+                    $"closed X={ChestLidClosedLocalEulerX:0.00} pose."
                 );
             }
             if (!presentation.CabinetLeftDoor.IsConfigured ||
-                !presentation.CabinetRightDoor.IsConfigured)
+                !presentation.CabinetRightDoor.IsConfigured ||
+                !presentation.CabinetLeftDoor.UsesExplicitClosedPose ||
+                !presentation.CabinetRightDoor.UsesExplicitClosedPose)
             {
-                failures.Add("Both cabinet deterministic hinges must be bound.");
+                failures.Add(
+                    "Both cabinet hinges require explicit closed/open poses."
+                );
             }
             Transform door = FindTarget(scene, "door");
             if (!HasExactMovingPartPath(
@@ -1491,30 +1709,143 @@ namespace SignVR.Editor.Interaction
                     FinalDoorPanelPath + "'."
                 );
             }
-            ValidateIds(
-                presentation.ChestButtons.Select(item => item.TargetId),
-                ChestButtonIds,
-                "chest button visuals",
-                failures
-            );
+            if (presentation.ChestButtons.Count != 0)
+            {
+                failures.Add(
+                    "Deprecated Phase 4 colour-button visuals must be absent."
+                );
+            }
             ValidateIds(
                 presentation.CabinetButtons.Select(item => item.TargetId),
                 new[] { "button_a", "button_b", "button_c" },
                 "cabinet button visuals",
                 failures
             );
+            if (presentation.CabinetButtons.Any(item =>
+                    item == null || item.FeedbackRenderers.Count == 0))
+            {
+                failures.Add(
+                    "Each cabinet button requires visible accepted/error " +
+                    "renderer feedback."
+                );
+            }
             ValidateIds(
                 presentation.Breakers.Select(item => item.TargetId),
                 new[] { "breaker_a", "breaker_b", "breaker_c" },
                 "breaker reset visuals",
                 failures
             );
+            for (int index = 0; index < presentation.Breakers.Count; index++)
+            {
+                DeterministicTargetStateBinding breaker =
+                    presentation.Breakers[index];
+                TargetSpec spec = TargetSpecs.Single(item => string.Equals(
+                    item.TargetId,
+                    breaker.TargetId,
+                    StringComparison.Ordinal
+                ));
+                Transform physicalRoot = FindTarget(scene, spec.ScenePath);
+                if (!breaker.UsesExplicitPoses ||
+                    breaker.Target != ResolveBreakerHandler(physicalRoot) ||
+                    Mathf.Abs(Mathf.DeltaAngle(
+                        breaker.ActivatedLocalRotation.eulerAngles.x,
+                        60f
+                    )) > 0.1f)
+                {
+                    failures.Add(
+                        $"Breaker '{breaker.TargetId}' must animate only its " +
+                        "exact handler at local X=+60 degrees."
+                    );
+                }
+            }
             ValidateIds(
                 presentation.PlannedKeys.Select(item => item.TargetId),
                 new[] { "key_a", "key_b", "motorbike_key" },
                 "planned key release bindings",
                 failures
             );
+            for (int index = 0;
+                index < presentation.PlannedKeys.Count;
+                index++)
+            {
+                PlannedKeyReleaseBinding key = presentation.PlannedKeys[index];
+                if (key == null || key.TargetRoot == null ||
+                    key.InputProxyRoot == null || !string.Equals(
+                        key.InputProxyRoot.name,
+                        "W7Target_" + key.TargetId,
+                        StringComparison.Ordinal))
+                {
+                    failures.Add(
+                        $"Key '{key?.TargetId ?? "<missing>"}' must keep a " +
+                        "visual model and exact sole-input proxy."
+                    );
+                }
+            }
+        }
+
+        private static void ValidatePointingBindings(
+            Scene scene,
+            IReadOnlyList<GameObject> objects,
+            ICollection<string> failures)
+        {
+            GhostPointingDetector detector = objects
+                .Select(item => item.GetComponent<GhostPointingDetector>())
+                .FirstOrDefault(item => item != null);
+            if (detector == null)
+            {
+                return;
+            }
+
+            GhostPointingTargetBinding[] bindings = detector.TargetBindings
+                .Where(item => item != null)
+                .ToArray();
+            foreach (string breakerId in
+                     new[] { "breaker_a", "breaker_b", "breaker_c" })
+            {
+                if (bindings.Count(item => string.Equals(
+                        item.TargetId,
+                        breakerId,
+                        StringComparison.Ordinal)) != 1)
+                {
+                    failures.Add(
+                        $"Phase 6 pointing requires eligible '{breakerId}'."
+                    );
+                }
+            }
+
+            foreach (string keyId in
+                     new[] { "key_a", "key_b", "motorbike_key" })
+            {
+                GhostPointingTargetBinding binding = bindings
+                    .SingleOrDefault(item => string.Equals(
+                        item.TargetId,
+                        keyId,
+                        StringComparison.Ordinal
+                    ));
+                TargetSpec spec = TargetSpecs.Single(item => string.Equals(
+                    item.TargetId,
+                    keyId,
+                    StringComparison.Ordinal
+                ));
+                Transform model = FindTarget(scene, spec.ScenePath);
+                Transform proxy = objects
+                    .Where(item => string.Equals(
+                        item.name,
+                        "W7Target_" + keyId,
+                        StringComparison.Ordinal))
+                    .Select(item => item.transform)
+                    .SingleOrDefault();
+                if (binding == null || proxy == null || model == null ||
+                    binding.TargetRoot != proxy ||
+                    !binding.HighlightRoots.Contains(proxy) ||
+                    !binding.HighlightRoots.Contains(model))
+                {
+                    failures.Add(
+                        $"Pointing key '{keyId}' must hit only its proxy and " +
+                        "highlight proxy plus visual model."
+                    );
+                }
+            }
         }
 
         public static bool HasExactMovingPartPath(

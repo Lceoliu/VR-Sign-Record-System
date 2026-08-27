@@ -530,9 +530,67 @@ namespace SignVR.Editor.Interaction
                         $"'{pair.Key}' is missing."
                     );
                 }
-                result.Add(new GhostPointingTargetBinding(pair.Key, target));
+                Transform hitTarget = target;
+                Transform[] highlightRoots = { target };
+                if (IsKeyTargetId(pair.Key))
+                {
+                    Transform proxy = FindSceneObjectByExactName(
+                        scene,
+                        "W7Target_" + pair.Key
+                    );
+                    if (proxy != null)
+                    {
+                        hitTarget = proxy;
+                        highlightRoots = new[] { proxy, target };
+                    }
+                }
+                result.Add(new GhostPointingTargetBinding(
+                    pair.Key,
+                    hitTarget,
+                    highlightRoots
+                ));
             }
             return result.ToArray();
+        }
+
+        private static bool IsKeyTargetId(string targetId)
+        {
+            return string.Equals(targetId, "key_a", StringComparison.Ordinal) ||
+                string.Equals(targetId, "key_b", StringComparison.Ordinal) ||
+                string.Equals(
+                    targetId,
+                    "motorbike_key",
+                    StringComparison.Ordinal
+                );
+        }
+
+        private static Transform FindSceneObjectByExactName(
+            Scene scene,
+            string exactName)
+        {
+            Transform[] transforms = UnityEngine.Object
+                .FindObjectsByType<Transform>(FindObjectsInactive.Include);
+            Transform match = null;
+            for (int index = 0; index < transforms.Length; index++)
+            {
+                Transform candidate = transforms[index];
+                if (candidate.gameObject.scene != scene ||
+                    !string.Equals(
+                        candidate.name,
+                        exactName,
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                if (match != null)
+                {
+                    throw new InvalidOperationException(
+                        $"Scene contains duplicate '{exactName}' targets."
+                    );
+                }
+                match = candidate;
+            }
+            return match;
         }
 
         private static Dictionary<string, string>
