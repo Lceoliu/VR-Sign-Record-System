@@ -58,7 +58,12 @@ namespace SignVR.Interaction.Presentation
 
         public bool PhaseActive => presentationState.PhaseActive;
 
-        public bool ReplayIsAvailable => presentationState.ReplayAvailable;
+        public bool ReplayIsAvailable => presentationState.ReplayAvailable &&
+            ghostPlayer != null &&
+            (ghostPlayer.IsLoaded || ghostPlayer.IsComplete);
+
+        public bool HasStartedFirstPlayback =>
+            presentationState.HasStartedFirstPlayback;
 
         public bool ReplayWasConsumed => presentationState.ReplayConsumed;
 
@@ -145,7 +150,10 @@ namespace SignVR.Interaction.Presentation
                 return false;
             }
 
-            if (!ghostPlayer.Replay())
+            bool started = presentationState.HasStartedFirstPlayback
+                ? ghostPlayer.Replay()
+                : ghostPlayer.Play();
+            if (!started)
             {
                 HandlePlayerFailed(
                     "Replay was consumed but the frozen artifact could not start."
@@ -331,12 +339,9 @@ namespace SignVR.Interaction.Presentation
                 return;
             }
 
-            if (!ghostPlayer.Play())
-            {
-                HandlePlayerFailed(
-                    "The loaded first instruction playback could not start."
-                );
-            }
+            // Phase entry only prepares the frozen instruction artifact. The
+            // participant explicitly starts playback from the UI.
+            StateChanged?.Invoke();
         }
 
         private void HandlePlaybackStarted(InstructionPlaybackPass pass)

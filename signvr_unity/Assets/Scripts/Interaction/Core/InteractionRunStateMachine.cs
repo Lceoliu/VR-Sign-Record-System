@@ -48,12 +48,13 @@ namespace SignVR.Interaction.Core
         public TimeSpan? FirstPlaybackStartedAt { get; }
 
         public bool ReplayAvailable =>
-            State == PhaseState.Active &&
-            FirstPlaybackCompleted &&
-            !ReplayUsed;
+            (State == PhaseState.FirstPlayback && !FirstPlaybackCompleted) ||
+            (State == PhaseState.Active && !ReplayUsed);
 
         public bool GiveUpAvailable =>
-            State == PhaseState.Active && ReplayUsed;
+            State == PhaseState.FirstPlayback ||
+            State == PhaseState.Active ||
+            State == PhaseState.ReplayPlayback;
 
         public bool InteractionsEnabled =>
             State == PhaseState.FirstPlayback ||
@@ -241,18 +242,21 @@ namespace SignVR.Interaction.Core
 
         public void ReplayInstruction()
         {
-            MutablePhase phase = RequireCurrentPhase(PhaseState.Active);
+            MutablePhase phase = RequireCurrentPhase(
+                PhaseState.FirstPlayback,
+                PhaseState.Active
+            );
             if (!phase.FirstPlaybackCompleted)
             {
-                throw new InvalidOperationException(
-                    "Replay is unavailable before first playback completes."
-                );
+                // The first user-triggered play uses the phase's existing
+                // FirstPlayback state. Phase entry no longer starts it.
+                return;
             }
 
             if (phase.ReplayUsed)
             {
                 throw new InvalidOperationException(
-                    "Each phase permits at most one replay."
+                    "The allowed replay was already used for this phase."
                 );
             }
 
@@ -332,13 +336,11 @@ namespace SignVR.Interaction.Core
         /// </summary>
         public void GiveUpPhase(TimeSpan nextPlaybackStartTime)
         {
-            MutablePhase phase = RequireCurrentPhase(PhaseState.Active);
-            if (!phase.FirstPlaybackCompleted || !phase.ReplayUsed)
-            {
-                throw new InvalidOperationException(
-                    "Give Up is available only after the one allowed replay completes."
-                );
-            }
+            MutablePhase phase = RequireCurrentPhase(
+                PhaseState.FirstPlayback,
+                PhaseState.Active,
+                PhaseState.ReplayPlayback
+            );
 
             ValidatePhaseTime(phase, nextPlaybackStartTime);
             phase.State = PhaseState.Stuck;

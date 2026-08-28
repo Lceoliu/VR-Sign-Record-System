@@ -103,19 +103,11 @@ namespace SignVR.Interaction.CaptureHost
             double phaseCompletedAtSeconds)
         {
             ValidateTime(phaseCompletedAtSeconds);
-            PhaseExecutionSnapshot current = stuck
-                ? RequireActivePhase()
-                : RequireInteractivePhase();
+            PhaseExecutionSnapshot current = RequireInteractivePhase();
             if (current.PhaseId >= PhaseSentenceRanges.PhaseCount)
             {
                 throw new InvalidOperationException(
                     "The final phase has no next presentation."
-                );
-            }
-            if (stuck && !current.GiveUpAvailable)
-            {
-                throw new InvalidOperationException(
-                    "Stuck requires the completed one-time replay."
                 );
             }
             if (!current.FirstPlaybackStartedAt.HasValue ||
@@ -139,7 +131,7 @@ namespace SignVR.Interaction.CaptureHost
         public InteractionPresentationRequest RequestReplayPlayback()
         {
             EnsureNoPending();
-            PhaseExecutionSnapshot current = RequireActivePhase();
+            PhaseExecutionSnapshot current = RequireInteractivePhase();
             if (!current.ReplayAvailable)
             {
                 throw new InvalidOperationException(
@@ -148,7 +140,9 @@ namespace SignVR.Interaction.CaptureHost
             }
             return CreateRequest(
                 current.PhaseId,
-                InteractionPresentationPlaybackKind.Replay
+                current.FirstPlaybackCompleted
+                    ? InteractionPresentationPlaybackKind.Replay
+                    : InteractionPresentationPlaybackKind.First
             );
         }
 
@@ -216,10 +210,13 @@ namespace SignVR.Interaction.CaptureHost
             }
             else
             {
-                if (playbackKind != InteractionPresentationPlaybackKind.Replay ||
-                    stateMachine.State != RunState.Running ||
+                if (stateMachine.State != RunState.Running ||
                     stateMachine.CurrentPhaseId != phaseId ||
-                    stateMachine.CurrentPhase.State != PhaseState.Active)
+                    (playbackKind == InteractionPresentationPlaybackKind.First
+                        ? stateMachine.CurrentPhase.State !=
+                            PhaseState.FirstPlayback ||
+                            stateMachine.CurrentPhase.FirstPlaybackCompleted
+                        : stateMachine.CurrentPhase.State != PhaseState.Active))
                 {
                     throw new InvalidOperationException(
                     "Replay playback confirmation is inconsistent."
@@ -245,9 +242,7 @@ namespace SignVR.Interaction.CaptureHost
         {
             ValidateTime(phaseCompletedAtSeconds);
             EnsureNoPending();
-            PhaseExecutionSnapshot current = stuck
-                ? RequireActivePhase()
-                : RequireInteractivePhase();
+            PhaseExecutionSnapshot current = RequireInteractivePhase();
             if (current.PhaseId != PhaseSentenceRanges.PhaseCount)
             {
                 throw new InvalidOperationException(

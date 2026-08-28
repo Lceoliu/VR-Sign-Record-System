@@ -14,7 +14,7 @@ namespace SignVR.Interaction.Orchestration
 {
     public static class W8InteractionStudyFlowTestDriver
     {
-        public static void SixPhaseHappyPathAdvancesOnlyOnActualFirstFrames()
+        public static void SixPhaseHappyPathEntersWithoutAutomaticPlayback()
         {
             var fixture = new FlowFixture();
 
@@ -35,19 +35,18 @@ namespace SignVR.Interaction.Orchestration
                 if (phaseId == 1)
                 {
                     fixture.Run.PublishInitialPresentation();
-                    Assert.That(fixture.Run.State, Is.EqualTo(RunState.Scheduled));
+                    Assert.That(fixture.Run.State, Is.EqualTo(RunState.Running));
                 }
                 else
                 {
                     Assert.That(
                         fixture.Run.CurrentPhase.PhaseId,
-                        Is.EqualTo(phaseId - 1),
-                        "The capture/lifecycle phase must remain old until the next real frame."
+                        Is.EqualTo(phaseId - 1)
                     );
                     fixture.Run.PublishCheckpointedPresentation();
                     Assert.That(
                         fixture.Run.CurrentPhase.PhaseId,
-                        Is.EqualTo(phaseId - 1)
+                        Is.EqualTo(phaseId)
                     );
                 }
 
@@ -57,9 +56,6 @@ namespace SignVR.Interaction.Orchestration
                     Is.EqualTo(frozenPlan.AssistanceCondition)
                 );
 
-                fixture.Presentation.PublishFirstFrame(
-                    InteractionPresentationPlaybackKind.First
-                );
                 Assert.That(fixture.Run.CurrentPhase.PhaseId, Is.EqualTo(phaseId));
                 Assert.That(fixture.Tasks.CurrentPhaseId, Is.EqualTo(phaseId));
                 if (phaseId == 1)
@@ -70,6 +66,11 @@ namespace SignVR.Interaction.Orchestration
                         "Running must not expose a result acknowledgement."
                     );
                 }
+                Assert.That(
+                    fixture.Presentation.BeginReplayCount,
+                    Is.EqualTo(0),
+                    "Entering a phase must not start sign playback."
+                );
 
                 ValidationResult completed = CompleteCurrentTask(
                     fixture.Tasks,
@@ -137,7 +138,7 @@ namespace SignVR.Interaction.Orchestration
             Assert.That(fixture.Run.ResetAttemptCount, Is.EqualTo(1));
         }
 
-        public static void ReplayUsesOneW6TokenAndCannotStartTwice()
+        public static void ReplayCanBeRequestedOnceAfterFirstPlayback()
         {
             var fixture = StartFirstPhase();
             fixture.Presentation.PublishCompletion(
@@ -147,7 +148,7 @@ namespace SignVR.Interaction.Orchestration
             Assert.That(fixture.Run.CurrentPhase.ReplayAvailable, Is.True);
             Assert.That(fixture.Flow.Snapshot.CanReplay, Is.True);
             Assert.That(fixture.Flow.TryReplay().Succeeded, Is.True);
-            Assert.That(fixture.Presentation.BeginReplayCount, Is.EqualTo(1));
+            Assert.That(fixture.Presentation.BeginReplayCount, Is.EqualTo(2));
             Assert.That(fixture.Run.CurrentPhase.State, Is.EqualTo(PhaseState.Active));
 
             fixture.Presentation.PublishFirstFrame(
@@ -164,35 +165,19 @@ namespace SignVR.Interaction.Orchestration
             Assert.That(fixture.Run.CurrentPhase.State, Is.EqualTo(PhaseState.Active));
             Assert.That(fixture.Run.CurrentPhase.ReplayUsed, Is.True);
             Assert.That(fixture.Flow.TryReplay().Succeeded, Is.False);
-            Assert.That(fixture.Presentation.BeginReplayCount, Is.EqualTo(1));
-            Assert.That(fixture.Run.ReplayRequestCount, Is.EqualTo(1));
+            Assert.That(fixture.Presentation.BeginReplayCount, Is.EqualTo(2));
+            Assert.That(fixture.Run.ReplayRequestCount, Is.EqualTo(2));
         }
 
-        public static void GiveUpRequiresCompletedReplayAndRetainsStuckResult()
+        public static void GiveUpDuringFirstPlaybackRetainsStuckResult()
         {
             var fixture = StartFirstPhase();
-            Assert.That(fixture.Flow.TryGiveUp().Succeeded, Is.False);
-
-            fixture.Presentation.PublishCompletion(
-                InteractionPresentationPlaybackKind.First
-            );
-            Assert.That(fixture.Flow.TryReplay().Succeeded, Is.True);
-            fixture.Presentation.PublishFirstFrame(
-                InteractionPresentationPlaybackKind.Replay
-            );
-            fixture.Presentation.PublishCompletion(
-                InteractionPresentationPlaybackKind.Replay
-            );
-
             Assert.That(fixture.Flow.TryGiveUp().Succeeded, Is.True);
             Assert.That(fixture.Run.HasCheckpointedPresentation, Is.True);
             Assert.That(fixture.Run.CurrentPhase.PhaseId, Is.EqualTo(1));
             Assert.That(fixture.Run.PhaseSnapshots[0].Result, Is.Null);
 
             fixture.Run.PublishCheckpointedPresentation();
-            fixture.Presentation.PublishFirstFrame(
-                InteractionPresentationPlaybackKind.First
-            );
 
             Assert.That(fixture.Run.CurrentPhase.PhaseId, Is.EqualTo(2));
             Assert.That(
@@ -1337,6 +1322,9 @@ namespace SignVR.Interaction.Orchestration
                 fixture.Run.PublishInitialPresentation();
             fixture.Run.PublishAgain(request);
             Assert.That(fixture.Presentation.BeginPhaseCount, Is.EqualTo(1));
+            Assert.That(fixture.Run.AcknowledgeCount, Is.EqualTo(1));
+
+            Assert.That(fixture.Flow.TryReplay().Succeeded, Is.True);
 
             fixture.Presentation.PublishFirstFrame(
                 InteractionPresentationPlaybackKind.First
@@ -1344,7 +1332,7 @@ namespace SignVR.Interaction.Orchestration
             fixture.Presentation.PublishFirstFrame(
                 InteractionPresentationPlaybackKind.First
             );
-            Assert.That(fixture.Run.AcknowledgeCount, Is.EqualTo(1));
+            Assert.That(fixture.Run.AcknowledgeCount, Is.EqualTo(2));
 
             fixture.Presentation.PublishCompletion(
                 InteractionPresentationPlaybackKind.First
@@ -1550,7 +1538,7 @@ namespace SignVR.Interaction.Orchestration
 
             fixture.Presentation.PublishFault("pose_sha_mismatch");
 
-            Assert.That(fixture.Run.AcknowledgeCount, Is.Zero);
+            Assert.That(fixture.Run.AcknowledgeCount, Is.EqualTo(1));
             Assert.That(fixture.Run.State, Is.EqualTo(RunState.Aborting));
             Assert.That(fixture.Presentation.EndPhaseCount, Is.EqualTo(1));
         }
@@ -2050,6 +2038,8 @@ namespace SignVR.Interaction.Orchestration
             var fixture = new FlowFixture(log: log);
             Assert.That(fixture.Flow.TryStart().Succeeded, Is.True);
             fixture.Run.PublishInitialPresentation();
+            Assert.That(fixture.Flow.Snapshot.CanGiveUp, Is.True);
+            Assert.That(fixture.Flow.TryReplay().Succeeded, Is.True);
             fixture.Presentation.PublishFirstFrame(
                 InteractionPresentationPlaybackKind.First
             );
@@ -2098,16 +2088,6 @@ namespace SignVR.Interaction.Orchestration
 
         private static void CompleteReplayThenGiveUp(FlowFixture fixture)
         {
-            fixture.Presentation.PublishCompletion(
-                InteractionPresentationPlaybackKind.First
-            );
-            Assert.That(fixture.Flow.TryReplay().Succeeded, Is.True);
-            fixture.Presentation.PublishFirstFrame(
-                InteractionPresentationPlaybackKind.Replay
-            );
-            fixture.Presentation.PublishCompletion(
-                InteractionPresentationPlaybackKind.Replay
-            );
             Assert.That(fixture.Flow.TryGiveUp().Succeeded, Is.True);
         }
 
@@ -2628,6 +2608,8 @@ namespace SignVR.Interaction.Orchestration
             public void PublishFirstFrame(
                 InteractionPresentationPlaybackKind kind)
             {
+                now += 0.1d;
+                state.InstructionPlaybackStarted(now);
                 firstFrame?.Invoke(kind);
             }
 

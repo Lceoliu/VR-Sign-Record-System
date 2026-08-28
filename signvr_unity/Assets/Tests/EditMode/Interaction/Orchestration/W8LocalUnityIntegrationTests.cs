@@ -24,23 +24,21 @@ namespace SignVR.Interaction.Editor.Tests.Orchestration
             "W8InteractionStudyFlowTestDriver, Assembly-CSharp";
 
         [Test]
-        public void SixPhaseHappyPathAdvancesOnlyOnActualFirstFrames()
+        public void SixPhaseHappyPathEntersWithoutAutomaticPlayback()
         {
-            InvokeDriver(nameof(
-                SixPhaseHappyPathAdvancesOnlyOnActualFirstFrames));
+            InvokeDriver("SixPhaseHappyPathEntersWithoutAutomaticPlayback");
         }
 
         [Test]
-        public void ReplayUsesOneW6TokenAndCannotStartTwice()
+        public void ReplayCanBeRequestedOnceAfterFirstPlayback()
         {
-            InvokeDriver(nameof(ReplayUsesOneW6TokenAndCannotStartTwice));
+            InvokeDriver("ReplayCanBeRequestedOnceAfterFirstPlayback");
         }
 
         [Test]
-        public void GiveUpRequiresCompletedReplayAndRetainsStuckResult()
+        public void GiveUpDuringFirstPlaybackRetainsStuckResult()
         {
-            InvokeDriver(nameof(
-                GiveUpRequiresCompletedReplayAndRetainsStuckResult));
+            InvokeDriver("GiveUpDuringFirstPlaybackRetainsStuckResult");
         }
 
         [Test]

@@ -548,16 +548,20 @@ namespace SignVR.Interaction.CaptureHost
                     "{}"
                 );
             }
-            RecordAt(
-                InteractionEventNames.InstructionPlayStarted,
-                phaseId,
-                now,
-                null,
-                null,
-                playbackKind == InteractionPresentationPlaybackKind.Replay
-                    ? "{\"playback\":\"replay\"}"
-                    : "{\"playback\":\"first\"}"
-            );
+            if (!started.IsInitialRunStart &&
+                !started.PreviousPhaseId.HasValue)
+            {
+                RecordAt(
+                    InteractionEventNames.InstructionPlayStarted,
+                    phaseId,
+                    now,
+                    null,
+                    null,
+                    playbackKind == InteractionPresentationPlaybackKind.Replay
+                        ? "{\"playback\":\"replay\"}"
+                        : "{\"playback\":\"first\"}"
+                );
+            }
             lastError = string.Empty;
         }
 
@@ -589,7 +593,7 @@ namespace SignVR.Interaction.CaptureHost
             if (request.PhaseId != phaseId)
             {
                 throw new InvalidOperationException(
-                    "Replay presentation phase mismatched W1."
+                    "Instruction presentation phase mismatched W1."
                 );
             }
             PublishPresentationRequest(request);
@@ -1340,7 +1344,12 @@ namespace SignVR.Interaction.CaptureHost
                     "A phase checkpoint or terminal seal is already active."
                 );
             }
-            int phaseId = RequireCurrentPhaseId();
+            // Give Up is independent of playback. If a newly requested play
+            // has not presented its first frame yet, discard that request and
+            // finish the already-entered phase immediately.
+            presentationHandshake?.CancelPending();
+            int phaseId = CurrentPhaseId ??
+                throw new InvalidOperationException("No phase is active.");
             double now = NowMonotonic();
             InteractionPresentationRequest nextRequest = null;
             if (phaseId == PhaseSentenceRanges.PhaseCount)

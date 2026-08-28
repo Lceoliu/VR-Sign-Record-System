@@ -126,24 +126,29 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
         }
 
         [Test]
-        public void ReplayIsConsumedOnceAndGiveUpWaitsForReplayCompletion()
+        public void PlaybackCanStartImmediatelyAndGiveUpNeverWaitsForIt()
         {
             object state = CreatePresentationState();
             Invoke(state, "BeginPhase", Assistance("TextAndPointing"));
 
-            Assert.That((bool)Invoke(state, "TryConsumeReplay"), Is.False);
-            Assert.That(Get<bool>(state, "GiveUpAvailable"), Is.False);
+            Assert.That(Get<bool>(state, "ReplayAvailable"), Is.True);
+            Assert.That(Get<bool>(state, "GiveUpAvailable"), Is.True);
+            Assert.That((bool)Invoke(state, "TryConsumeReplay"), Is.True);
+            Assert.That(Get<bool>(state, "ReplayConsumed"), Is.False);
 
+            Invoke(state, "InstructionPlaybackStarted", 0.5d);
             Invoke(state, "FirstPlaybackCompleted", 1d);
             Assert.That(Get<bool>(state, "ReplayAvailable"), Is.True);
             Assert.That((bool)Invoke(state, "TryConsumeReplay"), Is.True);
             Assert.That(Get<bool>(state, "ReplayConsumed"), Is.True);
             Assert.That(Get<bool>(state, "ReplayAvailable"), Is.False);
-            Assert.That(Get<bool>(state, "GiveUpAvailable"), Is.False);
+            Assert.That(Get<bool>(state, "GiveUpAvailable"), Is.True);
             Assert.That((bool)Invoke(state, "TryConsumeReplay"), Is.False);
 
             Invoke(state, "ReplayCompleted");
             Assert.That(Get<bool>(state, "GiveUpAvailable"), Is.True);
+            Assert.That(Get<bool>(state, "ReplayAvailable"), Is.False);
+            Assert.That((bool)Invoke(state, "TryConsumeReplay"), Is.False);
         }
 
         [Test]
@@ -321,7 +326,7 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
         }
 
         [Test]
-        public void FirstPlayAndReplayUseOneFrozenArtifactAndRejectThirdPlay()
+        public void FirstPlayAndRepeatedReplaysUseOneFrozenArtifact()
         {
             object state = CreatePlaybackState();
             Invoke(state, "Load", "wang/001/take_004.pose.jsonl");
@@ -336,7 +341,9 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
                 Is.EqualTo("wang/001/take_004.pose.jsonl"));
             Assert.That((bool)Invoke(state, "Complete"), Is.True);
 
-            Assert.That((bool)Invoke(state, "Replay"), Is.False);
+            Assert.That((bool)Invoke(state, "Replay"), Is.True);
+            Assert.That((bool)Invoke(state, "Complete"), Is.True);
+            Assert.That((bool)Invoke(state, "Replay"), Is.True);
             Assert.That((bool)Invoke(state, "Play"), Is.False);
         }
 

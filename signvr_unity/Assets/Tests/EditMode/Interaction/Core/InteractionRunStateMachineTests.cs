@@ -62,18 +62,21 @@ namespace SignVR.Interaction.Core.Tests
         }
 
         [Test]
-        public void Replay_IsUnavailableBeforeFirstCompletionAndLimitedToOnce()
+        public void Playback_IsParticipantStartedAndAllowsOneReplay()
         {
             InteractionRunStateMachine machine = CoreTestData.StartRunning();
 
-            Assert.That(machine.CurrentPhase.ReplayAvailable, Is.False);
-            Assert.Throws<InvalidOperationException>(() =>
-                machine.ReplayInstruction()
+            Assert.That(machine.CurrentPhase.ReplayAvailable, Is.True);
+            Assert.That(machine.CurrentPhase.GiveUpAvailable, Is.True);
+            machine.ReplayInstruction();
+            Assert.That(
+                machine.CurrentPhase.State,
+                Is.EqualTo(PhaseState.FirstPlayback)
             );
 
             machine.FirstPlaybackCompleted();
             Assert.That(machine.CurrentPhase.ReplayAvailable, Is.True);
-            Assert.That(machine.CurrentPhase.GiveUpAvailable, Is.False);
+            Assert.That(machine.CurrentPhase.GiveUpAvailable, Is.True);
 
             machine.ReplayInstruction();
             Assert.That(
@@ -81,15 +84,11 @@ namespace SignVR.Interaction.Core.Tests
                 Is.EqualTo(PhaseState.ReplayPlayback)
             );
             Assert.That(machine.CurrentPhase.ReplayUsed, Is.True);
-            Assert.Throws<InvalidOperationException>(() =>
-                machine.ReplayInstruction()
-            );
-
             machine.ReplayPlaybackCompleted();
             Assert.That(machine.CurrentPhase.ReplayAvailable, Is.False);
             Assert.That(machine.CurrentPhase.GiveUpAvailable, Is.True);
-            Assert.Throws<InvalidOperationException>(() =>
-                machine.ReplayInstruction()
+            Assert.Throws<InvalidOperationException>(
+                () => machine.ReplayInstruction()
             );
         }
 
@@ -125,19 +124,10 @@ namespace SignVR.Interaction.Core.Tests
         }
 
         [Test]
-        public void StuckPhase_RequiresCompletedReplayThenAdvancesAndIsRetained()
+        public void StuckPhase_CanAdvanceBeforePlaybackAndIsRetained()
         {
             InteractionRunStateMachine machine = CoreTestData.StartRunning();
 
-            machine.FirstPlaybackCompleted();
-            Assert.Throws<InvalidOperationException>(() =>
-                machine.GiveUpPhase(TimeSpan.FromSeconds(1))
-            );
-            machine.ReplayInstruction();
-            Assert.Throws<InvalidOperationException>(() =>
-                machine.GiveUpPhase(TimeSpan.FromSeconds(1))
-            );
-            machine.ReplayPlaybackCompleted();
             machine.GiveUpPhase(TimeSpan.FromSeconds(1));
 
             Assert.That(machine.CurrentPhaseId, Is.EqualTo(2));

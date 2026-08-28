@@ -12,10 +12,10 @@ namespace SignVR.Interaction.Presentation
         private AssistanceCondition condition;
         private bool phaseActive;
         private bool firstPlaybackCompleted;
+        private bool firstPlaybackStarted;
         private bool bubbleVisible;
         private bool replayConsumed;
         private bool replayInProgress;
-        private bool replayCompleted;
         private double lastMonotonicTime = double.NaN;
 
         public event Action Changed;
@@ -31,6 +31,8 @@ namespace SignVR.Interaction.Presentation
 
         public bool HasCompletedFirstPlayback => firstPlaybackCompleted;
 
+        public bool HasStartedFirstPlayback => firstPlaybackStarted;
+
         public bool TextAllowed => condition.IncludesText();
 
         public bool PointingAllowed => condition.IncludesPointing();
@@ -38,15 +40,15 @@ namespace SignVR.Interaction.Presentation
         public bool BubbleVisible => bubbleVisible;
 
         public bool ReplayAvailable =>
-            phaseActive && firstPlaybackCompleted && !replayConsumed;
+            phaseActive && !replayInProgress &&
+            (!firstPlaybackStarted || !replayConsumed);
 
         public bool ReplayConsumed => replayConsumed;
 
         public bool ReplayInProgress => replayInProgress;
 
         public bool GiveUpAvailable =>
-            phaseActive && replayConsumed && replayCompleted &&
-            !replayInProgress;
+            phaseActive;
 
         public bool InteractionsEnabled => phaseActive;
 
@@ -61,10 +63,10 @@ namespace SignVR.Interaction.Presentation
             condition = assistanceCondition;
             phaseActive = true;
             firstPlaybackCompleted = false;
+            firstPlaybackStarted = false;
             bubbleVisible = false;
             replayConsumed = false;
             replayInProgress = false;
-            replayCompleted = false;
             lastMonotonicTime = double.NaN;
 
             if (wasVisible)
@@ -83,6 +85,8 @@ namespace SignVR.Interaction.Presentation
         {
             EnsurePhaseActive();
             AdvanceTime(monotonicTime);
+            firstPlaybackStarted = true;
+            replayInProgress = true;
             if (!bubbleVisible && TextAllowed)
             {
                 bubbleVisible = true;
@@ -103,6 +107,7 @@ namespace SignVR.Interaction.Presentation
             }
 
             firstPlaybackCompleted = true;
+            replayInProgress = false;
             ReplayBecameAvailable?.Invoke();
             Changed?.Invoke();
         }
@@ -128,9 +133,16 @@ namespace SignVR.Interaction.Presentation
                 return false;
             }
 
-            replayConsumed = true;
+            bool isFirstPlayback = !firstPlaybackStarted;
+            if (!isFirstPlayback)
+            {
+                replayConsumed = true;
+            }
             replayInProgress = true;
-            ReplayUsed?.Invoke();
+            if (!isFirstPlayback)
+            {
+                ReplayUsed?.Invoke();
+            }
             Changed?.Invoke();
             return true;
         }
@@ -138,7 +150,7 @@ namespace SignVR.Interaction.Presentation
         public void ReplayCompleted()
         {
             EnsurePhaseActive();
-            if (!replayConsumed || !replayInProgress || replayCompleted)
+            if (!replayConsumed || !replayInProgress)
             {
                 throw new InvalidOperationException(
                     "The allowed replay is not currently in progress."
@@ -146,7 +158,6 @@ namespace SignVR.Interaction.Presentation
             }
 
             replayInProgress = false;
-            replayCompleted = true;
             AllowedReplayCompleted?.Invoke();
             Changed?.Invoke();
         }

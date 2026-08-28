@@ -71,6 +71,8 @@ namespace SignVR.Interaction.Orchestration
                     !suspended && !disposed && !abortInProgress &&
                     !lifecycleAbortPending &&
                     terminalPresentationCleanupComplete && terminalTaskCleaned;
+                bool phaseCommandAvailable = !suspended && !disposed &&
+                    !abortInProgress && !lifecycleAbortPending;
                 bool canStart = false;
                 string preStartReadiness = null;
                 if (commandIdle && state == RunState.PreStart)
@@ -110,8 +112,9 @@ namespace SignVR.Interaction.Orchestration
                     requiredProgress,
                     canStart,
                     commandIdle && state == RunState.Running &&
-                        phase != null && phase.ReplayAvailable,
-                    commandIdle && state == RunState.Running &&
+                        phase != null && phase.ReplayAvailable &&
+                        presentation.ReplayAvailable,
+                    phaseCommandAvailable && state == RunState.Running &&
                         phase != null && phase.GiveUpAvailable,
                     abortInProgress || lifecycleAbortPending ||
                         state == RunState.Aborting,
@@ -177,13 +180,11 @@ namespace SignVR.Interaction.Orchestration
             }
             PhaseExecutionSnapshot phase = run.CurrentPhase;
             if (run.State != RunState.Running || phase == null ||
-                !phase.ReplayAvailable || pendingPresentation != null ||
+                !phase.ReplayAvailable || !presentation.ReplayAvailable ||
+                pendingPresentation != null ||
                 activePlayback != null)
             {
-                return Fail(
-                    "Replay is unavailable until W1 completes the first " +
-                    "playback, and it can be consumed only once."
-                );
+                return Fail("Instruction playback is not ready or is running.");
             }
 
             if (!run.TryRequestReplay(out string error))
@@ -191,7 +192,9 @@ namespace SignVR.Interaction.Orchestration
                 return Fail(error);
             }
 
-            status = "Replay requested through W6's authoritative token.";
+            status = phase.FirstPlaybackCompleted
+                ? "Replay requested from the beginning."
+                : "First instruction playback requested by the participant.";
             NotifyChanged();
             return InteractionStudyFlowCommandResult.Success();
         }
@@ -204,12 +207,9 @@ namespace SignVR.Interaction.Orchestration
             }
             PhaseExecutionSnapshot phase = run.CurrentPhase;
             if (run.State != RunState.Running || phase == null ||
-                !phase.GiveUpAvailable || pendingPresentation != null ||
-                activePlayback != null)
+                !phase.GiveUpAvailable)
             {
-                return Fail(
-                    "Give Up requires W1's completed one-time replay gate."
-                );
+                return Fail("Give Up is unavailable for the current phase.");
             }
 
             ValidationResult result;
@@ -787,10 +787,13 @@ namespace SignVR.Interaction.Orchestration
             lastRequestSequence = request.RequestSequence;
             bool began;
             string error;
+            bool preparingPhase = request.PlaybackKind ==
+                    InteractionPresentationPlaybackKind.First &&
+                (!presentation.PhaseActive || run.CurrentPhase == null ||
+                 run.CurrentPhase.PhaseId != request.PhaseId);
             try
             {
-                if (request.PlaybackKind ==
-                    InteractionPresentationPlaybackKind.First)
+                if (preparingPhase)
                 {
                     RunPhasePlan phasePlan = plan.Phases[request.PhaseId - 1];
                     began = presentation.TryBeginPhase(
@@ -816,7 +819,49 @@ namespace SignVR.Interaction.Orchestration
                 BeginAbort("presentation_start_failed");
                 return;
             }
+            if (preparingPhase)
+            {
+                AcknowledgePreparedPhase(request);
+                return;
+            }
             status = "Waiting for W5's actual first presented frame.";
+            NotifyChanged();
+        }
+
+        private void AcknowledgePreparedPhase(
+            InteractionStudyPresentationRequest request)
+        {
+            if (!run.TryAcknowledgePresentationStarted(
+                    request,
+                    out string error))
+            {
+                status = "W6 rejected prepared phase: " + error;
+                BeginAbort("presentation_ack_failed");
+                return;
+            }
+
+            pendingPresentation = null;
+            try
+            {
+                PhaseExecutionSnapshot snapshot = run.CurrentPhase ??
+                    throw new InvalidOperationException(
+                        "W1 exposed no phase after phase preparation."
+                    );
+                tasks.Synchronize(snapshot);
+                tasks.Enable();
+                progress = 0;
+                requiredProgress = 0;
+                lastHandledResult = null;
+                outcomeHandledPhaseId = null;
+            }
+            catch (Exception exception)
+            {
+                status = "W7 synchronization failed: " + exception.Message;
+                BeginAbort("task_synchronization_failed");
+                return;
+            }
+
+            status = "Phase ready; playback waits for the participant.";
             NotifyChanged();
         }
 
@@ -906,8 +951,8 @@ namespace SignVR.Interaction.Orchestration
             }
 
             status = kind == InteractionPresentationPlaybackKind.First
-                ? "First playback completed; Replay is governed by W1."
-                : "Replay completed; Give Up is governed by W1.";
+                ? "First playback completed; replay remains available."
+                : "Replay completed; it can be started again.";
             NotifyChanged();
         }
 
