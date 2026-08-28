@@ -263,6 +263,14 @@ PrefabInstance:
       value: chest
       objectReference: {fileID: 0}
     - target: {fileID: -3486285940608392636, guid: ee79d0c6897e0934381a54067d9c7b74, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -0.13
+      objectReference: {fileID: 0}
+    - target: {fileID: -3486285940608392636, guid: ee79d0c6897e0934381a54067d9c7b74, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -0.28
+      objectReference: {fileID: 0}
+    - target: {fileID: -3486285940608392636, guid: ee79d0c6897e0934381a54067d9c7b74, type: 3}
       propertyPath: m_LocalRotation.w
       value: 0.58757347
       objectReference: {fileID: 0}
@@ -4027,6 +4035,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: gold_lock_improved (1)
       objectReference: {fileID: 0}
+    - target: {fileID: -6689036041284674117, guid: 9062135ebe263d6459f6302817121b5e, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 2774220344278030320, guid: 9062135ebe263d6459f6302817121b5e, type: 3}
       propertyPath: m_LocalScale.x
       value: 0.010013285
@@ -5405,7 +5417,7 @@ Transform:
   m_GameObject: {fileID: 587402859}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 4.369, y: 1.1067753, z: -3.857716}
+  m_LocalPosition: {x: 4.369, y: 1.0515186, z: -4.1386833}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -11210,7 +11222,7 @@ Transform:
   m_GameObject: {fileID: 1197750086}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.3042109, z: 0.057649165}
+  m_LocalPosition: {x: 0, y: 0.17421089, z: -0.22235084}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -13094,9 +13106,9 @@ MonoBehaviour:
     hinge: {fileID: 1197750087}
     hingeLocalAxis: {x: 1, y: 0, z: 0}
     openAngleDegrees: -100
-    closedLocalPosition: {x: 0, y: 0, z: 0}
+    closedLocalPosition: {x: 0, y: -0.13, z: -0.28}
     closedLocalRotation: {x: 0.80917084, y: 0, z: 0, w: 0.5875734}
-    openLocalPosition: {x: 0, y: 0.29002172, z: 0.32146448}
+    openLocalPosition: {x: 0, y: 0.16002172, z: 0.041464522}
     openLocalRotation: {x: 0.07001763, y: -0, z: -0, w: 0.9975458}
     closedPoseCaptured: 1
     explicitClosedPose: 1
