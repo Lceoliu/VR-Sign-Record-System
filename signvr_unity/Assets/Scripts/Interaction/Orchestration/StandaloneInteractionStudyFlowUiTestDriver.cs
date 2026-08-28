@@ -1211,15 +1211,18 @@ namespace SignVR.Interaction.Orchestration
             InteractionRunController runController = context.RunController;
             Button startButton = controls.StartButton;
             InstructionPresentationController presentation =
-                context.RequireFirstPresentationVisible
-                    ? FindSingleSceneComponent<
-                        InstructionPresentationController>(loadedScene)
-                    : null;
+                FindSingleSceneComponent<InstructionPresentationController>(
+                    loadedScene
+                );
+            InteractionInstructionControls instructionControls =
+                FindSingleSceneComponent<InteractionInstructionControls>(
+                    loadedScene
+                );
             string observedPresentationFault = null;
-            if (presentation != null)
+            presentation.PresentationFaulted += error =>
+                observedPresentationFault = error;
+            if (context.RequireFirstPresentationVisible)
             {
-                presentation.PresentationFaulted += error =>
-                    observedPresentationFault = error;
                 presentation.GhostPlayer
                     .RetargeterReadinessFailuresRemainingForTests = 3;
             }
@@ -1363,7 +1366,7 @@ namespace SignVR.Interaction.Orchestration
             {
                 double presentationDeadline =
                     Time.realtimeSinceStartupAsDouble + 10d;
-                while (!presentation.GhostPlayer.IsPlaying &&
+                while (!presentation.GhostPlayer.IsLoaded &&
                     string.IsNullOrWhiteSpace(
                         presentation.GhostPlayer.LastError
                     ) &&
@@ -1373,9 +1376,33 @@ namespace SignVR.Interaction.Orchestration
                 }
 
                 Require(
-                    presentation.GhostPlayer.IsPlaying,
-                    "The first saved-scene Run never made the instruction " +
-                    "signer visible. player_status=" +
+                    presentation.GhostPlayer.IsLoaded &&
+                        !presentation.GhostPlayer.IsPlaying &&
+                        !presentation.HasStartedFirstPlayback,
+                    "The first saved-scene instruction was not prepared " +
+                    "idle before participant playback. player_status=" +
+                    presentation.GhostPlayer.Status +
+                    ", player_error=" +
+                    (presentation.GhostPlayer.LastError ?? "<none>") +
+                    ", observed_fault=" +
+                    (observedPresentationFault ?? "<none>") +
+                    ", flow_status=" +
+                    (flowController.Snapshot?.Status ?? "<none>") + "."
+                );
+                Require(
+                    instructionControls.ReplayButton != null &&
+                        instructionControls.ReplayButton.interactable,
+                    "The prepared first instruction did not enable the " +
+                    "participant Play Sign button."
+                );
+
+                instructionControls.ReplayButton.onClick.Invoke();
+                yield return null;
+                Require(
+                    presentation.GhostPlayer.IsPlaying &&
+                        presentation.HasStartedFirstPlayback,
+                    "Clicking Play Sign did not make the first saved-scene " +
+                    "instruction signer visible. player_status=" +
                     presentation.GhostPlayer.Status +
                     ", player_error=" +
                     (presentation.GhostPlayer.LastError ?? "<none>") +
@@ -1644,16 +1671,30 @@ namespace SignVR.Interaction.Orchestration
                 "Repeated Start returned the active Run to PreStart."
             );
 
-            yield return null;
-            Require(
-                ReferenceEquals(consumedPlan, runController.Plan) &&
-                    runController.State != RunState.PreStart,
-                "The saved scene did not retain the consumed Run next frame. " +
-                    "State=" + runController.State +
-                    ", controller_error=" + runController.LastError +
-                    ", flow_status=" +
-                    (flowController.Snapshot?.Status ?? "<none>") + "."
-            );
+            for (int observedFrame = 1; observedFrame <= 30; observedFrame++)
+            {
+                yield return null;
+                Require(
+                    ReferenceEquals(consumedPlan, runController.Plan) &&
+                        runController.State == RunState.Running &&
+                        flowController.Snapshot?.PhaseId == 1 &&
+                        flowController.Snapshot?.IsResultVisible == false,
+                    "The saved scene advanced or terminated without " +
+                        "participant interaction after Start. observed_frame=" +
+                        observedFrame + ", State=" + runController.State +
+                        ", phase=" +
+                        (flowController.Snapshot?.PhaseId.ToString() ??
+                            "<none>") +
+                        ", result_visible=" +
+                        (flowController.Snapshot?.IsResultVisible.ToString() ??
+                            "<none>") +
+                        ", controller_error=" + runController.LastError +
+                        ", presentation_fault=" +
+                        (observedPresentationFault ?? "<none>") +
+                        ", flow_status=" +
+                        (flowController.Snapshot?.Status ?? "<none>") + "."
+                );
+            }
         }
 
         private static Scene ResolveOwnedScene(
