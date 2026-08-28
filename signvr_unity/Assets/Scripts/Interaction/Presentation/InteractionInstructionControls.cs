@@ -290,7 +290,7 @@ namespace SignVR.Interaction.Presentation
                 "Replay",
                 new Vector2(-240f, 0f),
                 new Color(0.08f, 0.42f, 0.68f, 0.96f),
-                "重播手语",
+                "播放手语",
                 out _
             );
             giveUpButton = EnsureButton(
@@ -467,6 +467,15 @@ namespace SignVR.Interaction.Presentation
         private void Refresh()
         {
             EnsureVisuals();
+            TMP_Text replayLabel = replayButton.GetComponentInChildren<
+                TMP_Text>(true);
+            if (replayLabel != null)
+            {
+                replayLabel.text = controller != null &&
+                    controller.HasStartedFirstPlayback
+                        ? "重新播放"
+                        : "播放手语";
+            }
             IInteractionInstructionCommandSink liveSink =
                 ResolveLiveCommandSink();
             replayButton.interactable =

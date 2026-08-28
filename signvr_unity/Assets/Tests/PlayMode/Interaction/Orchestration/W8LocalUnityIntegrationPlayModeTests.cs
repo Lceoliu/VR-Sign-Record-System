@@ -23,7 +23,7 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
         [UnityTest]
         public IEnumerator SixPhaseFlowKeepsW1W5W6W7AuthorityBoundaries()
         {
-            InvokeDriver("SixPhaseHappyPathAdvancesOnlyOnActualFirstFrames");
+            InvokeDriver("SixPhaseHappyPathEntersWithoutAutomaticPlayback");
             yield return null;
         }
 
@@ -122,7 +122,7 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
         [UnityTest]
         public IEnumerator ReplayGiveUpAndValidationDriftAreExactlyOnce()
         {
-            InvokeDriver("ReplayUsesOneW6TokenAndCannotStartTwice");
+            InvokeDriver("ReplayCanBeRequestedRepeatedly");
             InvokeDriver("ValidationErrorsResynchronizeBeforeReplayGiveUp");
             yield return null;
         }
@@ -320,6 +320,16 @@ namespace SignVR.Interaction.PlayMode.Tests.Orchestration
             yield return InvokeDriverCoroutine(
                 StandaloneDriverTypeName,
                 "SavedInteractionLabStartButtonConsumesOneRun"
+            );
+        }
+
+        [UnityTest]
+        public IEnumerator
+            SavedInteractionLabFirstRunShowsSignerTextAndPointingAssistance()
+        {
+            yield return InvokeDriverCoroutine(
+                StandaloneDriverTypeName,
+                "SavedInteractionLabFirstRunShowsSignerTextAndPointingAssistance"
             );
         }
 

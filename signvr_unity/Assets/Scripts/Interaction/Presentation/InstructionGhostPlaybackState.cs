@@ -21,7 +21,7 @@ namespace SignVR.Interaction.Presentation
 
     /// <summary>
     /// Pure lifecycle guard used by InstructionGhostPlayer. It freezes one
-    /// artifact key for first play and replay and makes a third pass impossible.
+    /// artifact key for first play and any participant-requested replays.
     /// </summary>
     public sealed class InstructionGhostPlaybackState
     {
@@ -81,8 +81,7 @@ namespace SignVR.Interaction.Presentation
         public bool Replay()
         {
             if (Status != InstructionGhostPlaybackStatus.Completed ||
-                !FirstPlaybackCompleted || ReplayConsumed ||
-                ReplayPlaybackCompleted)
+                !FirstPlaybackCompleted)
             {
                 return false;
             }
@@ -90,6 +89,7 @@ namespace SignVR.Interaction.Presentation
             // Consumption precedes any downstream retargeting operation and is
             // intentionally never rolled back.
             ReplayConsumed = true;
+            ReplayPlaybackCompleted = false;
             Status = InstructionGhostPlaybackStatus.Playing;
             CurrentPass = InstructionPlaybackPass.Replay;
             Changed?.Invoke();
