@@ -6,6 +6,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using SignVR.Interaction.Core;
+using SignVR.Interaction.Diagnostics;
 using UnityEngine;
 
 namespace SignVR.Interaction.CaptureHost
@@ -150,6 +151,9 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return;
             }
+            InteractionRuntimeDiagnosticTrace.ResetSession(
+                "InteractionRunController.Awake; mode=" + runMode
+            );
             conditionAllocator = new AssistanceBlockAllocator(
                 forceTextAndPointingForTesting
             );
@@ -383,10 +387,18 @@ namespace SignVR.Interaction.CaptureHost
 
         public bool TryStartRun(out string error)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "run_try_start_enter",
+                "state=" + State
+            );
             error = null;
             if (!CanStart(out error))
             {
                 lastError = error;
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "run_try_start_rejected",
+                    "state=" + State + "; error=" + error
+                );
                 return false;
             }
 
@@ -442,6 +454,10 @@ namespace SignVR.Interaction.CaptureHost
 
                 captureInitializationReconciled = false;
                 lastError = string.Empty;
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "run_try_start_accepted",
+                    "run_id=" + plan.RunId + "; state=" + State
+                );
                 return true;
             }
             catch (Exception exception) when (
@@ -453,6 +469,11 @@ namespace SignVR.Interaction.CaptureHost
             {
                 error = exception.Message;
                 lastError = error;
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "run_try_start_exception",
+                    "state=" + State + "; error=" + error,
+                    exception
+                );
                 Debug.LogError(
                     "[InteractionRunController] Start failed: " + exception,
                     this
@@ -477,6 +498,11 @@ namespace SignVR.Interaction.CaptureHost
             int phaseId,
             InteractionPresentationPlaybackKind playbackKind)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "playback_started_enter",
+                "sequence=" + requestSequence + "; phase=" + phaseId +
+                "; kind=" + playbackKind + "; state=" + State
+            );
             if (presentationHandshake == null)
             {
                 throw new InvalidOperationException(
@@ -494,8 +520,16 @@ namespace SignVR.Interaction.CaptureHost
                 );
             if (started.IsInitialRunStart)
             {
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "initial_capture_begin",
+                    "phase=" + phaseId
+                );
                 captureSampler?.ResetCadence();
                 captureWriter.BeginCapture();
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "initial_capture_began",
+                    "phase=" + phaseId
+                );
                 summaryTracker.BeginRun(now, utcNow);
                 summaryTracker.BeginPhase(phaseId, now);
                 RecordAt(
@@ -1175,6 +1209,10 @@ namespace SignVR.Interaction.CaptureHost
                 presentationHandshake != null &&
                 !presentationHandshake.HasPendingRequest)
             {
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "initial_presentation_publish_due",
+                    "state=" + State
+                );
                 PublishPresentationRequest(
                     presentationHandshake.RequestInitialPlayback()
                 );
@@ -1271,6 +1309,10 @@ namespace SignVR.Interaction.CaptureHost
 
         private void CompleteConsumedRunInitialization(RunPlan plan)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "run_initialization_reconcile_enter",
+                "run_id=" + plan?.RunId + "; state=" + State
+            );
             try
             {
                 if (!captureInitialization.Succeeded)
@@ -1286,6 +1328,10 @@ namespace SignVR.Interaction.CaptureHost
                 InteractionCaptureWriter initialized =
                     captureInitialization.GetResult();
                 captureWriter = initialized;
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "capture_writer_initialized",
+                    "run_id=" + plan.RunId
+                );
                 if (lifecycleShutdown.IsShutdownInitiated)
                 {
                     StartLifecycleTerminalizationJob(
@@ -1308,6 +1354,10 @@ namespace SignVR.Interaction.CaptureHost
                     BuildRunCreatedPayload(plan)
                 );
                 ScheduleLocally(utcNow, now);
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "run_scheduled_locally",
+                    "run_id=" + plan.RunId + "; state=" + State
+                );
             }
             catch (Exception exception)
             {
@@ -1321,6 +1371,11 @@ namespace SignVR.Interaction.CaptureHost
                     );
                 }
                 captureWriter?.Dispose();
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "run_initialization_reconcile_failed",
+                    "state=" + State + "; error=" + lastError,
+                    exception
+                );
             }
         }
 
@@ -1653,6 +1708,13 @@ namespace SignVR.Interaction.CaptureHost
                 throw new ArgumentNullException(nameof(request));
             }
             Delegate[] listeners = PresentationRequested?.GetInvocationList();
+            InteractionRuntimeDiagnosticTrace.Write(
+                "presentation_publish",
+                "sequence=" + request.RequestSequence + "; phase=" +
+                request.PhaseId + "; kind=" + request.PlaybackKind +
+                "; listeners=" + (listeners?.Length ?? 0) +
+                "; state=" + State
+            );
             if (listeners == null || listeners.Length == 0)
             {
                 lastError =
@@ -1676,6 +1738,11 @@ namespace SignVR.Interaction.CaptureHost
                     Debug.LogError(
                         "[InteractionRunController] " + lastError,
                         this
+                    );
+                    InteractionRuntimeDiagnosticTrace.Write(
+                        "presentation_listener_failed",
+                        "index=" + index + "; error=" + lastError,
+                        exception
                     );
                 }
             }
@@ -1719,6 +1786,12 @@ namespace SignVR.Interaction.CaptureHost
                 stateMachine.FaultRun(faultReason);
             }
             captureWriter?.Dispose();
+            InteractionRuntimeDiagnosticTrace.Write(
+                "capture_failed",
+                "reason=" + faultReason + "; state=" + State +
+                "; error=" + lastError,
+                exception
+            );
         }
 
         private void RecordNow(
@@ -1822,6 +1895,12 @@ namespace SignVR.Interaction.CaptureHost
 
         private void BeginLifecycleShutdown(string reason)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "lifecycle_shutdown_begin",
+                "reason=" + reason + "; state=" + State +
+                "; active=" + isActiveAndEnabled +
+                "; stack=" + Environment.StackTrace
+            );
             if (string.IsNullOrWhiteSpace(reason))
             {
                 throw new ArgumentException(
@@ -2076,6 +2155,10 @@ namespace SignVR.Interaction.CaptureHost
 
         private void OnDisable()
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "controller_on_disable",
+                "state=" + State
+            );
             UnsubscribeHeadsetLifecycle();
             if (!ShouldProcessUnityLifecycle())
             {
@@ -2086,6 +2169,10 @@ namespace SignVR.Interaction.CaptureHost
 
         private void OnApplicationPause(bool paused)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "controller_application_pause",
+                "paused=" + paused + "; state=" + State
+            );
             if (!ShouldProcessUnityLifecycle())
             {
                 return;

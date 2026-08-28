@@ -7,6 +7,7 @@ using System.Text;
 using Meta.XR.Movement;
 using Meta.XR.Movement.Retargeting;
 using SignVR.Interaction.Core;
+using SignVR.Interaction.Diagnostics;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -655,6 +656,10 @@ namespace SignVR.Interaction.Presentation
 
         private void FailLoad(string error)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "ghost_load_failed",
+                "error=" + error
+            );
             loadRoutine = null;
             IsLoading = false;
             LoadingProgress = 0f;
@@ -667,6 +672,10 @@ namespace SignVR.Interaction.Presentation
 
         private void FailPlayback(string error)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "ghost_playback_failed",
+                "error=" + error
+            );
             playbackState.Fail();
             LastError = error;
             Failed?.Invoke(error);

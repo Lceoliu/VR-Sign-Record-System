@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
+using SignVR.Interaction.Diagnostics;
 
 namespace SignVR.Interaction.Orchestration
 {
@@ -128,6 +129,10 @@ namespace SignVR.Interaction.Orchestration
 
         public InteractionStudyFlowCommandResult TryStart()
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "flow_try_start_enter",
+                "state=" + run.State
+            );
             if (!CanAcceptCommands(out string unavailable))
             {
                 return Fail(unavailable);
@@ -140,6 +145,10 @@ namespace SignVR.Interaction.Orchestration
             ResetRunLocalState();
             if (!run.TryStart(out string error))
             {
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "flow_try_start_run_rejected",
+                    "state=" + run.State + "; error=" + error
+                );
                 if (IsTerminal(run.State))
                 {
                     status = "Consumed Run failed; awaiting terminal cleanup.";
@@ -159,6 +168,10 @@ namespace SignVR.Interaction.Orchestration
             {
                 tasks.Configure(plan);
                 tasks.Enable();
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "flow_tasks_configured",
+                    "run_id=" + plan.RunId + "; phases=" + plan.Phases.Count
+                );
             }
             catch (Exception exception)
             {
@@ -745,6 +758,11 @@ namespace SignVR.Interaction.Orchestration
             long epoch,
             InteractionStudyPresentationRequest request)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "flow_presentation_request_enter",
+                "epoch=" + epoch + "; phase=" + request?.PhaseId +
+                "; kind=" + request?.PlaybackKind + "; state=" + run.State
+            );
             if (!IsCurrent(epoch) || request == null)
             {
                 return;
@@ -811,16 +829,29 @@ namespace SignVR.Interaction.Orchestration
             {
                 began = false;
                 error = exception.Message;
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "flow_presentation_begin_exception",
+                    "phase=" + request.PhaseId + "; error=" + error,
+                    exception
+                );
             }
 
             if (!began)
             {
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "flow_presentation_begin_failed",
+                    "phase=" + request.PhaseId + "; error=" + error
+                );
                 status = "W5 presentation failed: " + error;
                 BeginAbort("presentation_start_failed");
                 return;
             }
             if (preparingPhase)
             {
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "flow_phase_prepared",
+                    "phase=" + request.PhaseId
+                );
                 AcknowledgePreparedPhase(request);
                 return;
             }
@@ -835,6 +866,10 @@ namespace SignVR.Interaction.Orchestration
                     request,
                     out string error))
             {
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "flow_phase_ack_failed",
+                    "phase=" + request.PhaseId + "; error=" + error
+                );
                 status = "W6 rejected prepared phase: " + error;
                 BeginAbort("presentation_ack_failed");
                 return;
@@ -849,6 +884,10 @@ namespace SignVR.Interaction.Orchestration
                     );
                 tasks.Synchronize(snapshot);
                 tasks.Enable();
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "flow_phase_tasks_synchronized",
+                    "phase=" + snapshot.PhaseId + "; state=" + run.State
+                );
                 progress = 0;
                 requiredProgress = 0;
                 lastHandledResult = null;
@@ -856,6 +895,11 @@ namespace SignVR.Interaction.Orchestration
             }
             catch (Exception exception)
             {
+                InteractionRuntimeDiagnosticTrace.Write(
+                    "flow_phase_tasks_sync_failed",
+                    "phase=" + request.PhaseId + "; error=" + exception.Message,
+                    exception
+                );
                 status = "W7 synchronization failed: " + exception.Message;
                 BeginAbort("task_synchronization_failed");
                 return;
@@ -1068,6 +1112,11 @@ namespace SignVR.Interaction.Orchestration
             }
             status = "W5 presentation fault: " +
                 (string.IsNullOrWhiteSpace(error) ? "unknown" : error.Trim());
+            InteractionRuntimeDiagnosticTrace.Write(
+                "flow_presentation_fault",
+                "epoch=" + epoch + "; state=" + run.State +
+                "; error=" + error
+            );
             BeginAbort("presentation_fault");
         }
 
@@ -1075,6 +1124,11 @@ namespace SignVR.Interaction.Orchestration
             string reason,
             bool disableTasks = true)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "flow_abort_begin",
+                "reason=" + reason + "; state=" + run.State +
+                "; status=" + status
+            );
             RunState state = run.State;
             if (state == RunState.Aborting)
             {

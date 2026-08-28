@@ -6,6 +6,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using SignVR.Interaction.Core;
+using SignVR.Interaction.Diagnostics;
 
 namespace SignVR.Interaction.CaptureHost
 {
@@ -548,6 +549,11 @@ namespace SignVR.Interaction.CaptureHost
             InteractionCaptureTerminalKind terminalKind,
             Func<InteractionDataCompleteness, InteractionRunSummary> summaryFactory)
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "capture_writer_begin_seal",
+                "run_id=" + runId + "; kind=" + terminalKind +
+                "; stack=" + Environment.StackTrace
+            );
             EnsureOpen();
             if (summaryFactory == null)
             {
@@ -573,6 +579,12 @@ namespace SignVR.Interaction.CaptureHost
             {
                 return;
             }
+            InteractionRuntimeDiagnosticTrace.Write(
+                "capture_writer_dispose",
+                "run_id=" + runId + "; sealed=" + sealedCapture +
+                "; terminal_requested=" + terminalRequested +
+                "; stack=" + Environment.StackTrace
+            );
             disposed = true;
             captureActive = false;
             if (!sealedCapture && !terminalRequested)
@@ -891,12 +903,14 @@ namespace SignVR.Interaction.CaptureHost
         private readonly object gate = new object();
         private readonly object ioGate = new object();
         private readonly Queue<QueuedLine> pending = new Queue<QueuedLine>();
+        private readonly ManualResetEventSlim workerReady =
+            new ManualResetEventSlim(false);
         private readonly int capacity;
         private readonly string partialPath;
         private readonly string finalPath;
-        private readonly FileStream stream;
-        private readonly StreamWriter writer;
+        private FileStream stream;
         private readonly Thread worker;
+        private readonly string workerName;
         private readonly InteractionJsonlBudgetTracker byteBudget;
         private readonly InteractionDiskBudgetGuard diskBudget;
 
@@ -922,32 +936,40 @@ namespace SignVR.Interaction.CaptureHost
             this.partialPath = partialPath;
             this.finalPath = finalPath;
             this.capacity = capacity;
+            this.workerName = workerName;
             byteBudget = new InteractionJsonlBudgetTracker(
                 budget ?? throw new ArgumentNullException(nameof(budget))
             );
             this.diskBudget = diskBudget ??
                 throw new ArgumentNullException(nameof(diskBudget));
-            stream = new FileStream(
+            using (new FileStream(
                 partialPath,
                 FileMode.CreateNew,
                 FileAccess.Write,
-                FileShare.Read,
-                65536,
-                FileOptions.SequentialScan
-            );
-            writer = new StreamWriter(
-                stream,
-                new UTF8Encoding(false),
-                65536,
-                true
-            );
-            writer.NewLine = "\n";
+                FileShare.Read))
+            {
+                // Only publish the empty partial here. Android IL2CPP may end
+                // the lifetime of a FileStream that crosses from the capture
+                // initialization worker to a separately-created writer
+                // thread. The writer thread opens and owns its own stream.
+            }
             worker = new Thread(WriteLoop)
             {
                 IsBackground = true,
                 Name = workerName
             };
             worker.Start();
+            if (!workerReady.Wait(InteractionCaptureWaitLimits.CloseMilliseconds))
+            {
+                RequestCloseLeavingPartial();
+                throw new IOException(
+                    "Timed out while opening an Interaction capture stream."
+                );
+            }
+            lock (gate)
+            {
+                ThrowIfFailed();
+            }
         }
 
         public long AcceptedLineCount
@@ -1043,9 +1065,8 @@ namespace SignVR.Interaction.CaptureHost
             }
             lock (ioGate)
             {
-                writer.Flush();
-                stream.Flush();
                 stream.Flush(true);
+                GC.KeepAlive(stream);
             }
         }
 
@@ -1073,6 +1094,10 @@ namespace SignVR.Interaction.CaptureHost
 
         public void RequestCloseLeavingPartial()
         {
+            InteractionRuntimeDiagnosticTrace.WriteBackground(
+                "jsonl_close_requested",
+                "worker=" + workerName + "; caller=" + Environment.StackTrace
+            );
             lock (gate)
             {
                 accepting = false;
@@ -1083,6 +1108,10 @@ namespace SignVR.Interaction.CaptureHost
 
         private void StopWorker()
         {
+            InteractionRuntimeDiagnosticTrace.WriteBackground(
+                "jsonl_stop_worker",
+                "worker=" + workerName + "; caller=" + Environment.StackTrace
+            );
             lock (gate)
             {
                 if (closeRequested)
@@ -1115,8 +1144,27 @@ namespace SignVR.Interaction.CaptureHost
 
         private void WriteLoop()
         {
+            FileStream ownedStream = null;
             try
             {
+                ownedStream = new FileStream(
+                    partialPath,
+                    FileMode.Open,
+                    FileAccess.Write,
+                    FileShare.Read,
+                    65536,
+                    FileOptions.SequentialScan
+                );
+                ownedStream.Seek(0L, SeekOrigin.End);
+                lock (ioGate)
+                {
+                    stream = ownedStream;
+                }
+                workerReady.Set();
+                InteractionRuntimeDiagnosticTrace.WriteBackground(
+                    "jsonl_worker_stream_opened",
+                    "worker=" + workerName
+                );
                 while (true)
                 {
                     QueuedLine queued;
@@ -1128,6 +1176,12 @@ namespace SignVR.Interaction.CaptureHost
                         }
                         if (pending.Count == 0 && closeRequested)
                         {
+                            InteractionRuntimeDiagnosticTrace.WriteBackground(
+                                "jsonl_worker_exit_requested",
+                                "worker=" + workerName +
+                                "; accepted=" + acceptedLineCount +
+                                "; written=" + writtenLineCount
+                            );
                             break;
                         }
                         queued = pending.Dequeue();
@@ -1135,8 +1189,16 @@ namespace SignVR.Interaction.CaptureHost
                     }
                     lock (ioGate)
                     {
-                        writer.WriteLine(queued.Line);
+                        byte[] encodedLine = Encoding.UTF8.GetBytes(
+                            queued.Line + "\n"
+                        );
+                        ownedStream.Write(
+                            encodedLine,
+                            0,
+                            encodedLine.Length
+                        );
                         byteBudget.MarkWritten(queued.Reservation);
+                        GC.KeepAlive(ownedStream);
                     }
                     lock (gate)
                     {
@@ -1146,13 +1208,18 @@ namespace SignVR.Interaction.CaptureHost
                 }
                 lock (ioGate)
                 {
-                    writer.Flush();
-                    stream.Flush();
-                    stream.Flush(true);
+                    ownedStream.Flush(true);
+                    GC.KeepAlive(ownedStream);
                 }
             }
             catch (Exception exception)
             {
+                workerReady.Set();
+                InteractionRuntimeDiagnosticTrace.WriteBackground(
+                    "jsonl_worker_loop_failed",
+                    "worker=" + workerName,
+                    exception
+                );
                 lock (gate)
                 {
                     workerException = exception;
@@ -1165,11 +1232,19 @@ namespace SignVR.Interaction.CaptureHost
             {
                 try
                 {
-                    writer.Dispose();
-                    stream.Dispose();
+                    lock (ioGate)
+                    {
+                        stream = null;
+                        ownedStream?.Dispose();
+                    }
                 }
                 catch (Exception exception)
                 {
+                    InteractionRuntimeDiagnosticTrace.WriteBackground(
+                        "jsonl_worker_dispose_failed",
+                        "worker=" + workerName,
+                        exception
+                    );
                     lock (gate)
                     {
                         if (workerException == null)

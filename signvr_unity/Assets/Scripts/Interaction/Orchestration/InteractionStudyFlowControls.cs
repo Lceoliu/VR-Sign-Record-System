@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using SignVR.Interaction.Core;
+using SignVR.Interaction.Diagnostics;
 using SignVR.Interaction.Presentation;
 using TMPro;
 using UnityEngine;
@@ -421,6 +422,10 @@ namespace SignVR.Interaction.Orchestration
 
         private void HandleStart()
         {
+            InteractionRuntimeDiagnosticTrace.Write(
+                "ui_start_clicked",
+                "snapshot_state=" + flowController?.Snapshot?.RunState
+            );
             InteractionStudyFlowCommandResult result =
                 flowController?.TryStart() ??
                 InteractionStudyFlowCommandResult.Failure(
@@ -436,6 +441,11 @@ namespace SignVR.Interaction.Orchestration
                 lastCommandFeedback =
                     InteractionStudyParticipantText.ForFailure(result.Error);
             }
+            InteractionRuntimeDiagnosticTrace.Write(
+                "ui_start_result",
+                "succeeded=" + result.Succeeded + "; raw_error=" + result.Error +
+                "; snapshot_state=" + flowController?.Snapshot?.RunState
+            );
             Refresh();
         }
 
