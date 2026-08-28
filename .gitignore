@@ -3,7 +3,3 @@
 # Machine-specific Codex integrations and generated local skills.
 /.codex/
 /signvr_unity/.codex/
-
-# Generated 31-sentence instruction content used as local Unity build input.
-/signvr_unity/Assets/StreamingAssets/InstructionContent/
-/signvr_unity/Assets/StreamingAssets/InstructionContent.meta

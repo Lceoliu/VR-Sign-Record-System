@@ -1,0 +1,93 @@
+{
+    "session_id": "session_17cdc68e8ce8454da68dda38ffac33ce",
+    "sentence_id": "sentence_022",
+    "sentence_text": "用钥匙打开柜子，按下那些按钮",
+    "take_id": "take_001",
+    "take_index": 1,
+    "capture_status": "completed",
+    "review_status": "candidate",
+    "reset_reason": "",
+    "utc_started": "2025-06-23T06:31:42.1971230Z",
+    "utc_stopped": "2025-06-23T06:31:54.0962740Z",
+    "pose_frame_count": 357,
+    "valid_pose_frame_count": 357,
+    "valid_pose_ratio": 1.0,
+    "expected_joint_count": 84,
+    "pose_file": "sentence_022__take-001__take_001.pose.jsonl",
+    "app_version": "0.1.0",
+    "device_model": "Oculus Quest",
+    "hand_capture_quality": {
+        "frames": 357,
+        "left_tracked_frames": 294,
+        "right_tracked_frames": 296,
+        "left_high_confidence_frames": 293,
+        "right_high_confidence_frames": 296,
+        "left_inside_frames": 293,
+        "right_inside_frames": 296,
+        "guidance_enabled": true,
+        "left_tracked_ratio": 0.8235294222831726,
+        "right_tracked_ratio": 0.8291316628456116,
+        "left_high_confidence_ratio": 0.8207283020019531,
+        "right_high_confidence_ratio": 0.8291316628456116,
+        "left_inside_ratio": 0.8207283020019531,
+        "right_inside_ratio": 0.8291316628456116,
+        "clean_ratio": 0.8207283020019531,
+        "clean_frames": 293
+    },
+    "spatial_context": {
+        "valid": true,
+        "captured_utc": "2025-06-23T06:31:42.1952730Z",
+        "world_frame_id": "VRroom-world-v1",
+        "has_viewpoint": true,
+        "viewpoint_id": "state_05",
+        "viewpoint_index": 4,
+        "viewpoint_name": "Closet and button",
+        "viewpoint_world_position": {
+            "x": 4.25,
+            "y": 1.5499999523162842,
+            "z": -2.5
+        },
+        "viewpoint_world_rotation": {
+            "x": -0.0540141724050045,
+            "y": 0.8060823082923889,
+            "z": 0.07447697967290878,
+            "w": 0.5846084952354431
+        },
+        "viewpoint_position_aligned": true,
+        "viewpoint_position_error_meters": 0.0355134978890419,
+        "viewpoint_position_tolerance_meters": 0.07999999821186066,
+        "has_xr_origin": true,
+        "xr_origin_world_position": {
+            "x": 4.018194198608398,
+            "y": -0.09946689009666443,
+            "z": -2.367499589920044
+        },
+        "xr_origin_world_rotation": {
+            "x": 0.0,
+            "y": 0.011567860841751099,
+            "z": 0.0,
+            "w": 0.999933123588562
+        },
+        "xr_origin_world_frame_locked": true,
+        "xr_origin_correction_count": 0,
+        "has_tracked_head": true,
+        "position_tracking_valid": true,
+        "tracked_head_world_position": {
+            "x": 4.228140354156494,
+            "y": 1.5725268125534058,
+            "z": -2.4833896160125734
+        },
+        "tracked_head_world_rotation": {
+            "x": 0.06679031252861023,
+            "y": -0.7664505839347839,
+            "z": -0.05782327428460121,
+            "w": -0.636198878288269
+        },
+        "has_floor": true,
+        "floor_world_y": 0.060000717639923099,
+        "tracking_origin": "FloorLevel",
+        "editor_simulation": false
+    },
+    "editor_simulation": false,
+    "pose_source_simulated": false
+}

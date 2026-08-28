@@ -1,0 +1,93 @@
+{
+    "session_id": "session_17cdc68e8ce8454da68dda38ffac33ce",
+    "sentence_id": "sentence_018",
+    "sentence_text": "输入密码，打开箱子，拿起那把钥匙",
+    "take_id": "take_001",
+    "take_index": 1,
+    "capture_status": "completed",
+    "review_status": "candidate",
+    "reset_reason": "",
+    "utc_started": "2025-06-23T06:30:01.1025170Z",
+    "utc_stopped": "2025-06-23T06:30:11.2797590Z",
+    "pose_frame_count": 305,
+    "valid_pose_frame_count": 305,
+    "valid_pose_ratio": 1.0,
+    "expected_joint_count": 84,
+    "pose_file": "sentence_018__take-001__take_001.pose.jsonl",
+    "app_version": "0.1.0",
+    "device_model": "Oculus Quest",
+    "hand_capture_quality": {
+        "frames": 305,
+        "left_tracked_frames": 113,
+        "right_tracked_frames": 231,
+        "left_high_confidence_frames": 113,
+        "right_high_confidence_frames": 231,
+        "left_inside_frames": 113,
+        "right_inside_frames": 231,
+        "guidance_enabled": true,
+        "left_tracked_ratio": 0.37049180269241335,
+        "right_tracked_ratio": 0.757377028465271,
+        "left_high_confidence_ratio": 0.37049180269241335,
+        "right_high_confidence_ratio": 0.757377028465271,
+        "left_inside_ratio": 0.37049180269241335,
+        "right_inside_ratio": 0.757377028465271,
+        "clean_ratio": 0.33770492672920229,
+        "clean_frames": 103
+    },
+    "spatial_context": {
+        "valid": true,
+        "captured_utc": "2025-06-23T06:30:01.1007570Z",
+        "world_frame_id": "VRroom-world-v1",
+        "has_viewpoint": true,
+        "viewpoint_id": "state_04",
+        "viewpoint_index": 3,
+        "viewpoint_name": "Chest and key",
+        "viewpoint_world_position": {
+            "x": 3.5999999046325685,
+            "y": 1.5499999523162842,
+            "z": -3.6500000953674318
+        },
+        "viewpoint_world_rotation": {
+            "x": 0.030029039829969407,
+            "y": 0.9649002552032471,
+            "z": -0.1272050440311432,
+            "w": 0.22778205573558808
+        },
+        "viewpoint_position_aligned": false,
+        "viewpoint_position_error_meters": 0.15022340416908265,
+        "viewpoint_position_tolerance_meters": 0.07999999821186066,
+        "has_xr_origin": true,
+        "xr_origin_world_position": {
+            "x": 3.7620623111724855,
+            "y": -0.10622930526733399,
+            "z": -3.3093178272247316
+        },
+        "xr_origin_world_rotation": {
+            "x": 0.0,
+            "y": 0.5434544086456299,
+            "z": 0.0,
+            "w": 0.839438796043396
+        },
+        "xr_origin_world_frame_locked": true,
+        "xr_origin_correction_count": 0,
+        "has_tracked_head": true,
+        "position_tracking_valid": true,
+        "tracked_head_world_position": {
+            "x": 3.7309653759002687,
+            "y": 1.5346214771270753,
+            "z": -3.5780375003814699
+        },
+        "tracked_head_world_rotation": {
+            "x": 0.014571085572242737,
+            "y": -0.9991933703422546,
+            "z": 0.026511382311582567,
+            "w": 0.026411712169647218
+        },
+        "has_floor": true,
+        "floor_world_y": 0.060000717639923099,
+        "tracking_origin": "FloorLevel",
+        "editor_simulation": false
+    },
+    "editor_simulation": false,
+    "pose_source_simulated": false
+}

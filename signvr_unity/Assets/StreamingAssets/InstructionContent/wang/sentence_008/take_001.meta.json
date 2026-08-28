@@ -1,0 +1,93 @@
+{
+    "session_id": "session_17cdc68e8ce8454da68dda38ffac33ce",
+    "sentence_id": "sentence_008",
+    "sentence_text": "把这个金币放到那个盘子里面",
+    "take_id": "take_001",
+    "take_index": 1,
+    "capture_status": "completed",
+    "review_status": "candidate",
+    "reset_reason": "",
+    "utc_started": "2025-06-23T06:25:17.8934740Z",
+    "utc_stopped": "2025-06-23T06:25:27.0278780Z",
+    "pose_frame_count": 274,
+    "valid_pose_frame_count": 274,
+    "valid_pose_ratio": 1.0,
+    "expected_joint_count": 84,
+    "pose_file": "sentence_008__take-001__take_001.pose.jsonl",
+    "app_version": "0.1.0",
+    "device_model": "Oculus Quest",
+    "hand_capture_quality": {
+        "frames": 274,
+        "left_tracked_frames": 138,
+        "right_tracked_frames": 251,
+        "left_high_confidence_frames": 138,
+        "right_high_confidence_frames": 251,
+        "left_inside_frames": 138,
+        "right_inside_frames": 251,
+        "guidance_enabled": true,
+        "left_tracked_ratio": 0.5036496520042419,
+        "right_tracked_ratio": 0.9160584211349487,
+        "left_high_confidence_ratio": 0.5036496520042419,
+        "right_high_confidence_ratio": 0.9160584211349487,
+        "left_inside_ratio": 0.5036496520042419,
+        "right_inside_ratio": 0.9160584211349487,
+        "clean_ratio": 0.5036496520042419,
+        "clean_frames": 138
+    },
+    "spatial_context": {
+        "valid": true,
+        "captured_utc": "2025-06-23T06:25:17.8902380Z",
+        "world_frame_id": "VRroom-world-v1",
+        "has_viewpoint": true,
+        "viewpoint_id": "state_02",
+        "viewpoint_index": 1,
+        "viewpoint_name": "Coin and plates",
+        "viewpoint_world_position": {
+            "x": -4.099999904632568,
+            "y": 1.5499999523162842,
+            "z": -3.5
+        },
+        "viewpoint_world_rotation": {
+            "x": -0.016099516302347184,
+            "y": 0.983720064163208,
+            "z": -0.11670628935098648,
+            "w": -0.1357031911611557
+        },
+        "viewpoint_position_aligned": true,
+        "viewpoint_position_error_meters": 0.03246461972594261,
+        "viewpoint_position_tolerance_meters": 0.07999999821186066,
+        "has_xr_origin": true,
+        "xr_origin_world_position": {
+            "x": -3.755096912384033,
+            "y": -0.08665299415588379,
+            "z": -3.27224063873291
+        },
+        "xr_origin_world_rotation": {
+            "x": 0.0,
+            "y": 0.7406903505325317,
+            "z": 0.0,
+            "w": 0.6718466877937317
+        },
+        "xr_origin_world_frame_locked": true,
+        "xr_origin_correction_count": 0,
+        "has_tracked_head": true,
+        "position_tracking_valid": true,
+        "tracked_head_world_position": {
+            "x": -4.073923110961914,
+            "y": 1.56266188621521,
+            "z": -3.485383987426758
+        },
+        "tracked_head_world_rotation": {
+            "x": 0.010996388271450997,
+            "y": -0.9997693300247192,
+            "z": 0.009619210846722126,
+            "w": 0.015749141573905946
+        },
+        "has_floor": true,
+        "floor_world_y": 0.060000717639923099,
+        "tracking_origin": "FloorLevel",
+        "editor_simulation": false
+    },
+    "editor_simulation": false,
+    "pose_source_simulated": false
+}

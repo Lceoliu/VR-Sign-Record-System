@@ -1,0 +1,93 @@
+{
+    "session_id": "session_17cdc68e8ce8454da68dda38ffac33ce",
+    "sentence_id": "sentence_026",
+    "sentence_text": "按顺序依次拉下对应电闸",
+    "take_id": "take_001",
+    "take_index": 1,
+    "capture_status": "completed",
+    "review_status": "candidate",
+    "reset_reason": "",
+    "utc_started": "2025-06-23T06:33:40.0783620Z",
+    "utc_stopped": "2025-06-23T06:33:58.8509900Z",
+    "pose_frame_count": 563,
+    "valid_pose_frame_count": 563,
+    "valid_pose_ratio": 1.0,
+    "expected_joint_count": 84,
+    "pose_file": "sentence_026__take-001__take_001.pose.jsonl",
+    "app_version": "0.1.0",
+    "device_model": "Oculus Quest",
+    "hand_capture_quality": {
+        "frames": 563,
+        "left_tracked_frames": 180,
+        "right_tracked_frames": 436,
+        "left_high_confidence_frames": 180,
+        "right_high_confidence_frames": 436,
+        "left_inside_frames": 180,
+        "right_inside_frames": 436,
+        "guidance_enabled": true,
+        "left_tracked_ratio": 0.31971579790115359,
+        "right_tracked_ratio": 0.7744227647781372,
+        "left_high_confidence_ratio": 0.31971579790115359,
+        "right_high_confidence_ratio": 0.7744227647781372,
+        "left_inside_ratio": 0.31971579790115359,
+        "right_inside_ratio": 0.7744227647781372,
+        "clean_ratio": 0.298401415348053,
+        "clean_frames": 168
+    },
+    "spatial_context": {
+        "valid": true,
+        "captured_utc": "2025-06-23T06:33:40.0745450Z",
+        "world_frame_id": "VRroom-world-v1",
+        "has_viewpoint": true,
+        "viewpoint_id": "state_06",
+        "viewpoint_index": 5,
+        "viewpoint_name": "Electrical switches",
+        "viewpoint_world_position": {
+            "x": 4.300000190734863,
+            "y": 1.600000023841858,
+            "z": -0.8999999761581421
+        },
+        "viewpoint_world_rotation": {
+            "x": -0.09319058805704117,
+            "y": 0.6704520583152771,
+            "z": 0.0854601189494133,
+            "w": 0.7310992479324341
+        },
+        "viewpoint_position_aligned": true,
+        "viewpoint_position_error_meters": 0.04310477524995804,
+        "viewpoint_position_tolerance_meters": 0.07999999821186066,
+        "has_xr_origin": true,
+        "xr_origin_world_position": {
+            "x": 4.040387153625488,
+            "y": -0.07256743311882019,
+            "z": -0.8957357406616211
+        },
+        "xr_origin_world_rotation": {
+            "x": 0.0,
+            "y": -0.24464839696884156,
+            "z": 0.0,
+            "w": 0.9696118831634522
+        },
+        "xr_origin_world_frame_locked": true,
+        "xr_origin_correction_count": 0,
+        "has_tracked_head": true,
+        "position_tracking_valid": true,
+        "tracked_head_world_position": {
+            "x": 4.260427951812744,
+            "y": 1.6018110513687134,
+            "z": -0.8830064535140991
+        },
+        "tracked_head_world_rotation": {
+            "x": 0.088304802775383,
+            "y": -0.6250718832015991,
+            "z": -0.06954236328601837,
+            "w": -0.7724321484565735
+        },
+        "has_floor": true,
+        "floor_world_y": 0.060000717639923099,
+        "tracking_origin": "FloorLevel",
+        "editor_simulation": false
+    },
+    "editor_simulation": false,
+    "pose_source_simulated": false
+}
