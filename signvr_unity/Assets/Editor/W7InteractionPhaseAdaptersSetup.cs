@@ -362,6 +362,7 @@ namespace SignVR.Editor.Interaction
                 phaseContentAnchor,
                 ProxyRootName
             );
+            proxyRoot.gameObject.SetActive(true);
             RemoveObsoletePhaseOnePasswordObjects(proxyRoot);
 
             InteractionPhaseCoordinator coordinator =
@@ -397,6 +398,11 @@ namespace SignVR.Editor.Interaction
                     GetOrAdd<InteractionTargetBinding>(
                         authoredTarget.gameObject
                     );
+                if (IsBreakerTargetId(spec.TargetId))
+                {
+                    RecordForUndo(authoredTarget);
+                    binding.RestoreCapturedAuthoredPoseForEditorSetup();
+                }
                 Behaviour[] interactionBehaviours =
                     FindInteractionBehaviours(authoredTarget);
                 RecordForUndo(binding);
@@ -554,7 +560,7 @@ namespace SignVR.Editor.Interaction
                 if (existing == null || !bindings.TryGetValue(
                         existing.TargetId,
                         out InteractionTargetBinding physicalBinding) ||
-                    !IsKeyTargetId(existing.TargetId))
+                    !UsesPointingProxy(existing.TargetId))
                 {
                     updated.Add(existing);
                     continue;
@@ -569,7 +575,7 @@ namespace SignVR.Editor.Interaction
                 if (proxyCollider == null)
                 {
                     throw new InvalidOperationException(
-                        $"Pointing key '{existing.TargetId}' requires its " +
+                        $"Pointing target '{existing.TargetId}' requires its " +
                         "exact W7Target proxy."
                     );
                 }
@@ -580,7 +586,8 @@ namespace SignVR.Editor.Interaction
                     {
                         proxyCollider.transform,
                         physicalBinding.transform
-                    }
+                    },
+                    IsKeyTargetId(existing.TargetId)
                 ));
             }
 
@@ -598,6 +605,31 @@ namespace SignVR.Editor.Interaction
                     "motorbike_key",
                     StringComparison.Ordinal
                 );
+        }
+
+        private static bool IsBreakerTargetId(string targetId)
+        {
+            return string.Equals(
+                    targetId,
+                    "breaker_a",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    targetId,
+                    "breaker_b",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    targetId,
+                    "breaker_c",
+                    StringComparison.Ordinal
+                );
+        }
+
+        private static bool UsesPointingProxy(string targetId)
+        {
+            return IsKeyTargetId(targetId) ||
+                IsBreakerTargetId(targetId);
         }
 
         private static void PreflightScene(Scene scene)
@@ -1074,6 +1106,7 @@ namespace SignVR.Editor.Interaction
                 "W7Target_" + targetId,
                 PrimitiveType.Cube
             );
+            proxy.SetActive(true);
             RecordForUndo(proxy.transform);
             proxy.transform.SetPositionAndRotation(
                 new Vector3(
@@ -1745,8 +1778,53 @@ namespace SignVR.Editor.Interaction
                     StringComparison.Ordinal
                 ));
                 Transform physicalRoot = FindTarget(scene, spec.ScenePath);
+                InteractionTargetBinding physicalBinding = physicalRoot == null
+                    ? null
+                    : physicalRoot.GetComponent<InteractionTargetBinding>();
+                Transform proxy = Enumerate(scene)
+                    .Where(item => string.Equals(
+                        item.name,
+                        "W7Target_" + breaker.TargetId,
+                        StringComparison.Ordinal
+                    ))
+                    .Select(item => item.transform)
+                    .SingleOrDefault();
+                Bounds physicalBounds = physicalRoot == null
+                    ? default
+                    : GetBounds(physicalRoot);
+                Vector3 expectedProxyPosition = physicalRoot == null
+                    ? Vector3.zero
+                    : new Vector3(
+                        physicalBounds.center.x,
+                        physicalBounds.center.y,
+                        physicalBounds.max.z + 0.045f
+                    );
+                bool hasVisiblePhysicalRenderer = physicalRoot != null &&
+                    physicalRoot.GetComponentsInChildren<Renderer>(true)
+                        .Any(renderer => renderer != null &&
+                            renderer.enabled &&
+                            renderer.gameObject.activeInHierarchy);
                 if (!breaker.UsesExplicitPoses ||
                     breaker.Target != ResolveBreakerHandler(physicalRoot) ||
+                    physicalBinding == null ||
+                    !physicalBinding.HasCapturedAuthoredPose ||
+                    !physicalRoot.gameObject.activeInHierarchy ||
+                    !hasVisiblePhysicalRenderer ||
+                    Vector3.Distance(
+                        physicalRoot.localPosition,
+                        physicalBinding.CapturedAuthoredLocalPosition
+                    ) > 0.0001f ||
+                    Quaternion.Angle(
+                        physicalRoot.localRotation,
+                        physicalBinding.CapturedAuthoredLocalRotation
+                    ) > 0.01f ||
+                    proxy == null || !proxy.gameObject.activeInHierarchy ||
+                    proxy.GetComponent<Renderer>() == null ||
+                    !proxy.GetComponent<Renderer>().enabled ||
+                    Vector3.Distance(
+                        proxy.position,
+                        expectedProxyPosition
+                    ) > 0.0001f ||
                     Mathf.Abs(Mathf.DeltaAngle(
                         breaker.ActivatedLocalRotation.eulerAngles.x,
                         60f
@@ -1793,45 +1871,39 @@ namespace SignVR.Editor.Interaction
                 .FirstOrDefault(item => item != null);
             if (detector == null)
             {
+                failures.Add("Ghost pointing detector is missing.");
                 return;
             }
 
             GhostPointingTargetBinding[] bindings = detector.TargetBindings
                 .Where(item => item != null)
                 .ToArray();
-            foreach (string breakerId in
-                     new[] { "breaker_a", "breaker_b", "breaker_c" })
-            {
-                if (bindings.Count(item => string.Equals(
-                        item.TargetId,
-                        breakerId,
-                        StringComparison.Ordinal)) != 1)
-                {
-                    failures.Add(
-                        $"Phase 6 pointing requires eligible '{breakerId}'."
-                    );
-                }
-            }
-
-            foreach (string keyId in
-                     new[] { "key_a", "key_b", "motorbike_key" })
+            foreach (string targetId in new[]
+                     {
+                         "key_a",
+                         "key_b",
+                         "motorbike_key",
+                         "breaker_a",
+                         "breaker_b",
+                         "breaker_c"
+                     })
             {
                 GhostPointingTargetBinding binding = bindings
                     .SingleOrDefault(item => string.Equals(
                         item.TargetId,
-                        keyId,
+                        targetId,
                         StringComparison.Ordinal
                     ));
                 TargetSpec spec = TargetSpecs.Single(item => string.Equals(
                     item.TargetId,
-                    keyId,
+                    targetId,
                     StringComparison.Ordinal
                 ));
                 Transform model = FindTarget(scene, spec.ScenePath);
                 Transform proxy = objects
                     .Where(item => string.Equals(
                         item.name,
-                        "W7Target_" + keyId,
+                        "W7Target_" + targetId,
                         StringComparison.Ordinal))
                     .Select(item => item.transform)
                     .SingleOrDefault();
@@ -1841,7 +1913,7 @@ namespace SignVR.Editor.Interaction
                     !binding.HighlightRoots.Contains(model))
                 {
                     failures.Add(
-                        $"Pointing key '{keyId}' must hit only its proxy and " +
+                        $"Pointing target '{targetId}' must hit its proxy and " +
                         "highlight proxy plus visual model."
                     );
                 }

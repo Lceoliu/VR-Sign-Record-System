@@ -16,6 +16,9 @@ namespace SignVR.Interaction.Presentation
         [SerializeField]
         private Transform[] highlightRoots = Array.Empty<Transform>();
 
+        [SerializeField]
+        private bool allowGuidanceSnap;
+
         public GhostPointingTargetBinding(string id, Transform root)
             : this(id, root, root != null ? new[] { root } : null)
         {
@@ -25,6 +28,15 @@ namespace SignVR.Interaction.Presentation
             string id,
             Transform root,
             Transform[] rootsToHighlight)
+            : this(id, root, rootsToHighlight, false)
+        {
+        }
+
+        public GhostPointingTargetBinding(
+            string id,
+            Transform root,
+            Transform[] rootsToHighlight,
+            bool enableGuidanceSnap)
         {
             targetId = id ?? string.Empty;
             targetRoot = root;
@@ -47,6 +59,7 @@ namespace SignVR.Interaction.Presentation
                 }
             }
             highlightRoots = uniqueRoots.ToArray();
+            allowGuidanceSnap = enableGuidanceSnap;
         }
 
         public string TargetId => targetId ?? string.Empty;
@@ -55,5 +68,7 @@ namespace SignVR.Interaction.Presentation
 
         public IReadOnlyList<Transform> HighlightRoots =>
             highlightRoots ?? Array.Empty<Transform>();
+
+        public bool AllowGuidanceSnap => allowGuidanceSnap;
     }
 }

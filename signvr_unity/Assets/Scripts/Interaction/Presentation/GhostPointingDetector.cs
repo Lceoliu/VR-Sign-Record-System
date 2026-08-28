@@ -39,6 +39,7 @@ namespace SignVR.Interaction.Presentation
             public Renderer[] Renderers;
             public Collider[] Colliders;
             public Transform[] HighlightRoots;
+            public bool AllowGuidanceSnap;
         }
 
         [Header("Playback source")]
@@ -75,6 +76,14 @@ namespace SignVR.Interaction.Presentation
         [Min(0.01f)]
         private float minimumBoundsExtent = 0.035f;
 
+        [SerializeField]
+        [Range(0f, 30f)]
+        private float guidanceSnapAngleDegrees = 12f;
+
+        [SerializeField]
+        [Min(0f)]
+        private float guidanceSnapLateralTolerance = 0.22f;
+
         [Header("Reused pointing appearance")]
         [SerializeField]
         private InteractionTargetHighlightVisual targetHighlight;
@@ -108,6 +117,7 @@ namespace SignVR.Interaction.Presentation
             GhostPointingDiagnosticStatus.PhaseNotConfigured;
         private string diagnosticTargetId = string.Empty;
         private double lastMonotonicTime = double.NaN;
+        private double naturalPlaybackEndDeadline = double.NaN;
 
         public event Action<string, double> HitStarted;
         public event Action<string, double> HitEnded;
@@ -289,7 +299,10 @@ namespace SignVR.Interaction.Presentation
             InteractionTargetHighlightVisual highlight)
         {
             targetHighlight = highlight;
-            targetHighlight?.Hide();
+            if (targetHighlight != null)
+            {
+                targetHighlight.Hide();
+            }
         }
 
         public void ConfigurePhase(
@@ -440,7 +453,15 @@ namespace SignVR.Interaction.Presentation
 
         private void LateUpdate()
         {
-            EvaluatePointing(GetSystemMonotonicTime());
+            double now = GetSystemMonotonicTime();
+            EvaluatePointing(now);
+            if (!double.IsNaN(naturalPlaybackEndDeadline) &&
+                now >= naturalPlaybackEndDeadline)
+            {
+                StopAndClear(now);
+                naturalPlaybackEndDeadline = double.NaN;
+                RefreshConfigurationDiagnostic();
+            }
         }
 
         public void SynchronizePlayback(
@@ -451,6 +472,7 @@ namespace SignVR.Interaction.Presentation
             lastMonotonicTime = monotonicTime;
             if (playbackActive)
             {
+                naturalPlaybackEndDeadline = double.NaN;
                 if (PointingAllowed)
                 {
                     pointingState.BeginPlayback(monotonicTime);
@@ -531,7 +553,91 @@ namespace SignVR.Interaction.Presentation
                 ref rayStart,
                 ref hitPoint
             );
+            if (nearestTarget != null)
+            {
+                return true;
+            }
+
+            float nearestAngle = guidanceSnapAngleDegrees;
+            EvaluateGuidanceRay(
+                leftIndexDistal,
+                leftIndexTip,
+                ref nearestTarget,
+                ref nearestAngle,
+                ref nearestDistance,
+                ref rayStart,
+                ref hitPoint
+            );
+            EvaluateGuidanceRay(
+                rightIndexDistal,
+                rightIndexTip,
+                ref nearestTarget,
+                ref nearestAngle,
+                ref nearestDistance,
+                ref rayStart,
+                ref hitPoint
+            );
             return nearestTarget != null;
+        }
+
+        private void EvaluateGuidanceRay(
+            Transform distal,
+            Transform tip,
+            ref TargetGeometry nearestTarget,
+            ref float nearestAngle,
+            ref float nearestDistance,
+            ref Vector3 nearestStart,
+            ref Vector3 nearestPoint)
+        {
+            Vector3 direction = tip.position - distal.position;
+            if (direction.sqrMagnitude < 0.000001f)
+            {
+                return;
+            }
+            direction.Normalize();
+
+            for (int index = 0; index < activeTargetCount; index++)
+            {
+                TargetGeometry candidate = activeTargets[index];
+                if (!candidate.AllowGuidanceSnap)
+                {
+                    continue;
+                }
+                if (!TryCalculateBounds(candidate, out Bounds bounds))
+                {
+                    continue;
+                }
+
+                Vector3 toCenter = bounds.center - tip.position;
+                float distance = Vector3.Dot(toCenter, direction);
+                if (distance <= 0f || distance > maximumRayDistance)
+                {
+                    continue;
+                }
+
+                float angle = Vector3.Angle(direction, toCenter);
+                Vector3 closestOnRay = tip.position + direction * distance;
+                float lateralDistance = Vector3.Distance(
+                    closestOnRay,
+                    bounds.center
+                );
+                float allowedLateralDistance =
+                    guidanceSnapLateralTolerance + bounds.extents.magnitude;
+                if (angle > guidanceSnapAngleDegrees ||
+                    lateralDistance > allowedLateralDistance ||
+                    angle > nearestAngle ||
+                    (Mathf.Approximately(angle, nearestAngle) &&
+                     distance >= nearestDistance))
+                {
+                    continue;
+                }
+
+                nearestTarget = candidate;
+                nearestAngle = angle;
+                nearestDistance = distance;
+                nearestStart = tip.position;
+                nearestPoint = bounds.center;
+            }
         }
 
         private void EvaluateHandRay(
@@ -647,10 +753,10 @@ namespace SignVR.Interaction.Presentation
 
         private void HandlePlaybackEnded(InstructionPlaybackPass _)
         {
-            SynchronizePlayback(
-                false,
-                GetSystemMonotonicTime()
-            );
+            double now = GetSystemMonotonicTime();
+            naturalPlaybackEndDeadline =
+                now + GhostPointingState.LossGraceSeconds;
+            EvaluatePointing(now);
         }
 
         private void HandlePlayerStopped()
@@ -682,10 +788,13 @@ namespace SignVR.Interaction.Presentation
                 {
                     visualTargetId = targetId;
                 }
-                targetHighlight?.Show(
-                    geometry.Root,
-                    geometry.HighlightRoots
-                );
+                if (targetHighlight != null)
+                {
+                    targetHighlight.Show(
+                        geometry.Root,
+                        geometry.HighlightRoots
+                    );
+                }
             }
 
             HitStarted?.Invoke(targetId, time);
@@ -694,19 +803,32 @@ namespace SignVR.Interaction.Presentation
         private void HandleHitEnded(string targetId, double time)
         {
             HideRay();
-            targetHighlight?.Hide();
+            if (targetHighlight != null)
+            {
+                targetHighlight.Hide();
+            }
             HitEnded?.Invoke(targetId, time);
         }
 
         private void StopAndClear(double monotonicTime)
         {
+            naturalPlaybackEndDeadline = double.NaN;
             var failures = new List<Exception>();
             TryCleanup(
                 () => pointingState.StopPlayback(monotonicTime),
                 failures
             );
             TryCleanup(HideRay, failures);
-            TryCleanup(() => targetHighlight?.Clear(), failures);
+            TryCleanup(
+                () =>
+                {
+                    if (targetHighlight != null)
+                    {
+                        targetHighlight.Clear();
+                    }
+                },
+                failures
+            );
             visualTargetId = string.Empty;
 
             if (failures.Count > 0)
@@ -788,7 +910,8 @@ namespace SignVR.Interaction.Presentation
                     Renderers = renderers.ToArray(),
                     Colliders = binding.TargetRoot
                         .GetComponentsInChildren<Collider>(true),
-                    HighlightRoots = highlightRoots
+                    HighlightRoots = highlightRoots,
+                    AllowGuidanceSnap = binding.AllowGuidanceSnap
                 });
             }
         }
@@ -1042,6 +1165,15 @@ namespace SignVR.Interaction.Presentation
             maximumRayDistance = Mathf.Max(0.1f, maximumRayDistance);
             boundsPadding = Mathf.Max(0f, boundsPadding);
             minimumBoundsExtent = Mathf.Max(0.01f, minimumBoundsExtent);
+            guidanceSnapAngleDegrees = Mathf.Clamp(
+                guidanceSnapAngleDegrees,
+                0f,
+                30f
+            );
+            guidanceSnapLateralTolerance = Mathf.Max(
+                0f,
+                guidanceSnapLateralTolerance
+            );
             rayWidth = Mathf.Clamp(rayWidth, 0.002f, 0.025f);
         }
 #endif

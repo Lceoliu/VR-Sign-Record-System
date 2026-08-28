@@ -511,21 +511,24 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Assert.That(grabRoot.activeSelf, Is.True);
             Assert.That(grabBehaviour.enabled, Is.True);
             Assert.That(collider.enabled, Is.True);
-            Assert.That(body.isKinematic, Is.False);
+            Assert.That(body.isKinematic, Is.True);
             Assert.That(
                 body.useGravity,
                 Is.False,
                 "Phase 2 availability must not turn coin gravity on."
             );
             Assert.That(body.detectCollisions, Is.True);
-            Assert.That(body.constraints, Is.EqualTo(RigidbodyConstraints.None));
+            Assert.That(
+                body.constraints,
+                Is.EqualTo(RigidbodyConstraints.FreezeAll)
+            );
             Assert.That(
                 body.interpolation,
-                Is.EqualTo(RigidbodyInterpolation.Interpolate)
+                Is.EqualTo(RigidbodyInterpolation.None)
             );
             Assert.That(
                 body.collisionDetectionMode,
-                Is.EqualTo(CollisionDetectionMode.ContinuousDynamic)
+                Is.EqualTo(CollisionDetectionMode.Discrete)
             );
 
             coin.transform.localPosition = Vector3.one * 9f;
@@ -573,6 +576,74 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         }
 
         [UnityTest]
+        public IEnumerator CoinRemainsKinematicThroughSelectionCycle()
+        {
+            GameObject adapterObject = Track(
+                new GameObject("PhaseTwoSelectionOwnedPhysics")
+            );
+            Component phaseTwo = adapterObject.AddComponent(
+                RuntimeType("PhaseTwoInteractionAdapter")
+            );
+
+            GameObject coin = Track(new GameObject("SelectionOwnedCoin"));
+            Rigidbody body = coin.AddComponent<Rigidbody>();
+            body.useGravity = false;
+            body.isKinematic = false;
+            body.linearVelocity = new Vector3(2f, 3f, 4f);
+            body.angularVelocity = new Vector3(5f, 6f, 7f);
+            BoxCollider collider = coin.AddComponent<BoxCollider>();
+            FakeSelectionInteractableView selection =
+                coin.AddComponent<FakeSelectionInteractableView>();
+            Component binding = coin.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                binding,
+                "ConfigureMovable",
+                "coin_dragon",
+                phaseTwo,
+                new Behaviour[] { selection },
+                new Collider[] { collider },
+                Array.Empty<GameObject>()
+            );
+
+            InvokePublic(phaseTwo, "Enable");
+            Assert.That(
+                body.isKinematic,
+                Is.True,
+                "An available but unheld coin must stay fixed in place."
+            );
+            Assert.That(body.linearVelocity, Is.EqualTo(Vector3.zero));
+            Assert.That(body.angularVelocity, Is.EqualTo(Vector3.zero));
+
+            selection.IsSelected = true;
+            Assert.That(
+                body.isKinematic,
+                Is.True,
+                "Meta grab moves the Transform and must not unlock physics."
+            );
+
+            coin.transform.position = new Vector3(8f, 9f, 10f);
+            selection.IsSelected = false;
+            Vector3 releasedPosition = coin.transform.position;
+            yield return new WaitForFixedUpdate();
+            yield return new WaitForFixedUpdate();
+            Assert.That(
+                body.isKinematic,
+                Is.True,
+                "Releasing a coin away from a plate must freeze its pose."
+            );
+            Assert.That(
+                coin.transform.position,
+                Is.EqualTo(releasedPosition),
+                "Releasing must preserve the grabbed pose."
+            );
+            Assert.That(body.linearVelocity, Is.EqualTo(Vector3.zero));
+            Assert.That(body.angularVelocity, Is.EqualTo(Vector3.zero));
+            Assert.That(body.useGravity, Is.False);
+        }
+
+        [UnityTest]
         public IEnumerator CorrectPlacementWaitsForReleaseThenSnapsAndLocksCoin()
         {
             RuntimeFixture fixture = CreateRuntimeFixture("CoinSnapLock");
@@ -596,11 +667,12 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
             InvokePublic(
                 coinBinding,
-                "Configure",
+                "ConfigureMovable",
                 "coin_dragon",
                 phaseTwo,
                 new Behaviour[] { selection },
-                new[] { coinCollider }
+                new[] { coinCollider },
+                Array.Empty<GameObject>()
             );
 
             GameObject plate = new GameObject("plate_dragon");
@@ -638,8 +710,9 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
             Assert.That(
                 body.isKinematic,
-                Is.False,
-                "A still-selected coin must remain owned by the grab system."
+                Is.True,
+                "A selected coin remains kinematic while Meta owns its " +
+                "Transform."
             );
 
             selection.IsSelected = false;
@@ -693,11 +766,12 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
             InvokePublic(
                 coinBinding,
-                "Configure",
+                "ConfigureMovable",
                 "coin_dragon",
                 phaseTwo,
                 new Behaviour[] { selection },
-                new[] { coinCollider }
+                new[] { coinCollider },
+                Array.Empty<GameObject>()
             );
 
             GameObject plate = new GameObject("plate_dragon");

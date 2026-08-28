@@ -547,7 +547,8 @@ namespace SignVR.Editor.Interaction
                 result.Add(new GhostPointingTargetBinding(
                     pair.Key,
                     hitTarget,
-                    highlightRoots
+                    highlightRoots,
+                    IsKeyTargetId(pair.Key)
                 ));
             }
             return result.ToArray();

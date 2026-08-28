@@ -678,16 +678,22 @@ namespace SignVR.Interaction.PhaseAdapters
                 {
                     continue;
                 }
-                body.isKinematic = false;
-                body.constraints = RigidbodyConstraints.None;
+                if (!body.isKinematic)
+                {
+                    body.linearVelocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                    body.isKinematic = true;
+                }
+                body.constraints = RigidbodyConstraints.FreezeAll;
                 body.detectCollisions = true;
-                body.interpolation = RigidbodyInterpolation.Interpolate;
+                body.interpolation = index < authoredBodyInterpolation.Length
+                    ? authoredBodyInterpolation[index]
+                    : RigidbodyInterpolation.None;
                 body.collisionDetectionMode =
-                    CollisionDetectionMode.ContinuousDynamic;
-                body.useGravity = index < authoredBodyGravity.Length &&
-                    authoredBodyGravity[index];
-                body.linearVelocity = Vector3.zero;
-                body.angularVelocity = Vector3.zero;
+                    index < authoredBodyCollisionDetection.Length
+                        ? authoredBodyCollisionDetection[index]
+                        : CollisionDetectionMode.Discrete;
+                body.useGravity = false;
             }
         }
 
@@ -750,6 +756,34 @@ namespace SignVR.Interaction.PhaseAdapters
         }
 
 #if UNITY_EDITOR
+        public bool HasCapturedAuthoredPose =>
+            authoredPoseAndPhysicsCaptured;
+
+        public Vector3 CapturedAuthoredLocalPosition =>
+            authoredLocalPosition;
+
+        public Quaternion CapturedAuthoredLocalRotation =>
+            authoredLocalRotation;
+
+        public void RestoreCapturedAuthoredPoseForEditorSetup()
+        {
+            if (Application.isPlaying)
+            {
+                throw new InvalidOperationException(
+                    "Editor setup cannot restore a target during Play Mode."
+                );
+            }
+            if (!authoredPoseAndPhysicsCaptured)
+            {
+                CaptureAuthoredPoseAndPhysics();
+            }
+            transform.SetLocalPositionAndRotation(
+                authoredLocalPosition,
+                authoredLocalRotation
+            );
+            transform.localScale = authoredLocalScale;
+        }
+
         void IInteractionOwnedStateTeardown
             .ReleaseOwnedStateForEditorTeardown()
         {

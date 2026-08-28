@@ -256,15 +256,17 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(
                     body.GetType().GetProperty("isKinematic")
                         .GetValue(body),
-                    Is.False,
-                    $"Phase 2 must make {coinName} movable."
+                    Is.True,
+                    $"Phase 2 must keep unheld {coinName} fixed."
                 );
                 Assert.That(
                     Convert.ToInt32(body.GetType()
                         .GetProperty("constraints").GetValue(body)),
-                    Is.Zero,
-                    $"Phase 2 must remove recording FreezeAll from " +
-                    $"{coinName}."
+                    Is.EqualTo(Convert.ToInt32(
+                        UnityPhysicsType("RigidbodyConstraints")
+                            .GetField("FreezeAll").GetValue(null)
+                    )),
+                    $"Phase 2 must keep unheld {coinName} constrained."
                 );
                 Assert.That(
                     body.GetType().GetProperty("detectCollisions")
@@ -2091,7 +2093,7 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void KeyProxyHitHighlightsProxyAndVisualCompanion()
+        public void KeyGuidanceSnapHighlightsProxyAndVisualCompanion()
         {
             object root = CreateGameObject("W7KeyCompanionPointingTest");
             try
@@ -2099,8 +2101,12 @@ namespace SignVR.Interaction.Editor.Tests
                 object rootTransform = GetTransform(root);
                 object proxy = CreateVisual(rootTransform, "W7Target_key_a");
                 object model = CreateVisual(rootTransform, "key");
-                SetLocalPosition(proxy, CreateVector3(0f, 0f, 2f));
-                SetLocalPosition(model, CreateVector3(0.2f, 0f, 2f));
+                SetLocalPosition(proxy, CreateVector3(0.22f, 0f, 2f));
+                SetLocalPosition(model, CreateVector3(0.22f, 0f, 2f));
+                proxy.GetType().GetProperty("localScale").SetValue(
+                    proxy,
+                    CreateVector3(0.08f, 0.08f, 0.025f)
+                );
                 AddComponent(
                     GetGameObject(proxy),
                     UnityPhysicsType("BoxCollider")
@@ -2127,7 +2133,8 @@ namespace SignVR.Interaction.Editor.Tests
                             UnityType("Transform"),
                             proxy,
                             model
-                        )
+                        ),
+                        true
                     }
                 );
                 Array bindings = Array.CreateInstance(bindingType, 1);
@@ -2192,6 +2199,27 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(highlightedRoots.Length, Is.EqualTo(2));
                 Assert.That(highlightedRoots.Cast<object>(), Does.Contain(proxy));
                 Assert.That(highlightedRoots.Cast<object>(), Does.Contain(model));
+
+                detectorType.GetMethod(
+                    "HandlePlaybackEnded",
+                    BindingFlags.NonPublic | BindingFlags.Instance
+                ).Invoke(
+                    detector,
+                    new[]
+                    {
+                        Enum.Parse(
+                            PresentationType("InstructionPlaybackPass"),
+                            "First"
+                        )
+                    }
+                );
+                Assert.That(
+                    highlightType.GetProperty("IsVisible")
+                        .GetValue(highlight),
+                    Is.True,
+                    "Natural completion must preserve the final guidance " +
+                    "through the loss-grace window."
+                );
             }
             finally
             {
@@ -3164,8 +3192,8 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(
                     body.GetType().GetProperty("isKinematic")
                         .GetValue(body),
-                    Is.False,
-                    "The available coin must be movable."
+                    Is.True,
+                    "The available but unheld coin must stay fixed."
                 );
                 Assert.That(
                     body.GetType().GetProperty("useGravity")
