@@ -1,6 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Oculus.Interaction;
+using Oculus.Interaction.Editor.QuickActions;
+using Oculus.Interaction.Grab;
+using Oculus.Interaction.HandGrab;
 using SignVR.Interaction.PhaseAdapters;
 using SignVR.Interaction.Presentation;
 using UnityEditor;
@@ -55,9 +59,9 @@ namespace SignVR.Editor.Interaction
             new TargetSpec(2, "plate_a", "plate", false),
             new TargetSpec(2, "plate_b", "plate (1)", false),
 
-            new TargetSpec(3, "picture_frame_a", "picture_frame", true),
-            new TargetSpec(3, "picture_frame_b", "fancy_picture_frame", true),
-            new TargetSpec(3, "picture_frame_c", "white_photo_frame", true),
+            new TargetSpec(3, "picture_frame_a", "picture_frame", false),
+            new TargetSpec(3, "picture_frame_b", "fancy_picture_frame", false),
+            new TargetSpec(3, "picture_frame_c", "white_photo_frame", false),
 
             // Phase 4 selects/releases each key through its existing proxy.
             new TargetSpec(4, "key_a", "chest/key", true),
@@ -100,6 +104,26 @@ namespace SignVR.Editor.Interaction
         public static void SetupAndSaveForAutomation()
         {
             SetupAndSaveLoadedScene(OpenInteractionScene());
+        }
+
+        public static void SetupAndValidateLoadedSceneForAutomation(Scene scene)
+        {
+            if (!scene.IsValid() || !scene.isLoaded)
+            {
+                throw new InvalidOperationException(
+                    "The W7 interaction scene must be loaded before setup."
+                );
+            }
+            Debug.Log(
+                "[W7InteractionPhaseAdaptersSetup] Sequence scene setup " +
+                "starting: " + scene.path
+            );
+            SetupLoadedScene(scene);
+            ValidateLoadedScene(scene);
+            Debug.Log(
+                "[W7InteractionPhaseAdaptersSetup] Sequence scene setup " +
+                "completed: " + scene.path
+            );
         }
 
         public static void SetupAndValidateForAutomationWithoutSaving()
@@ -347,12 +371,7 @@ namespace SignVR.Editor.Interaction
                 InteractionLabContract.AnchorsRootName +
                 "/PhaseContentAnchor"
             );
-            Transform interactionUiAnchor = FindUniquePath(
-                scene,
-                InteractionLabContract.SceneRootName + "/" +
-                InteractionLabContract.AnchorsRootName +
-                "/InteractionUiAnchor"
-            );
+            Transform interactionUiAnchor = FindInteractionUiAnchor(scene);
 
             Transform runtimeRoot = EnsureChild(
                 runtimeAnchor,
@@ -363,7 +382,7 @@ namespace SignVR.Editor.Interaction
                 ProxyRootName
             );
             proxyRoot.gameObject.SetActive(true);
-            RemoveObsoletePhaseOnePasswordObjects(proxyRoot);
+            RemoveObsoletePhaseOnePasswordObjects(scene, proxyRoot);
 
             InteractionPhaseCoordinator coordinator =
                 GetOrAdd<InteractionPhaseCoordinator>(runtimeRoot.gameObject);
@@ -405,6 +424,20 @@ namespace SignVR.Editor.Interaction
                 }
                 Behaviour[] interactionBehaviours =
                     FindInteractionBehaviours(authoredTarget);
+                if (spec.InputPhaseId == 3)
+                {
+                    Transform obsoleteProxy = proxyRoot.Find(
+                        "W7Target_" + spec.TargetId
+                    );
+                    if (obsoleteProxy != null)
+                    {
+                        Undo.DestroyObjectImmediate(obsoleteProxy.gameObject);
+                    }
+                    EnsurePhysicalFrameGrabTopology(authoredTarget);
+                    interactionBehaviours = FindInteractionBehaviours(
+                        authoredTarget
+                    );
+                }
                 RecordForUndo(binding);
                 RecordForUndo(interactionBehaviours);
                 Collider proxyCollider = null;
@@ -419,7 +452,28 @@ namespace SignVR.Editor.Interaction
                     );
                 }
 
-                if (spec.RestoreGrabTopology)
+                if (spec.InputPhaseId == 3)
+                {
+                    Collider frameCollider = authoredTarget
+                        .GetComponents<BoxCollider>()
+                        .FirstOrDefault();
+                    GameObject[] availabilityObjects = interactionBehaviours
+                        .Select(item => item.gameObject)
+                        .Where(item => item != authoredTarget.gameObject &&
+                            !item.activeSelf)
+                        .Distinct()
+                        .ToArray();
+                    binding.ConfigureGrabActivated(
+                        spec.TargetId,
+                        adapterByPhase[spec.InputPhaseId],
+                        interactionBehaviours,
+                        frameCollider != null
+                            ? new Collider[] { frameCollider }
+                            : Array.Empty<Collider>(),
+                        availabilityObjects
+                    );
+                }
+                else if (spec.RestoreGrabTopology)
                 {
                     Collider[] inputColliders = authoredTarget
                         .GetComponentsInChildren<Collider>(true);
@@ -645,12 +699,7 @@ namespace SignVR.Editor.Interaction
                 InteractionLabContract.AnchorsRootName +
                 "/PhaseContentAnchor"
             );
-            FindUniquePath(
-                scene,
-                InteractionLabContract.SceneRootName + "/" +
-                InteractionLabContract.AnchorsRootName +
-                "/InteractionUiAnchor"
-            );
+            FindInteractionUiAnchor(scene);
 
             foreach (TargetSpec spec in TargetSpecs)
             {
@@ -1109,14 +1158,30 @@ namespace SignVR.Editor.Interaction
             proxy.SetActive(true);
             RecordForUndo(proxy.transform);
             proxy.transform.SetPositionAndRotation(
-                new Vector3(
-                    bounds.center.x,
-                    bounds.center.y,
-                    bounds.max.z + 0.045f
-                ),
+                IsCabinetButtonTargetId(targetId)
+                    ? new Vector3(
+                        bounds.min.x - 0.025f,
+                        bounds.center.y,
+                        bounds.center.z
+                    )
+                    : new Vector3(
+                        bounds.center.x,
+                        bounds.center.y,
+                        bounds.max.z + 0.045f
+                    ),
                 Quaternion.identity
             );
-            proxy.transform.localScale = new Vector3(0.08f, 0.08f, 0.025f);
+            proxy.transform.localScale = IsCabinetButtonTargetId(targetId)
+                ? new Vector3(
+                    0.05f,
+                    Mathf.Clamp(bounds.size.y + 0.04f, 0.11f, 0.3f),
+                    Mathf.Clamp(bounds.size.z + 0.04f, 0.11f, 0.3f)
+                )
+                : new Vector3(
+                    Mathf.Clamp(bounds.size.x + 0.04f, 0.11f, 0.3f),
+                    Mathf.Clamp(bounds.size.y + 0.04f, 0.11f, 0.3f),
+                    0.04f
+                );
             BoxCollider collider = proxy.GetComponent<BoxCollider>();
             RecordForUndo(collider);
             InteractionTriggerRelay relay =
@@ -1128,11 +1193,132 @@ namespace SignVR.Editor.Interaction
             return collider;
         }
 
+        private static void EnsurePhysicalFrameGrabTopology(Transform frame)
+        {
+            if (frame == null)
+            {
+                return;
+            }
+            GameObject outermostPrefabRoot = PrefabUtility
+                .GetOutermostPrefabInstanceRoot(frame.gameObject);
+            if (outermostPrefabRoot == frame.gameObject)
+            {
+                PrefabUtility.UnpackPrefabInstance(
+                    frame.gameObject,
+                    PrefabUnpackMode.OutermostRoot,
+                    InteractionMode.AutomatedAction
+                );
+            }
+            Bounds bounds = GetBounds(frame);
+            foreach (MeshCollider meshCollider in frame.GetComponentsInChildren<
+                         MeshCollider>(true))
+            {
+                Undo.DestroyObjectImmediate(meshCollider);
+            }
+
+            BoxCollider collider = frame.GetComponent<BoxCollider>();
+            if (collider == null)
+            {
+                collider = Undo.AddComponent<BoxCollider>(frame.gameObject);
+            }
+            if (collider == null)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to add BoxCollider to frame '{frame.name}'."
+                );
+            }
+            Bounds localBounds = new Bounds(
+                frame.InverseTransformPoint(bounds.center),
+                Vector3.zero
+            );
+            Vector3 minimum = bounds.min;
+            Vector3 maximum = bounds.max;
+            for (int x = 0; x <= 1; x++)
+            {
+                for (int y = 0; y <= 1; y++)
+                {
+                    for (int z = 0; z <= 1; z++)
+                    {
+                        localBounds.Encapsulate(frame.InverseTransformPoint(
+                            new Vector3(
+                                x == 0 ? minimum.x : maximum.x,
+                                y == 0 ? minimum.y : maximum.y,
+                                z == 0 ? minimum.z : maximum.z
+                            )
+                        ));
+                    }
+                }
+            }
+            collider.center = localBounds.center;
+            collider.size = localBounds.size + Vector3.one * 0.012f;
+            collider.isTrigger = false;
+
+            Rigidbody body = frame.GetComponent<Rigidbody>();
+            if (body == null)
+            {
+                body = Undo.AddComponent<Rigidbody>(frame.gameObject);
+            }
+            body.mass = 0.45f;
+            body.useGravity = true;
+            body.isKinematic = true;
+            body.detectCollisions = true;
+            body.constraints = RigidbodyConstraints.None;
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+
+            if (frame.GetComponent<Grabbable>() == null)
+            {
+                QuickActionsAPI.AddGrabInteraction(frame.gameObject);
+            }
+            Grabbable grabbable = frame.GetComponent<Grabbable>();
+            if (grabbable == null)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to create Grabbable for frame '{frame.name}'."
+                );
+            }
+            grabbable.MaxGrabPoints = 2;
+            grabbable.InjectOptionalTargetTransform(frame);
+            grabbable.InjectOptionalRigidbody(body);
+            grabbable.InjectOptionalKinematicWhileSelected(true);
+            grabbable.InjectOptionalThrowWhenUnselected(true);
+            grabbable.ForceKinematicDisabled = true;
+
+            foreach (HandGrabInteractable handGrab in frame
+                         .GetComponentsInChildren<HandGrabInteractable>(true))
+            {
+                if (handGrab.gameObject != frame.gameObject)
+                {
+                    handGrab.gameObject.SetActive(false);
+                }
+            }
+            foreach (GrabInteractable grab in frame
+                         .GetComponentsInChildren<GrabInteractable>(true))
+            {
+                if (grab.gameObject != frame.gameObject)
+                {
+                    grab.gameObject.SetActive(false);
+                }
+            }
+            VRGrabEventForwarder forwarder = frame.GetComponent<
+                VRGrabEventForwarder>() ??
+                Undo.AddComponent<VRGrabEventForwarder>(frame.gameObject);
+            VRPhysicalObject physical = frame.GetComponent<VRPhysicalObject>() ??
+                Undo.AddComponent<VRPhysicalObject>(frame.gameObject);
+            forwarder.Configure(physical);
+            forwarder.RefreshInteractables();
+            EditorUtility.SetDirty(collider);
+            EditorUtility.SetDirty(body);
+            EditorUtility.SetDirty(grabbable);
+            EditorUtility.SetDirty(forwarder);
+        }
+
         private static void RemoveObsoletePhaseOnePasswordObjects(
+            Scene scene,
             Transform proxyRoot)
         {
-            Transform[] obsolete = proxyRoot
-                .GetComponentsInChildren<Transform>(true)
+            Transform[] obsolete = Enumerate(scene)
+                .Select(item => item.transform)
                 .Where(item => item != proxyRoot &&
                     IsObsoletePhaseOnePasswordObjectName(item.name) &&
                     !HasObsoletePhaseOnePasswordAncestor(item.parent))
@@ -1254,7 +1440,7 @@ namespace SignVR.Editor.Interaction
                 );
                 RecordForUndo(placementRoot);
                 placementRoot.SetPositionAndRotation(
-                    bounds.center + Vector3.up * 0.035f,
+                    bounds.center + Vector3.up * 0.06f,
                     Quaternion.identity
                 );
                 placementRoot.localScale = Vector3.one;
@@ -1264,9 +1450,9 @@ namespace SignVR.Editor.Interaction
                 RecordForUndo(collider);
                 collider.isTrigger = true;
                 collider.size = new Vector3(
-                    Mathf.Clamp(bounds.size.x, 0.12f, 0.32f),
-                    0.12f,
-                    Mathf.Clamp(bounds.size.z, 0.12f, 0.32f)
+                    Mathf.Clamp(bounds.size.x + 0.08f, 0.2f, 0.45f),
+                    0.2f,
+                    Mathf.Clamp(bounds.size.z + 0.08f, 0.2f, 0.45f)
                 );
                 Transform snap = EnsureChild(placementRoot, "SnapPoint");
                 RecordForUndo(snap);
@@ -1374,7 +1560,7 @@ namespace SignVR.Editor.Interaction
                 0f
             );
             var binding = new DeterministicHingeBinding();
-            binding.ConfigureAbsolute(
+            binding.ConfigureAbsoluteInPlace(
                 lid,
                 hinge,
                 Vector3.right,
@@ -2096,6 +2282,13 @@ namespace SignVR.Editor.Interaction
             return legacyNamedRoot || comprehensiveHandOnlyRoot;
         }
 
+        private static bool IsCabinetButtonTargetId(string targetId)
+        {
+            return string.Equals(targetId, "button_a", StringComparison.Ordinal) ||
+                string.Equals(targetId, "button_b", StringComparison.Ordinal) ||
+                string.Equals(targetId, "button_c", StringComparison.Ordinal);
+        }
+
         private static Transform FindTarget(Scene scene, string path)
         {
             string[] segments = path.Split('/');
@@ -2176,6 +2369,45 @@ namespace SignVR.Editor.Interaction
                 );
             }
             return matches[0];
+        }
+
+        private static Transform FindInteractionUiAnchor(Scene scene)
+        {
+            string canonicalPath =
+                InteractionLabContract.SceneRootName + "/" +
+                InteractionLabContract.AnchorsRootName +
+                "/InteractionUiAnchor";
+            Transform[] canonical = Enumerate(scene)
+                .Select(item => item.transform)
+                .Where(item => string.Equals(
+                    GetHierarchyPath(item),
+                    canonicalPath,
+                    StringComparison.Ordinal
+                ))
+                .ToArray();
+            if (canonical.Length == 1)
+            {
+                return canonical[0];
+            }
+
+            // The 31-sign scene keeps its UI anchor below the XR camera rig
+            // rather than under InteractionSceneRoot/Anchors.
+            Transform[] fallback = Enumerate(scene)
+                .Select(item => item.transform)
+                .Where(item => string.Equals(
+                    item.name,
+                    "InteractionUiAnchor",
+                    StringComparison.Ordinal
+                ))
+                .ToArray();
+            if (fallback.Length == 1)
+            {
+                return fallback[0];
+            }
+            throw new InvalidOperationException(
+                "Expected one InteractionUiAnchor in the W7 scene; found " +
+                fallback.Length + "."
+            );
         }
 
         private static Transform EnsureChild(Transform parent, string name)
@@ -2406,7 +2638,21 @@ namespace SignVR.Editor.Interaction
                     return true;
                 }
             }
-            return false;
+            return string.Equals(
+                    objectName,
+                    "codelock_rust",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "simple_keypad",
+                    StringComparison.Ordinal
+                ) ||
+                string.Equals(
+                    objectName,
+                    "gold_lock_improved (1)",
+                    StringComparison.Ordinal
+                );
         }
 
         private static bool HasW7OwnedAncestor(Transform parent)
@@ -2529,14 +2775,19 @@ namespace SignVR.Editor.Interaction
         private static void RequireInteractionScene(Scene scene)
         {
             if (!scene.IsValid() || !scene.isLoaded ||
-                !string.Equals(
+                (!string.Equals(
                     scene.path,
                     InteractionLabContract.ScenePath,
                     StringComparison.Ordinal
-                ))
+                ) && !string.Equals(
+                    scene.path,
+                    InteractionSignSequenceTestSceneSetup.ScenePath,
+                    StringComparison.Ordinal
+                )))
             {
                 throw new InvalidOperationException(
-                    $"W7 setup requires {InteractionLabContract.ScenePath}."
+                    "W7 setup requires the InteractionLab or " +
+                    "InteractionSignSequenceTest scene."
                 );
             }
         }

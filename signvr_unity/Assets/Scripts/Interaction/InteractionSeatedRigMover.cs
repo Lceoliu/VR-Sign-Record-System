@@ -54,5 +54,6 @@ namespace SignVR.Interaction
 
             transform.position += direction.normalized * stepDistance;
         }
+
     }
 }

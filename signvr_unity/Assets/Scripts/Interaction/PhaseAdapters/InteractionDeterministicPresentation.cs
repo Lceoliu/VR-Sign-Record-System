@@ -38,13 +38,23 @@ namespace SignVR.Interaction.PhaseAdapters
         [SerializeField]
         private bool explicitClosedPose;
 
+        [SerializeField]
+        private bool openInPlace;
+
         private bool opened;
+        private bool openingAnimating;
+        private double openingStartedAt;
+        private double openingDuration;
 
         public Transform MovingPart => movingPart;
 
         public Transform Hinge => hinge;
 
         public bool IsConfigured => movingPart != null && hinge != null;
+
+        public bool IsOpen => opened && !openingAnimating;
+
+        public bool IsOpening => openingAnimating;
 
         public bool UsesExplicitClosedPose =>
             IsConfigured && closedPoseCaptured && explicitClosedPose;
@@ -73,6 +83,7 @@ namespace SignVR.Interaction.PhaseAdapters
             hingeLocalAxis = localAxis;
             openAngleDegrees = openAngle;
             explicitClosedPose = false;
+            openInPlace = false;
             CaptureClosedPose();
         }
 
@@ -93,12 +104,34 @@ namespace SignVR.Interaction.PhaseAdapters
             hinge = nextHinge;
             hingeLocalAxis = localAxis;
             openAngleDegrees = openAngle;
+            openInPlace = false;
             closedLocalPosition = absoluteClosedLocalPosition;
             closedLocalRotation = Quaternion.Euler(
                 absoluteClosedLocalEulerAngles
             );
             closedPoseCaptured = true;
             explicitClosedPose = true;
+            CaptureOpenPoseFromClosed();
+            Reset();
+        }
+
+        public void ConfigureAbsoluteInPlace(
+            Transform targetMovingPart,
+            Transform targetHinge,
+            Vector3 localAxis,
+            float openAngle,
+            Vector3 absoluteClosedLocalPosition,
+            Vector3 absoluteClosedLocalEulerAngles)
+        {
+            ConfigureAbsolute(
+                targetMovingPart,
+                targetHinge,
+                localAxis,
+                openAngle,
+                absoluteClosedLocalPosition,
+                absoluteClosedLocalEulerAngles
+            );
+            openInPlace = true;
             CaptureOpenPoseFromClosed();
             Reset();
         }
@@ -120,10 +153,12 @@ namespace SignVR.Interaction.PhaseAdapters
             closedPoseCaptured = true;
             CaptureOpenPoseFromClosed();
             opened = false;
+            openingAnimating = false;
         }
 
         public void Reset()
         {
+            openingAnimating = false;
             if (!IsConfigured || !closedPoseCaptured)
             {
                 return;
@@ -152,6 +187,54 @@ namespace SignVR.Interaction.PhaseAdapters
                 openLocalRotation
             );
             opened = true;
+            openingAnimating = false;
+        }
+
+        public void OpenAnimated(double monotonicSeconds, double durationSeconds)
+        {
+            if (!IsConfigured)
+            {
+                return;
+            }
+            if (!closedPoseCaptured)
+            {
+                CaptureClosedPose();
+            }
+            movingPart.SetLocalPositionAndRotation(
+                closedLocalPosition,
+                closedLocalRotation
+            );
+            opened = true;
+            openingAnimating = durationSeconds > 0d;
+            openingStartedAt = monotonicSeconds;
+            openingDuration = Math.Max(0.0001d, durationSeconds);
+            if (!openingAnimating)
+            {
+                movingPart.SetLocalPositionAndRotation(
+                    openLocalPosition,
+                    openLocalRotation
+                );
+            }
+        }
+
+        public bool TickOpeningAnimation(double monotonicSeconds)
+        {
+            if (!openingAnimating || !IsConfigured)
+            {
+                return false;
+            }
+            float progress = Mathf.Clamp01((float)((monotonicSeconds -
+                openingStartedAt) / openingDuration));
+            progress = progress * progress * (3f - 2f * progress);
+            movingPart.SetLocalPositionAndRotation(
+                Vector3.Lerp(closedLocalPosition, openLocalPosition, progress),
+                Quaternion.Slerp(closedLocalRotation, openLocalRotation, progress)
+            );
+            if (progress >= 1f)
+            {
+                openingAnimating = false;
+            }
+            return openingAnimating;
         }
 
         private void CaptureOpenPoseFromClosed()
@@ -163,11 +246,20 @@ namespace SignVR.Interaction.PhaseAdapters
             Vector3 localAxis = hingeLocalAxis.sqrMagnitude > 0.0001f
                 ? hingeLocalAxis.normalized
                 : Vector3.up;
-            movingPart.RotateAround(
-                hinge.position,
-                hinge.TransformDirection(localAxis),
-                openAngleDegrees
-            );
+            if (openInPlace)
+            {
+                movingPart.localRotation =
+                    Quaternion.AngleAxis(openAngleDegrees, localAxis) *
+                    closedLocalRotation;
+            }
+            else
+            {
+                movingPart.RotateAround(
+                    hinge.position,
+                    hinge.TransformDirection(localAxis),
+                    openAngleDegrees
+                );
+            }
             openLocalPosition = movingPart.localPosition;
             openLocalRotation = movingPart.localRotation;
             movingPart.SetLocalPositionAndRotation(
@@ -230,6 +322,9 @@ namespace SignVR.Interaction.PhaseAdapters
         private MaterialPropertyBlock[] idlePropertyBlocks =
             Array.Empty<MaterialPropertyBlock>();
         private DeterministicTargetVisualState visualState;
+        private bool activationAnimating;
+        private double activationAnimationStartedAt;
+        private double activationAnimationDuration;
 
         public string TargetId => targetId;
 
@@ -366,6 +461,54 @@ namespace SignVR.Interaction.PhaseAdapters
             );
             visualState = DeterministicTargetVisualState.Accepted;
             ApplyFeedbackColor(acceptedColor);
+            activationAnimating = false;
+        }
+
+        public void ActivateAnimated(
+            double monotonicSeconds,
+            double durationSeconds)
+        {
+            Activate();
+            if (!IsConfigured || durationSeconds <= 0d)
+            {
+                return;
+            }
+            target.SetLocalPositionAndRotation(
+                idleLocalPosition,
+                idleLocalRotation
+            );
+            activationAnimating = true;
+            activationAnimationStartedAt = monotonicSeconds;
+            activationAnimationDuration = durationSeconds;
+        }
+
+        public bool TickActivationAnimation(double monotonicSeconds)
+        {
+            if (!activationAnimating || !IsConfigured)
+            {
+                return false;
+            }
+            double elapsed = monotonicSeconds - activationAnimationStartedAt;
+            float progress = Mathf.Clamp01((float)(elapsed /
+                Math.Max(0.0001d, activationAnimationDuration)));
+            progress = progress * progress * (3f - 2f * progress);
+            target.SetLocalPositionAndRotation(
+                Vector3.Lerp(
+                    idleLocalPosition,
+                    activatedLocalPosition,
+                    progress
+                ),
+                Quaternion.Slerp(
+                    idleLocalRotation,
+                    activatedLocalRotation,
+                    progress
+                )
+            );
+            if (progress >= 1f)
+            {
+                activationAnimating = false;
+            }
+            return activationAnimating;
         }
 
         public void ShowError()
@@ -389,6 +532,7 @@ namespace SignVR.Interaction.PhaseAdapters
                 activatedLocalPosition,
                 activatedLocalRotation
             );
+            activationAnimating = false;
             visualState = DeterministicTargetVisualState.Error;
             ApplyFeedbackColor(errorColor);
         }
@@ -403,6 +547,7 @@ namespace SignVR.Interaction.PhaseAdapters
                 idleLocalPosition,
                 idleLocalRotation
             );
+            activationAnimating = false;
             visualState = DeterministicTargetVisualState.Idle;
             RestoreRendererState();
         }
@@ -483,6 +628,7 @@ namespace SignVR.Interaction.PhaseAdapters
         private bool authoredActive;
         private bool authoredProxyActive;
         private bool authoredStateCaptured;
+        private bool plannedForCurrentRun;
         private Vector3 authoredRootLocalPosition;
         private Quaternion authoredRootLocalRotation;
         private bool[] authoredBodyKinematic = Array.Empty<bool>();
@@ -562,7 +708,8 @@ namespace SignVR.Interaction.PhaseAdapters
             }
 
             CaptureAuthoredState();
-            SetPhaseFourVisible(true);
+            plannedForCurrentRun = isPlanned;
+            SetPhaseFourVisible(isPlanned);
             LockAsVisualOnly();
         }
 
@@ -664,6 +811,7 @@ namespace SignVR.Interaction.PhaseAdapters
             {
                 inputProxyRoot.SetActive(authoredProxyActive);
             }
+            plannedForCurrentRun = false;
             for (int index = 0; index < bodyCount; index++)
             {
                 Rigidbody body = bodies[index];
@@ -798,6 +946,8 @@ namespace SignVR.Interaction.PhaseAdapters
         , IInteractionOwnedStateTeardown
 #endif
     {
+        private const double BreakerPullAnimationSeconds = 0.42d;
+        public const double ChestLidOpenAnimationSeconds = 1.1d;
         [SerializeField]
         private InteractionPhaseCoordinator coordinator;
 
@@ -883,7 +1033,13 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void Update()
         {
-            TickFeedback(Time.realtimeSinceStartupAsDouble);
+            double now = Time.realtimeSinceStartupAsDouble;
+            TickFeedback(now);
+            for (int index = 0; index < breakers.Length; index++)
+            {
+                breakers[index]?.TickActivationAnimation(now);
+            }
+            chestLid.TickOpeningAnimation(now);
         }
 
         private void OnEnable()
@@ -1225,7 +1381,10 @@ namespace SignVR.Interaction.PhaseAdapters
                     safeDoor.Open();
                     break;
                 case PhaseFeedbackCue.ChestOpened:
-                    chestLid.Open();
+                    chestLid.OpenAnimated(
+                        feedbackClockSeconds,
+                        ChestLidOpenAnimationSeconds
+                    );
                     ReleasePlannedKey(result.ReleasedTargetId);
                     break;
                 case PhaseFeedbackCue.CabinetUnlocked:
@@ -1256,6 +1415,14 @@ namespace SignVR.Interaction.PhaseAdapters
             }
             phaseFiveErrorResetPending = false;
             ResetStates(cabinetButtons);
+        }
+
+        public void PlayChestOpeningAnimation()
+        {
+            chestLid.OpenAnimated(
+                Time.realtimeSinceStartupAsDouble,
+                ChestLidOpenAnimationSeconds
+            );
         }
 
         private void ShowPhaseFiveError(string targetId)
@@ -1295,7 +1462,17 @@ namespace SignVR.Interaction.PhaseAdapters
                     targetId,
                     StringComparison.Ordinal))
                 {
-                    binding.Activate();
+                    if (phaseId == 6)
+                    {
+                        binding.ActivateAnimated(
+                            feedbackClockSeconds,
+                            BreakerPullAnimationSeconds
+                        );
+                    }
+                    else
+                    {
+                        binding.Activate();
+                    }
                     return;
                 }
             }

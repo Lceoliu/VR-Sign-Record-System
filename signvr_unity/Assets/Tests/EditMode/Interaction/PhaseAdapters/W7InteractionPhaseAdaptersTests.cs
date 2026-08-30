@@ -256,17 +256,17 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(
                     body.GetType().GetProperty("isKinematic")
                         .GetValue(body),
-                    Is.True,
-                    $"Phase 2 must keep unheld {coinName} fixed."
+                    Is.False,
+                    $"Phase 2 must make {coinName} movable."
                 );
                 Assert.That(
                     Convert.ToInt32(body.GetType()
                         .GetProperty("constraints").GetValue(body)),
                     Is.EqualTo(Convert.ToInt32(
                         UnityPhysicsType("RigidbodyConstraints")
-                            .GetField("FreezeAll").GetValue(null)
+                            .GetField("None").GetValue(null)
                     )),
-                    $"Phase 2 must keep unheld {coinName} constrained."
+                    $"Phase 2 must not constrain {coinName}."
                 );
                 Assert.That(
                     body.GetType().GetProperty("detectCollisions")
@@ -277,8 +277,8 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(
                     body.GetType().GetProperty("useGravity")
                         .GetValue(body),
-                    Is.False,
-                    $"Phase 2 must not turn gravity on for {coinName}."
+                    Is.True,
+                    $"Phase 2 must let {coinName} settle under gravity."
                 );
             });
         }
@@ -1278,7 +1278,7 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void PhaseFourEntryOpensChestAndShowsVisualOnlyKeys()
+        public void PhaseFourEntryOpensChestAndShowsAllVisualKeys()
         {
             object root = CreateGameObject("W7PhaseFourEntryPresentationTest");
             try
@@ -1296,9 +1296,13 @@ namespace SignVR.Interaction.Editor.Tests
 
                 object lid = CreateVisual(rootTransform, "ChestLid");
                 object hinge = CreateVisual(rootTransform, "ChestHinge");
+                hinge.GetType().GetProperty("localPosition").SetValue(
+                    hinge,
+                    CreateVector3(0f, 1f, 0f)
+                );
                 Type hingeType = RuntimeType("DeterministicHingeBinding");
                 object chestHinge = Activator.CreateInstance(hingeType);
-                hingeType.GetMethod("ConfigureAbsolute").Invoke(
+                hingeType.GetMethod("ConfigureAbsoluteInPlace").Invoke(
                     chestHinge,
                     new[]
                     {
@@ -1408,6 +1412,24 @@ namespace SignVR.Interaction.Editor.Tests
                     Is.EqualTo(60f).Within(0.01f),
                     "Phase 4 entry must open from the explicit closed pose."
                 );
+                Assert.That(
+                    ReadVector3Component(
+                        lid.GetType().GetProperty("localPosition")
+                            .GetValue(lid),
+                        "y"
+                    ),
+                    Is.EqualTo(0f).Within(0.001f),
+                    "The sibling lid must not drift vertically while opening."
+                );
+                Assert.That(
+                    ReadVector3Component(
+                        lid.GetType().GetProperty("localPosition")
+                            .GetValue(lid),
+                        "z"
+                    ),
+                    Is.EqualTo(0f).Within(0.001f),
+                    "The sibling lid must not fly away from the chest."
+                );
                 foreach (object legacyButton in legacyButtons)
                 {
                     Assert.That(
@@ -1422,13 +1444,15 @@ namespace SignVR.Interaction.Editor.Tests
                         IsComponentGameObjectActive(GetTransform(
                             keyModels[index]
                         )),
-                        Is.True
+                        Is.True,
+                        "Every key must remain visible so participants can choose."
                     );
                     Assert.That(
                         IsComponentGameObjectActive(GetTransform(
                             keyProxies[index]
                         )),
-                        Is.True
+                        Is.True,
+                        "Every key proxy must remain available to report choices."
                     );
                     Assert.That(
                         keyBodies[index].GetType().GetProperty("isKinematic")
@@ -2021,10 +2045,13 @@ namespace SignVR.Interaction.Editor.Tests
                     detector,
                     new object[] { true, now }
                 );
-                detectorType.GetMethod("EvaluatePointing").Invoke(
-                    detector,
-                    new object[] { now + 0.01d }
-                );
+                for (int frame = 1; frame <= 30; frame++)
+                {
+                    detectorType.GetMethod("EvaluatePointing").Invoke(
+                        detector,
+                        new object[] { now + frame * 0.000001d }
+                    );
+                }
                 Assert.That(
                     detectorType.GetProperty("DiagnosticStatus")
                         .GetValue(detector).ToString(),
@@ -2045,7 +2072,7 @@ namespace SignVR.Interaction.Editor.Tests
                 SetLocalPosition(leftTip, CreateVector3(8f, 0f, 0.1f));
                 detectorType.GetMethod("EvaluatePointing").Invoke(
                     detector,
-                    new object[] { now + 0.02d }
+                    new object[] { now + 0.001d }
                 );
                 Assert.That(
                     detectorType.GetProperty("DiagnosticStatus")
@@ -2183,10 +2210,13 @@ namespace SignVR.Interaction.Editor.Tests
                     detector,
                     new object[] { true, now }
                 );
-                detectorType.GetMethod("EvaluatePointing").Invoke(
-                    detector,
-                    new object[] { now + 0.01d }
-                );
+                for (int frame = 1; frame <= 30; frame++)
+                {
+                    detectorType.GetMethod("EvaluatePointing").Invoke(
+                        detector,
+                        new object[] { now + frame * 0.000001d }
+                    );
+                }
 
                 Assert.That(
                     detectorType.GetProperty("DiagnosticTargetId")
@@ -3129,7 +3159,7 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void PhaseTwoCoinKeepsGravityOffAndCorrectPlacementSnapLocks()
+        public void PhaseTwoCoinUsesGravityAndCorrectPlacementSnapLocks()
         {
             object root = CreateGameObject("W7CoinPhysicsTest");
             try
@@ -3192,14 +3222,14 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(
                     body.GetType().GetProperty("isKinematic")
                         .GetValue(body),
-                    Is.True,
-                    "The available but unheld coin must stay fixed."
+                    Is.False,
+                    "An available coin must remain dynamic so it can be grabbed."
                 );
                 Assert.That(
                     body.GetType().GetProperty("useGravity")
                         .GetValue(body),
-                    Is.False,
-                    "Phase 2 availability must not turn coin gravity on."
+                    Is.True,
+                    "Phase 2 availability must let the coin settle."
                 );
 
                 object plate = CreateGameObject("plate_dragon");

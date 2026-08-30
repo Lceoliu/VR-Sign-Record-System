@@ -45,6 +45,9 @@ namespace SignVR.Interaction.PhaseAdapters
         , IInteractionOwnedStateTeardown
 #endif
     {
+        private const string MetaHandPhysicsCapsulesTypeName =
+            "Oculus.Interaction.Input.HandPhysicsCapsules";
+
         [SerializeField]
         private MonoBehaviour inputReceiver;
 
@@ -168,6 +171,36 @@ namespace SignVR.Interaction.PhaseAdapters
                     (candidate == root || candidate.IsChildOf(root)))
                 {
                     return true;
+                }
+            }
+
+            // Meta creates its joint rigidbodies and capsule colliders at
+            // runtime below HandPhysicsCapsules. Depending on the active hand
+            // data source, that visual/physics subtree can be a sibling of the
+            // configured hand-only interactor root. Accept that exact Meta
+            // source without opening the trigger to arbitrary scene bodies.
+            return HasMetaHandPhysicsCapsulesAncestor(candidate);
+        }
+
+        private static bool HasMetaHandPhysicsCapsulesAncestor(
+            Transform candidate)
+        {
+            for (Transform current = candidate;
+                current != null;
+                current = current.parent)
+            {
+                MonoBehaviour[] behaviours = current.GetComponents<
+                    MonoBehaviour>();
+                for (int index = 0; index < behaviours.Length; index++)
+                {
+                    MonoBehaviour behaviour = behaviours[index];
+                    if (behaviour != null && string.Equals(
+                            behaviour.GetType().FullName,
+                            MetaHandPhysicsCapsulesTypeName,
+                            StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
                 }
             }
             return false;

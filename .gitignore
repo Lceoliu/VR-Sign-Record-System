@@ -3,3 +3,9 @@
 # Machine-specific Codex integrations and generated local skills.
 /.codex/
 /signvr_unity/.codex/
+
+# Device captures are synchronized locally and can be several GB per take.
+/Recordings/
+
+# Local review frames generated while inspecting Quest recordings.
+/.codex-tmp/

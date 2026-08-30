@@ -130,5 +130,50 @@ namespace SignVR.Streaming.Tests
                 Object.DestroyImmediate(root);
             }
         }
+
+        [Test]
+        public void CalculateHorizonLevelRotation_PreservesViewAndRemovesRoll()
+        {
+            Quaternion headset = Quaternion.Euler(24f, 68f, 37f);
+
+            Quaternion leveled = SpectatorViewStreamer
+                .CalculateHorizonLevelRotation(headset);
+
+            Assert.That(
+                Vector3.Angle(
+                    headset * Vector3.forward,
+                    leveled * Vector3.forward
+                ),
+                Is.LessThan(0.001f)
+            );
+            Assert.That(
+                Mathf.Abs(Vector3.Dot(
+                    leveled * Vector3.right,
+                    Vector3.up
+                )),
+                Is.LessThan(0.0001f)
+            );
+        }
+
+        [Test]
+        public void ConfigureRecordingStability_ExposesHorizonLock()
+        {
+            GameObject root = new GameObject("Spectator Stability Test");
+            try
+            {
+                SpectatorViewStreamer streamer =
+                    root.AddComponent<SpectatorViewStreamer>();
+                streamer.ConfigureRecordingStability(
+                    smoothPose: true,
+                    keepHorizonLevel: false
+                );
+
+                Assert.That(streamer.KeepsCaptureHorizonLevel, Is.False);
+            }
+            finally
+            {
+                Object.DestroyImmediate(root);
+            }
+        }
     }
 }

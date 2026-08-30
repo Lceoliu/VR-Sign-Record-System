@@ -63,14 +63,21 @@ namespace SignVR.Interaction.Presentation
         private Button replayButton;
         private Button giveUpButton;
         private Button abortButton;
+        private Button menuToggleButton;
+        private TMP_Text menuToggleLabel;
         private InteractionHoldToConfirm abortHold;
         private bool bound;
+        private bool menuExpanded = true;
         private IInteractionInstructionCommandSink commandSink;
 
         public Button MoveButton
         {
             get
             {
+                if (moveButton == null)
+                {
+                    EnsureVisuals(forceRefresh: true);
+                }
                 ResolveExistingVisualReferences();
                 return moveButton;
             }
@@ -102,6 +109,19 @@ namespace SignVR.Interaction.Presentation
             {
                 ResolveExistingVisualReferences();
                 return abortButton;
+            }
+        }
+
+        public Button MenuToggleButton
+        {
+            get
+            {
+                if (menuToggleButton == null)
+                {
+                    EnsureVisuals(forceRefresh: true);
+                }
+                ResolveExistingVisualReferences();
+                return menuToggleButton;
             }
         }
 
@@ -343,7 +363,21 @@ namespace SignVR.Interaction.Presentation
             );
             abortHold = abortButton.GetComponent<InteractionHoldToConfirm>() ??
                 abortButton.gameObject.AddComponent<InteractionHoldToConfirm>();
+            abortHold.enabled = true;
             abortHold.Configure(abortLabel);
+            menuToggleButton = EnsureButton(
+                "MenuToggle",
+                new Vector2(385f, 68f),
+                new Color(0.12f, 0.18f, 0.24f, 0.96f),
+                "\u6536\u8d77\u83dc\u5355",
+                out TextMeshProUGUI toggleLabel
+            );
+            menuToggleLabel = toggleLabel;
+            RectTransform toggleRect = menuToggleButton.GetComponent<RectTransform>();
+            toggleRect.sizeDelta = new Vector2(178f, 52f);
+            RectTransform visualRect = visualRoot.GetComponent<RectTransform>();
+            visualRect.sizeDelta = new Vector2(960f, 200f);
+            ApplyMenuVisibility();
 
             WorldSpacePokeCanvas pokeCanvas =
                 visualRoot.GetComponent<WorldSpacePokeCanvas>() ??
@@ -373,6 +407,10 @@ namespace SignVR.Interaction.Presentation
                 ?.GetComponent<Button>();
             abortButton ??= visualRoot.transform.Find("AbortRun")
                 ?.GetComponent<Button>();
+            menuToggleButton ??= visualRoot.transform.Find("MenuToggle")
+                ?.GetComponent<Button>();
+            menuToggleLabel ??= menuToggleButton?.transform.Find("Label")
+                ?.GetComponent<TMP_Text>();
         }
 
         private Button EnsureButton(
@@ -475,6 +513,7 @@ namespace SignVR.Interaction.Presentation
             replayButton.onClick.AddListener(HandleReplay);
             giveUpButton.onClick.AddListener(HandleGiveUp);
             abortHold.Confirmed += HandleAbort;
+            menuToggleButton?.onClick.AddListener(HandleMenuToggle);
             bound = true;
         }
 
@@ -498,6 +537,7 @@ namespace SignVR.Interaction.Presentation
             moveButton?.onClick.RemoveListener(HandleMove);
             replayButton?.onClick.RemoveListener(HandleReplay);
             giveUpButton?.onClick.RemoveListener(HandleGiveUp);
+            menuToggleButton?.onClick.RemoveListener(HandleMenuToggle);
             if (abortHold != null)
             {
                 abortHold.Confirmed -= HandleAbort;
@@ -535,6 +575,28 @@ namespace SignVR.Interaction.Presentation
             abortButton.interactable = liveSink != null
                 ? liveSink.CanAbort
                 : !requireCommandSink;
+            ApplyMenuVisibility();
+        }
+
+        private void HandleMenuToggle()
+        {
+            menuExpanded = !menuExpanded;
+            ApplyMenuVisibility();
+        }
+
+        private void ApplyMenuVisibility()
+        {
+            moveButton?.gameObject.SetActive(menuExpanded);
+            replayButton?.gameObject.SetActive(menuExpanded);
+            giveUpButton?.gameObject.SetActive(menuExpanded);
+            abortButton?.gameObject.SetActive(menuExpanded);
+            if (menuToggleLabel != null)
+            {
+                menuToggleLabel.text = menuExpanded
+                    ? "\u6536\u8d77\u83dc\u5355"
+                    : "\u663e\u793a\u83dc\u5355";
+            }
+            menuToggleButton?.gameObject.SetActive(true);
         }
 
         private void HandleMove()

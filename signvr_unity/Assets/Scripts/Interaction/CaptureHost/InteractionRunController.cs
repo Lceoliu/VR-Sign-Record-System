@@ -28,7 +28,7 @@ namespace SignVR.Interaction.CaptureHost
         private bool engineeringLocalExplicitlyArmed;
 
         [SerializeField]
-        [Tooltip("EngineeringLocal-only test aid. Every Run Plan receives TextAndPointing; disable it to restore randomized three-Run blocks.")]
+        [Tooltip("EngineeringLocal-only test aid. Every Run Plan receives TextAndPointing; disable it to restore randomized two-Run blocks.")]
         private bool forceTextAndPointingForTesting;
 
         [Header("Run identity")]

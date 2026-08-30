@@ -183,6 +183,11 @@ namespace SignVR.Interaction.Presentation
             LastError = string.Empty;
             IsLoading = true;
             LoadingProgress = 0f;
+            Debug.Log(
+                $"[InstructionGhostPlayer] Loading pose for " +
+                $"sentence={content.SentenceId}, artifact={content.ArtifactPath}.",
+                this
+            );
             int generation = ++loadGeneration;
             StateChanged?.Invoke();
             loadRoutine = StartCoroutine(LoadArtifact(content, generation));
@@ -666,6 +671,7 @@ namespace SignVR.Interaction.Presentation
             frames.Clear();
             playbackState.Fail();
             LastError = error;
+            Debug.LogError("[InstructionGhostPlayer] " + error, this);
             Failed?.Invoke(error);
             StateChanged?.Invoke();
         }

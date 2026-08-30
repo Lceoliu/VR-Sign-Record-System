@@ -1378,6 +1378,21 @@ namespace SignVR.Editor.Interaction
             return root;
         }
 
+        public static GameObject EnsureResultSurfaceForAutomation(
+            Transform uiAnchor,
+            Transform hmd)
+        {
+            if (uiAnchor == null)
+            {
+                throw new ArgumentNullException(nameof(uiAnchor));
+            }
+            if (hmd == null)
+            {
+                throw new ArgumentNullException(nameof(hmd));
+            }
+            return EnsureResultSurface(uiAnchor, hmd);
+        }
+
         private static Button EnsureButton(
             Transform parent,
             string name,

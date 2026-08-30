@@ -192,6 +192,23 @@ namespace SignVR.Interaction.PhaseAdapters
             );
         }
 
+        public void ConfigureGrabActivated(
+            string stableTargetId,
+            InteractionPhaseAdapter phaseAdapter,
+            Behaviour[] behaviours,
+            Collider[] colliders,
+            GameObject[] objectsToActivate)
+        {
+            ConfigureInternal(
+                stableTargetId,
+                phaseAdapter,
+                behaviours,
+                colliders,
+                objectsToActivate,
+                false
+            );
+        }
+
         private void ConfigureInternal(
             string stableTargetId,
             InteractionPhaseAdapter phaseAdapter,
@@ -678,22 +695,19 @@ namespace SignVR.Interaction.PhaseAdapters
                 {
                     continue;
                 }
-                if (!body.isKinematic)
-                {
-                    body.linearVelocity = Vector3.zero;
-                    body.angularVelocity = Vector3.zero;
-                    body.isKinematic = true;
-                }
-                body.constraints = RigidbodyConstraints.FreezeAll;
+                body.isKinematic = false;
+                body.constraints = RigidbodyConstraints.None;
                 body.detectCollisions = true;
-                body.interpolation = index < authoredBodyInterpolation.Length
-                    ? authoredBodyInterpolation[index]
-                    : RigidbodyInterpolation.None;
+                body.interpolation = RigidbodyInterpolation.Interpolate;
                 body.collisionDetectionMode =
-                    index < authoredBodyCollisionDetection.Length
-                        ? authoredBodyCollisionDetection[index]
-                        : CollisionDetectionMode.Discrete;
-                body.useGravity = false;
+                    CollisionDetectionMode.ContinuousDynamic;
+                // Movable task props must settle onto real scene geometry.
+                // Keeping an authored, initially-kinematic coin gravity-free
+                // after release leaves it suspended wherever the hand solver
+                // last placed it.
+                body.useGravity = true;
+                body.linearVelocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
             }
         }
 

@@ -31,6 +31,10 @@ namespace SignVR.Interaction.Presentation
         private const string OverlayShaderResource =
             "Shaders/RecordingHandSkeletonOverlay";
         private const int MaximumPhaseTargets = 3;
+        private const int PointingRayCount = 2;
+        private const int StableCandidateFrames = 30;
+        private const double ConfirmationCooldownSeconds = 1d;
+        private const double HighlightPersistenceSeconds = 3d;
 
         private sealed class TargetGeometry
         {
@@ -58,6 +62,19 @@ namespace SignVR.Interaction.Presentation
 
         [SerializeField]
         private Transform rightIndexTip;
+
+        [Header("Strict pointing handshape")]
+        [SerializeField]
+        private Transform leftPalm;
+
+        [SerializeField]
+        private Transform rightPalm;
+
+        [SerializeField]
+        private Transform[] leftFoldedFingerTips = Array.Empty<Transform>();
+
+        [SerializeField]
+        private Transform[] rightFoldedFingerTips = Array.Empty<Transform>();
 
         [SerializeField]
         [Min(0.1f)]
@@ -104,7 +121,19 @@ namespace SignVR.Interaction.Presentation
             Array.Empty<string>()
         );
 
-        private LineRenderer rayRenderer;
+        private readonly Dictionary<string, int> candidateFramesByTarget =
+            new(StringComparer.Ordinal);
+        private readonly Dictionary<string, double> highlightExpiryByTarget =
+            new(StringComparer.Ordinal);
+        private readonly Dictionary<string, InteractionTargetHighlightVisual>
+            highlightVisualsByTarget =
+                new(StringComparer.Ordinal);
+        private readonly HashSet<string> observedTargetIds =
+            new(StringComparer.Ordinal);
+        private readonly List<TargetGeometry> frameTargets = new(2);
+        private readonly List<Vector3> frameRayStarts = new(2);
+        private readonly List<Vector3> frameRayPoints = new(2);
+        private LineRenderer[] rayRenderers = Array.Empty<LineRenderer>();
         private Material rayMaterial;
         private AssistanceCondition condition;
         private int activeTargetCount;
@@ -118,6 +147,10 @@ namespace SignVR.Interaction.Presentation
         private string diagnosticTargetId = string.Empty;
         private double lastMonotonicTime = double.NaN;
         private double naturalPlaybackEndDeadline = double.NaN;
+        private string pendingTargetId = string.Empty;
+        private int pendingTargetFrames;
+        private double lastConfirmationTime = double.NegativeInfinity;
+        private string primaryHighlightTargetId = string.Empty;
 
         public event Action<string, double> HitStarted;
         public event Action<string, double> HitEnded;
@@ -140,6 +173,11 @@ namespace SignVR.Interaction.Presentation
             rightIndexDistal != null && rightIndexTip != null &&
             leftIndexDistal != leftIndexTip &&
             rightIndexDistal != rightIndexTip;
+
+        public bool HasStrictHandShapeRig =>
+            leftPalm != null && rightPalm != null &&
+            HasFourTips(leftFoldedFingerTips) &&
+            HasFourTips(rightFoldedFingerTips);
 
         public IReadOnlyList<GhostPointingTargetBinding> TargetBindings =>
             targetBindings;
@@ -203,7 +241,12 @@ namespace SignVR.Interaction.Presentation
                 animator.transform,
                 "Right_IndexDistal"
             );
-            return TryConfigureFingerBones(leftDistal, rightDistal);
+            bool configured = TryConfigureFingerBones(leftDistal, rightDistal);
+            if (configured)
+            {
+                ConfigureHandShapeBones(animator.transform);
+            }
+            return configured;
         }
 
         /// <summary>
@@ -226,7 +269,12 @@ namespace SignVR.Interaction.Presentation
                 rigRoot,
                 "Right_IndexDistal"
             );
-            return TryConfigureFingerBones(leftDistal, rightDistal);
+            bool configured = TryConfigureFingerBones(leftDistal, rightDistal);
+            if (configured)
+            {
+                ConfigureHandShapeBones(rigRoot);
+            }
+            return configured;
         }
 
         private bool TryConfigureFingerBones(
@@ -247,6 +295,112 @@ namespace SignVR.Interaction.Presentation
                 rightDistal,
                 rightTip
             );
+            return true;
+        }
+
+        private void ConfigureHandShapeBones(Transform rigRoot)
+        {
+            leftPalm = FindHandRoot(
+                rigRoot,
+                leftIndexDistal,
+                "Left"
+            );
+            rightPalm = FindHandRoot(
+                rigRoot,
+                rightIndexDistal,
+                "Right"
+            );
+            leftFoldedFingerTips = FindOtherFingerTips(rigRoot, "Left");
+            rightFoldedFingerTips = FindOtherFingerTips(rigRoot, "Right");
+        }
+
+        private static Transform[] FindOtherFingerTips(
+            Transform rigRoot,
+            string handPrefix)
+        {
+            return new[]
+            {
+                FindFingerTip(rigRoot, handPrefix, "Thumb"),
+                FindFingerTip(rigRoot, handPrefix, "Middle"),
+                FindFingerTip(rigRoot, handPrefix, "Ring"),
+                FindFingerTip(rigRoot, handPrefix, "Little", "Pinky")
+            };
+        }
+
+        private static Transform FindFingerTip(
+            Transform root,
+            string handPrefix,
+            params string[] fingerNames)
+        {
+            for (int index = 0; index < fingerNames.Length; index++)
+            {
+                string finger = fingerNames[index];
+                Transform found = FindNamedDescendant(
+                    root,
+                    handPrefix + "_" + finger + "Tip"
+                );
+                found ??= FindNamedDescendant(
+                    root,
+                    handPrefix + "Hand" + finger + "Tip"
+                );
+                found ??= FindNamedDescendant(
+                    root,
+                    handPrefix + finger + "Tip"
+                );
+                found ??= FindNamedDescendant(
+                    root,
+                    handPrefix + "_" + finger + "DistalEnd"
+                );
+                if (found != null)
+                {
+                    return found;
+                }
+            }
+            return null;
+        }
+
+        private static Transform FindHandRoot(
+            Transform rigRoot,
+            Transform indexDistal,
+            string handPrefix)
+        {
+            Transform found = FindNamedDescendant(
+                rigRoot,
+                handPrefix + "_Hand"
+            );
+            found ??= FindNamedDescendant(rigRoot, handPrefix + "Hand");
+            found ??= FindNamedDescendant(rigRoot, handPrefix + "_Palm");
+            if (found != null)
+            {
+                return found;
+            }
+
+            Transform current = indexDistal;
+            for (int index = 0; current != null && index < 8; index++)
+            {
+                string name = current.name.ToLowerInvariant();
+                if (name.Contains("hand") || name.Contains("wrist"))
+                {
+                    return current;
+                }
+                current = current.parent;
+            }
+            return indexDistal != null ? indexDistal.parent : null;
+        }
+
+        private static bool HasFourTips(Transform[] tips)
+        {
+            if (tips == null || tips.Length != 4)
+            {
+                return false;
+            }
+            for (int index = 0; index < tips.Length; index++)
+            {
+                if (tips[index] == null)
+                {
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -425,7 +579,7 @@ namespace SignVR.Interaction.Presentation
                 return false;
             }
             Vector3 actualHitPoint = ray.GetPoint(distance);
-            ShowRay(rayStart, actualHitPoint);
+            ShowRay(0, rayStart, actualHitPoint);
             SetDiagnostic(GhostPointingDiagnosticStatus.Hit, targetId);
             return true;
         }
@@ -435,12 +589,16 @@ namespace SignVR.Interaction.Presentation
         {
             EnsureRayRenderer();
             RebuildGeometryCache();
-            if (!HasCompleteFingerRig && ghostPlayer != null &&
-                ghostPlayer.Retargeter != null)
+            if (ghostPlayer != null && ghostPlayer.Retargeter != null)
             {
-                TryConfigureFingerBones(
-                    ghostPlayer.Retargeter.transform
-                );
+                if (!HasCompleteFingerRig)
+                {
+                    TryConfigureFingerBones(ghostPlayer.Retargeter.transform);
+                }
+                else if (!HasStrictHandShapeRig)
+                {
+                    ConfigureHandShapeBones(ghostPlayer.Retargeter.transform);
+                }
             }
         }
 
@@ -462,6 +620,7 @@ namespace SignVR.Interaction.Presentation
                 naturalPlaybackEndDeadline = double.NaN;
                 RefreshConfigurationDiagnostic();
             }
+            ExpireHighlights(now);
         }
 
         public void SynchronizePlayback(
@@ -497,12 +656,18 @@ namespace SignVR.Interaction.Presentation
             if (!PointingAllowed || !HasCompleteFingerRig ||
                 activeTargetCount == 0)
             {
+                ClearPendingCandidate();
                 pointingState.ObserveNoHit(monotonicTime);
+                HideRay();
                 RefreshConfigurationDiagnostic();
                 return;
             }
 
-            if (TryFindNearestHit(
+            // Ghost playback uses the original pose-driven rule: each hand's
+            // index distal-to-tip direction is a ray, with no live-player
+            // hand-shape gate and no frame dwell. The player's detector keeps
+            // its stricter hand-shape and confirmation policy separately.
+            if (TryFindLegacyNearestHit(
                     out TargetGeometry target,
                     out Vector3 rayStart,
                     out Vector3 hitPoint))
@@ -513,7 +678,8 @@ namespace SignVR.Interaction.Presentation
                 );
                 if (pointingState.VisualVisible)
                 {
-                    ShowRay(rayStart, hitPoint);
+                    ShowRay(0, rayStart, hitPoint);
+                    HideUnusedRays(1);
                 }
                 SetDiagnostic(
                     GhostPointingDiagnosticStatus.Hit,
@@ -527,7 +693,7 @@ namespace SignVR.Interaction.Presentation
             }
         }
 
-        private bool TryFindNearestHit(
+        private bool TryFindLegacyNearestHit(
             out TargetGeometry nearestTarget,
             out Vector3 rayStart,
             out Vector3 hitPoint)
@@ -537,7 +703,7 @@ namespace SignVR.Interaction.Presentation
             hitPoint = default;
             float nearestDistance = maximumRayDistance;
 
-            EvaluateHandRay(
+            EvaluateLegacyHandRay(
                 leftIndexDistal,
                 leftIndexTip,
                 ref nearestTarget,
@@ -545,7 +711,7 @@ namespace SignVR.Interaction.Presentation
                 ref rayStart,
                 ref hitPoint
             );
-            EvaluateHandRay(
+            EvaluateLegacyHandRay(
                 rightIndexDistal,
                 rightIndexTip,
                 ref nearestTarget,
@@ -559,7 +725,7 @@ namespace SignVR.Interaction.Presentation
             }
 
             float nearestAngle = guidanceSnapAngleDegrees;
-            EvaluateGuidanceRay(
+            EvaluateLegacyGuidanceRay(
                 leftIndexDistal,
                 leftIndexTip,
                 ref nearestTarget,
@@ -568,7 +734,7 @@ namespace SignVR.Interaction.Presentation
                 ref rayStart,
                 ref hitPoint
             );
-            EvaluateGuidanceRay(
+            EvaluateLegacyGuidanceRay(
                 rightIndexDistal,
                 rightIndexTip,
                 ref nearestTarget,
@@ -580,7 +746,40 @@ namespace SignVR.Interaction.Presentation
             return nearestTarget != null;
         }
 
-        private void EvaluateGuidanceRay(
+        private void EvaluateLegacyHandRay(
+            Transform distal,
+            Transform tip,
+            ref TargetGeometry nearestTarget,
+            ref float nearestDistance,
+            ref Vector3 nearestStart,
+            ref Vector3 nearestPoint)
+        {
+            Vector3 direction = tip.position - distal.position;
+            if (direction.sqrMagnitude < 0.000001f)
+            {
+                return;
+            }
+            direction.Normalize();
+            var ray = new Ray(tip.position, direction);
+
+            for (int index = 0; index < activeTargetCount; index++)
+            {
+                TargetGeometry candidate = activeTargets[index];
+                if (!TryCalculateBounds(candidate, out Bounds bounds) ||
+                    !bounds.IntersectRay(ray, out float distance) ||
+                    distance < 0f || distance > nearestDistance)
+                {
+                    continue;
+                }
+
+                nearestTarget = candidate;
+                nearestDistance = distance;
+                nearestStart = tip.position;
+                nearestPoint = ray.GetPoint(distance);
+            }
+        }
+
+        private void EvaluateLegacyGuidanceRay(
             Transform distal,
             Transform tip,
             ref TargetGeometry nearestTarget,
@@ -599,7 +798,288 @@ namespace SignVR.Interaction.Presentation
             for (int index = 0; index < activeTargetCount; index++)
             {
                 TargetGeometry candidate = activeTargets[index];
-                if (!candidate.AllowGuidanceSnap)
+                if (!candidate.AllowGuidanceSnap ||
+                    !TryCalculateBounds(candidate, out Bounds bounds))
+                {
+                    continue;
+                }
+
+                Vector3 toCenter = bounds.center - tip.position;
+                float distance = Vector3.Dot(toCenter, direction);
+                if (distance <= 0f || distance > maximumRayDistance)
+                {
+                    continue;
+                }
+
+                float angle = Vector3.Angle(direction, toCenter);
+                Vector3 closestOnRay = tip.position + direction * distance;
+                float lateralDistance = Vector3.Distance(
+                    closestOnRay,
+                    bounds.center
+                );
+                float allowedLateralDistance =
+                    guidanceSnapLateralTolerance + bounds.extents.magnitude;
+                if (angle > guidanceSnapAngleDegrees ||
+                    lateralDistance > allowedLateralDistance ||
+                    angle > nearestAngle ||
+                    (Mathf.Approximately(angle, nearestAngle) &&
+                     distance >= nearestDistance))
+                {
+                    continue;
+                }
+
+                nearestTarget = candidate;
+                nearestAngle = angle;
+                nearestDistance = distance;
+                nearestStart = tip.position;
+                nearestPoint = bounds.center;
+            }
+        }
+
+        private void CollectHandHit(
+            Transform distal,
+            Transform tip,
+            Transform palm,
+            Transform[] foldedFingerTips)
+        {
+            if (!TryFindHandHit(
+                    distal,
+                    tip,
+                    palm,
+                    foldedFingerTips,
+                    out TargetGeometry target,
+                    out Vector3 rayStart,
+                    out Vector3 hitPoint))
+            {
+                return;
+            }
+            frameTargets.Add(target);
+            frameRayStarts.Add(rayStart);
+            frameRayPoints.Add(hitPoint);
+        }
+
+        private bool ObserveGhostTarget(TargetGeometry target, double time)
+        {
+            if (target == null || string.IsNullOrEmpty(target.TargetId))
+            {
+                return false;
+            }
+            if (highlightExpiryByTarget.ContainsKey(target.TargetId))
+            {
+                candidateFramesByTarget.Remove(target.TargetId);
+                return false;
+            }
+            int frames = candidateFramesByTarget.TryGetValue(
+                target.TargetId,
+                out int previous
+            ) ? previous + 1 : 1;
+            candidateFramesByTarget[target.TargetId] = Math.Min(
+                StableCandidateFrames,
+                frames
+            );
+            return frames >= StableCandidateFrames;
+        }
+
+        private void RemoveUnobservedCandidates()
+        {
+            var stale = new List<string>();
+            foreach (string targetId in candidateFramesByTarget.Keys)
+            {
+                if (!observedTargetIds.Contains(targetId))
+                {
+                    stale.Add(targetId);
+                }
+            }
+            for (int index = 0; index < stale.Count; index++)
+            {
+                candidateFramesByTarget.Remove(stale[index]);
+            }
+        }
+
+        private void ClearCandidates()
+        {
+            candidateFramesByTarget.Clear();
+        }
+
+        private bool ObserveCandidate(string targetId, double monotonicTime)
+        {
+            if (!Application.isPlaying ||
+                string.Equals(
+                    pointingState.ActiveTargetId,
+                    targetId,
+                    StringComparison.Ordinal))
+            {
+                return pointingState.ObserveHit(targetId, monotonicTime);
+            }
+
+            if (!string.Equals(
+                    pendingTargetId,
+                    targetId,
+                    StringComparison.Ordinal))
+            {
+                pendingTargetId = targetId;
+                pendingTargetFrames = 0;
+            }
+            pendingTargetFrames = Mathf.Min(
+                StableCandidateFrames + 1,
+                pendingTargetFrames + 1
+            );
+            if (pendingTargetFrames <= StableCandidateFrames ||
+                monotonicTime - lastConfirmationTime <
+                ConfirmationCooldownSeconds)
+            {
+                pointingState.ObserveNoHit(monotonicTime);
+                return false;
+            }
+
+            bool started = pointingState.ObserveHit(targetId, monotonicTime);
+            if (started)
+            {
+                lastConfirmationTime = monotonicTime;
+                ClearPendingCandidate();
+            }
+            return started;
+        }
+
+        private void ClearPendingCandidate()
+        {
+            pendingTargetId = string.Empty;
+            pendingTargetFrames = 0;
+        }
+
+        private bool TryFindNearestHit(
+            out TargetGeometry nearestTarget,
+            out Vector3 rayStart,
+            out Vector3 hitPoint)
+        {
+            nearestTarget = null;
+            rayStart = default;
+            hitPoint = default;
+            float nearestDistance = maximumRayDistance;
+
+            EvaluateHandRay(
+                leftIndexDistal,
+                leftIndexTip,
+                leftPalm,
+                leftFoldedFingerTips,
+                ref nearestTarget,
+                ref nearestDistance,
+                ref rayStart,
+                ref hitPoint
+            );
+            EvaluateHandRay(
+                rightIndexDistal,
+                rightIndexTip,
+                rightPalm,
+                rightFoldedFingerTips,
+                ref nearestTarget,
+                ref nearestDistance,
+                ref rayStart,
+                ref hitPoint
+            );
+            if (nearestTarget != null)
+            {
+                return true;
+            }
+
+            float nearestAngle = guidanceSnapAngleDegrees;
+            EvaluateGuidanceRay(
+                leftIndexDistal,
+                leftIndexTip,
+                leftPalm,
+                leftFoldedFingerTips,
+                ref nearestTarget,
+                ref nearestAngle,
+                ref nearestDistance,
+                ref rayStart,
+                ref hitPoint
+            );
+            EvaluateGuidanceRay(
+                rightIndexDistal,
+                rightIndexTip,
+                rightPalm,
+                rightFoldedFingerTips,
+                ref nearestTarget,
+                ref nearestAngle,
+                ref nearestDistance,
+                ref rayStart,
+                ref hitPoint
+            );
+            return nearestTarget != null;
+        }
+
+        private bool TryFindHandHit(
+            Transform distal,
+            Transform tip,
+            Transform palm,
+            Transform[] foldedFingerTips,
+            out TargetGeometry nearestTarget,
+            out Vector3 rayStart,
+            out Vector3 hitPoint)
+        {
+            nearestTarget = null;
+            rayStart = default;
+            hitPoint = default;
+            float nearestDistance = maximumRayDistance;
+            EvaluateHandRay(
+                distal,
+                tip,
+                palm,
+                foldedFingerTips,
+                ref nearestTarget,
+                ref nearestDistance,
+                ref rayStart,
+                ref hitPoint
+            );
+            if (nearestTarget != null)
+            {
+                return true;
+            }
+            float nearestAngle = guidanceSnapAngleDegrees;
+            EvaluateGuidanceRay(
+                distal,
+                tip,
+                palm,
+                foldedFingerTips,
+                ref nearestTarget,
+                ref nearestAngle,
+                ref nearestDistance,
+                ref rayStart,
+                ref hitPoint
+            );
+            return nearestTarget != null;
+        }
+
+        private void EvaluateGuidanceRay(
+            Transform distal,
+            Transform tip,
+            Transform palm,
+            Transform[] foldedFingerTips,
+            ref TargetGeometry nearestTarget,
+            ref float nearestAngle,
+            ref float nearestDistance,
+            ref Vector3 nearestStart,
+            ref Vector3 nearestPoint)
+        {
+            Vector3 direction = tip.position - distal.position;
+            if (direction.sqrMagnitude < 0.000001f)
+            {
+                return;
+            }
+            direction.Normalize();
+            bool strictPointing = IsStrictPointingHand(
+                distal,
+                tip,
+                palm,
+                foldedFingerTips
+            );
+
+            for (int index = 0; index < activeTargetCount; index++)
+            {
+                TargetGeometry candidate = activeTargets[index];
+                if (!candidate.AllowGuidanceSnap ||
+                    (!strictPointing && Application.isPlaying &&
+                     !IsLegacyCabinetOrButtonTarget(candidate.TargetId)))
                 {
                     continue;
                 }
@@ -643,6 +1123,8 @@ namespace SignVR.Interaction.Presentation
         private void EvaluateHandRay(
             Transform distal,
             Transform tip,
+            Transform palm,
+            Transform[] foldedFingerTips,
             ref TargetGeometry nearestTarget,
             ref float nearestDistance,
             ref Vector3 nearestStart,
@@ -655,12 +1137,38 @@ namespace SignVR.Interaction.Presentation
             }
             direction.Normalize();
             var ray = new Ray(tip.position, direction);
+            bool strictPointing = IsStrictPointingHand(
+                distal,
+                tip,
+                palm,
+                foldedFingerTips
+            );
 
             for (int index = 0; index < activeTargetCount; index++)
             {
                 TargetGeometry candidate = activeTargets[index];
-                if (!TryCalculateBounds(candidate, out Bounds bounds) ||
-                    !bounds.IntersectRay(ray, out float distance) ||
+                bool legacyEditorInput = !Application.isPlaying;
+                if (!strictPointing && !legacyEditorInput &&
+                    !IsLegacyCabinetOrButtonTarget(candidate.TargetId))
+                {
+                    continue;
+                }
+                float distance;
+                Vector3 point = default;
+                if (strictPointing)
+                {
+                    if (!TryRaycastTarget(
+                            candidate,
+                            ray,
+                            nearestDistance,
+                            out distance,
+                            out point))
+                    {
+                        continue;
+                    }
+                }
+                else if (!TryCalculateBounds(candidate, out Bounds bounds) ||
+                    !bounds.IntersectRay(ray, out distance) ||
                     distance < 0f || distance > nearestDistance)
                 {
                     continue;
@@ -669,8 +1177,114 @@ namespace SignVR.Interaction.Presentation
                 nearestTarget = candidate;
                 nearestDistance = distance;
                 nearestStart = tip.position;
-                nearestPoint = ray.GetPoint(distance);
+                nearestPoint = strictPointing ? point : ray.GetPoint(distance);
             }
+        }
+
+        private static bool TryRaycastTarget(
+            TargetGeometry geometry,
+            Ray ray,
+            float maximumDistance,
+            out float nearestDistance,
+            out Vector3 nearestPoint)
+        {
+            nearestDistance = maximumDistance;
+            nearestPoint = default;
+            bool hitAny = false;
+            for (int index = 0; index < geometry.Colliders.Length; index++)
+            {
+                Collider collider = geometry.Colliders[index];
+                if (collider == null || !collider.enabled ||
+                    !collider.gameObject.activeInHierarchy)
+                {
+                    continue;
+                }
+
+                if (!collider.Raycast(
+                        ray,
+                        out RaycastHit hit,
+                        nearestDistance
+                    ))
+                {
+                    continue;
+                }
+
+                hitAny = true;
+                nearestDistance = hit.distance;
+                nearestPoint = hit.point;
+            }
+            return hitAny;
+        }
+
+        private static bool IsStrictPointingHand(
+            Transform indexDistal,
+            Transform indexTip,
+            Transform palm,
+            Transform[] foldedFingerTips)
+        {
+            if (indexDistal == null || indexTip == null || palm == null ||
+                !HasFourTips(foldedFingerTips))
+            {
+                return false;
+            }
+
+            Vector3 indexSegment = indexTip.position - indexDistal.position;
+            Vector3 indexReach = indexTip.position - palm.position;
+            if (indexSegment.sqrMagnitude < 0.000001f ||
+                indexReach.sqrMagnitude < 0.0025f)
+            {
+                return false;
+            }
+
+            float segmentAlignment = Vector3.Dot(
+                indexSegment.normalized,
+                indexReach.normalized
+            );
+            if (!PointingHandShapeRules.IsIndexExtended(
+                    indexDistal.position,
+                    indexTip.position,
+                    palm.position,
+                    indexReach.magnitude,
+                    segmentAlignment))
+            {
+                return false;
+            }
+
+            float indexDistance = indexReach.magnitude;
+            for (int index = 0; index < foldedFingerTips.Length; index++)
+            {
+                float foldedDistance = Vector3.Distance(
+                    palm.position,
+                    foldedFingerTips[index].position
+                );
+                // The four non-index fingertips must stay close to the palm;
+                // an open hand therefore cannot emit a pointing ray.
+                if (foldedDistance > indexDistance *
+                    PointingHandShapeRules.FoldedTipDistanceRatio)
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static bool IsLegacyCabinetOrButtonTarget(string targetId)
+        {
+            if (string.IsNullOrWhiteSpace(targetId))
+            {
+                return false;
+            }
+
+            // The cabinet/key and button sentences retain their authored ray
+            // behavior. Other targets, including breakers, require the PDF
+            // 3.3 pointing handshape in a player build.
+            return targetId.StartsWith("button_", StringComparison.Ordinal) ||
+                targetId.StartsWith("key_", StringComparison.Ordinal) ||
+                string.Equals(
+                    targetId,
+                    "motorbike_key",
+                    StringComparison.Ordinal
+                );
         }
 
         private bool TryCalculateBounds(
@@ -777,17 +1391,11 @@ namespace SignVR.Interaction.Presentation
 
         private void HandleHitStarted(string targetId, double time)
         {
+            visualTargetId = targetId ?? string.Empty;
             if (geometryById.TryGetValue(
                     targetId,
                     out TargetGeometry geometry))
             {
-                if (!string.Equals(
-                        visualTargetId,
-                        targetId,
-                        StringComparison.Ordinal))
-                {
-                    visualTargetId = targetId;
-                }
                 if (targetHighlight != null)
                 {
                     targetHighlight.Show(
@@ -796,7 +1404,6 @@ namespace SignVR.Interaction.Presentation
                     );
                 }
             }
-
             HitStarted?.Invoke(targetId, time);
         }
 
@@ -807,28 +1414,154 @@ namespace SignVR.Interaction.Presentation
             {
                 targetHighlight.Hide();
             }
+            HideGhostHighlight(targetId);
             HitEnded?.Invoke(targetId, time);
+        }
+
+        private void ActivateGhostHighlight(TargetGeometry target, double time)
+        {
+            if (target == null || string.IsNullOrEmpty(target.TargetId) ||
+                highlightExpiryByTarget.ContainsKey(target.TargetId))
+            {
+                return;
+            }
+            double expiry = time + HighlightPersistenceSeconds;
+            var currentIds = new List<string>(highlightExpiryByTarget.Keys);
+            for (int index = 0; index < currentIds.Count; index++)
+            {
+                highlightExpiryByTarget[currentIds[index]] = expiry;
+            }
+            highlightExpiryByTarget[target.TargetId] = expiry;
+            primaryHighlightTargetId = target.TargetId;
+            GetGhostHighlightVisual(target.TargetId)?.Show(
+                target.Root,
+                target.HighlightRoots
+            );
+            Debug.Log(
+                "[GhostPointingDetector] Highlight started target=" +
+                target.TargetId + " frames=" + StableCandidateFrames +
+                " duration=" + HighlightPersistenceSeconds.ToString("F2") +
+                "s",
+                this
+            );
+        }
+
+        private void ExpireHighlights(double time)
+        {
+            if (highlightExpiryByTarget.Count == 0)
+            {
+                return;
+            }
+            var expired = new List<string>();
+            foreach (KeyValuePair<string, double> item in highlightExpiryByTarget)
+            {
+                if (time >= item.Value)
+                {
+                    expired.Add(item.Key);
+                }
+            }
+            for (int index = 0; index < expired.Count; index++)
+            {
+                HideGhostHighlight(expired[index]);
+                highlightExpiryByTarget.Remove(expired[index]);
+            }
+            if (!highlightExpiryByTarget.ContainsKey(primaryHighlightTargetId))
+            {
+                primaryHighlightTargetId = string.Empty;
+                foreach (string targetId in highlightExpiryByTarget.Keys)
+                {
+                    primaryHighlightTargetId = targetId;
+                    break;
+                }
+            }
+        }
+
+        private InteractionTargetHighlightVisual GetGhostHighlightVisual(
+            string targetId)
+        {
+            if (string.IsNullOrEmpty(targetId))
+            {
+                return null;
+            }
+            if (highlightVisualsByTarget.TryGetValue(
+                    targetId,
+                    out InteractionTargetHighlightVisual existing))
+            {
+                return existing;
+            }
+            InteractionTargetHighlightVisual visual;
+            if (highlightVisualsByTarget.Count == 0 && targetHighlight != null)
+            {
+                visual = targetHighlight;
+            }
+            else
+            {
+                GameObject visualObject = new GameObject(
+                    "GhostPointingHighlight_" + targetId
+                );
+                visualObject.transform.SetParent(transform, false);
+                visual = visualObject.AddComponent<
+                    InteractionTargetHighlightVisual>();
+            }
+            highlightVisualsByTarget[targetId] = visual;
+            return visual;
+        }
+
+        private void HideGhostHighlight(string targetId)
+        {
+            if (!string.IsNullOrEmpty(targetId) &&
+                highlightVisualsByTarget.TryGetValue(
+                    targetId,
+                    out InteractionTargetHighlightVisual visual))
+            {
+                visual.Hide();
+            }
+        }
+
+        private void ClearGhostHighlights(bool destroyDynamic)
+        {
+            foreach (InteractionTargetHighlightVisual visual in
+                     highlightVisualsByTarget.Values)
+            {
+                visual?.Clear();
+            }
+            if (destroyDynamic)
+            {
+                foreach (KeyValuePair<string,
+                         InteractionTargetHighlightVisual> item in
+                         highlightVisualsByTarget)
+                {
+                    if (item.Value != null && item.Value != targetHighlight)
+                    {
+                        if (Application.isPlaying)
+                        {
+                            Destroy(item.Value.gameObject);
+                        }
+                        else
+                        {
+                            DestroyImmediate(item.Value.gameObject);
+                        }
+                    }
+                }
+                highlightVisualsByTarget.Clear();
+            }
+            highlightExpiryByTarget.Clear();
+            primaryHighlightTargetId = string.Empty;
         }
 
         private void StopAndClear(double monotonicTime)
         {
             naturalPlaybackEndDeadline = double.NaN;
+            ClearPendingCandidate();
+            lastConfirmationTime = double.NegativeInfinity;
             var failures = new List<Exception>();
             TryCleanup(
                 () => pointingState.StopPlayback(monotonicTime),
                 failures
             );
             TryCleanup(HideRay, failures);
-            TryCleanup(
-                () =>
-                {
-                    if (targetHighlight != null)
-                    {
-                        targetHighlight.Clear();
-                    }
-                },
-                failures
-            );
+            TryCleanup(() => ClearGhostHighlights(false), failures);
+            ClearCandidates();
             visualTargetId = string.Empty;
 
             if (failures.Count > 0)
@@ -992,25 +1725,56 @@ namespace SignVR.Interaction.Presentation
 
         private void EnsureRayRenderer()
         {
-            if (rayRenderer != null)
+            if (rayRenderers.Length == PointingRayCount &&
+                rayRenderers[0] != null && rayRenderers[1] != null)
             {
                 return;
             }
 
-            Transform existing = transform.Find("GhostPointingRay");
-            GameObject rayObject = existing != null
-                ? existing.gameObject
-                : new GameObject("GhostPointingRay");
-            if (existing == null)
+            rayRenderers = new LineRenderer[PointingRayCount];
+            for (int index = 0; index < PointingRayCount; index++)
             {
-                rayObject.transform.SetParent(transform, false);
+                string[] names = index == 0
+                    ? new[] { "GhostPointingRay_Left", "GhostPointingRay" }
+                    : new[] { "GhostPointingRay_Right" };
+                Transform existing = null;
+                for (int nameIndex = 0; nameIndex < names.Length; nameIndex++)
+                {
+                    existing = transform.Find(names[nameIndex]);
+                    if (existing != null)
+                    {
+                        break;
+                    }
+                }
+                GameObject rayObject = existing != null
+                    ? existing.gameObject
+                    : new GameObject(names[0]);
+                if (existing == null)
+                {
+                    rayObject.transform.SetParent(transform, false);
+                }
+
+                LineRenderer renderer = rayObject.GetComponent<LineRenderer>();
+                if (renderer == null)
+                {
+                    renderer = rayObject.AddComponent<LineRenderer>();
+                }
+                renderer.enabled = false;
+                renderer.useWorldSpace = true;
+                renderer.loop = false;
+                renderer.positionCount = 2;
+                renderer.startWidth = rayWidth;
+                renderer.endWidth = rayWidth;
+                renderer.startColor = rayColor;
+                renderer.endColor = rayColor;
+                renderer.alignment = LineAlignment.View;
+                renderer.shadowCastingMode = ShadowCastingMode.Off;
+                renderer.receiveShadows = false;
+                renderer.lightProbeUsage = LightProbeUsage.Off;
+                renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+                rayRenderers[index] = renderer;
             }
 
-            rayRenderer = rayObject.GetComponent<LineRenderer>();
-            if (rayRenderer == null)
-            {
-                rayRenderer = rayObject.AddComponent<LineRenderer>();
-            }
             Shader shader = Resources.Load<Shader>(OverlayShaderResource) ??
                 Shader.Find(OverlayShaderName);
             if (shader != null)
@@ -1020,37 +1784,48 @@ namespace SignVR.Interaction.Presentation
                     name = "Instruction Ghost Pointing Ray",
                     hideFlags = HideFlags.DontSave
                 };
-                rayRenderer.sharedMaterial = rayMaterial;
+                for (int index = 0; index < rayRenderers.Length; index++)
+                {
+                    rayRenderers[index].sharedMaterial = rayMaterial;
+                }
             }
-
-            rayRenderer.enabled = false;
-            rayRenderer.useWorldSpace = true;
-            rayRenderer.loop = false;
-            rayRenderer.positionCount = 2;
-            rayRenderer.startWidth = rayWidth;
-            rayRenderer.endWidth = rayWidth;
-            rayRenderer.startColor = rayColor;
-            rayRenderer.endColor = rayColor;
-            rayRenderer.alignment = LineAlignment.View;
-            rayRenderer.shadowCastingMode = ShadowCastingMode.Off;
-            rayRenderer.receiveShadows = false;
-            rayRenderer.lightProbeUsage = LightProbeUsage.Off;
-            rayRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
         }
 
-        private void ShowRay(Vector3 start, Vector3 end)
+        private void ShowRay(int handIndex, Vector3 start, Vector3 end)
         {
             EnsureRayRenderer();
-            rayRenderer.SetPosition(0, start);
-            rayRenderer.SetPosition(1, end);
-            rayRenderer.enabled = true;
+            if (handIndex < 0 || handIndex >= rayRenderers.Length ||
+                rayRenderers[handIndex] == null)
+            {
+                return;
+            }
+            LineRenderer renderer = rayRenderers[handIndex];
+            renderer.SetPosition(0, start);
+            renderer.SetPosition(1, end);
+            renderer.enabled = true;
         }
 
         private void HideRay()
         {
-            if (rayRenderer != null)
+            for (int index = 0; index < rayRenderers.Length; index++)
             {
-                rayRenderer.enabled = false;
+                if (rayRenderers[index] != null)
+                {
+                    rayRenderers[index].enabled = false;
+                }
+            }
+        }
+
+        private void HideUnusedRays(int usedCount)
+        {
+            for (int index = Mathf.Max(0, usedCount);
+                index < rayRenderers.Length;
+                index++)
+            {
+                if (rayRenderers[index] != null)
+                {
+                    rayRenderers[index].enabled = false;
+                }
             }
         }
 
@@ -1146,6 +1921,7 @@ namespace SignVR.Interaction.Presentation
 
         private void OnDestroy()
         {
+            ClearGhostHighlights(true);
             if (rayMaterial != null)
             {
                 if (Application.isPlaying)

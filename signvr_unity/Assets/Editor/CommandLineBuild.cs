@@ -24,11 +24,15 @@ namespace SignVR.Editor
         private const string RecorderBuildPathArgument = "-recorderBuildPath";
         private const string InteractionBuildPathArgument =
             "-interactionBuildPath";
+        private const string InteractionSignSequenceTestBuildPathArgument =
+            "-interactionSignSequenceTestBuildPath";
         private const string CoinLabBuildPathArgument = "-coinLabBuildPath";
         private const string DefaultRecorderBuildPath =
             "Builds/SignVR_Unity_Local.apk";
         private const string DefaultInteractionBuildPath =
             "Builds/SignVR_Interaction_Local.apk";
+        private const string DefaultInteractionSignSequenceTestBuildPath =
+            "Builds/Android/InteractionSignSequenceTest.apk";
         private const string DefaultCoinLabBuildPath =
             "Builds/SignVR_CoinInteractionLab_Local.apk";
         private const string RecorderScenePath =
@@ -224,6 +228,17 @@ namespace SignVR.Editor
             BuildAndroid(CreateProfile(SignVRProduct.Interaction));
         }
 
+        [MenuItem("SignVR/Build/Interaction/31-Sign Sequence Test Android APK")]
+        public static void BuildInteractionSignSequenceTestAndroid()
+        {
+            BuildAndroid(new AndroidBuildProfile(
+                SignVRProduct.Interaction,
+                InteractionSignSequenceTestSceneSetup.ScenePath,
+                InteractionSignSequenceTestBuildPathArgument,
+                DefaultInteractionSignSequenceTestBuildPath
+            ));
+        }
+
         [MenuItem("SignVR/Build/Interaction/Coin Lab Android APK")]
         public static void BuildCoinInteractionLabAndroid()
         {
@@ -355,6 +370,14 @@ namespace SignVR.Editor
                     {
                         CoinInteractionLabSetup.GenerateAndSaveForAutomation();
                         CoinInteractionLabSetup.ValidateForAutomation();
+                    }
+                    else if (string.Equals(
+                            profile.ScenePath,
+                            InteractionSignSequenceTestSceneSetup.ScenePath,
+                            StringComparison.Ordinal))
+                    {
+                        InteractionSignSequenceTestSceneSetup
+                            .ValidateSceneForAutomation();
                     }
                     else
                     {

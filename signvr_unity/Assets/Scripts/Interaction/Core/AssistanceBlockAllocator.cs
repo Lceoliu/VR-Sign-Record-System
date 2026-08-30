@@ -55,7 +55,7 @@ namespace SignVR.Interaction.Core
     /// </summary>
     public sealed class AssistanceBlockAllocator
     {
-        public const int BlockSize = 3;
+        public const int BlockSize = 2;
 
         private readonly DeterministicRandom random;
         private readonly AssistanceAssignmentMode mode;
@@ -139,14 +139,12 @@ namespace SignVR.Interaction.Core
                 ? new[]
                 {
                     AssistanceCondition.TextAndPointing,
-                    AssistanceCondition.TextAndPointing,
                     AssistanceCondition.TextAndPointing
                 }
                 : new[]
             {
                 AssistanceCondition.TextAndPointing,
-                AssistanceCondition.TextOnly,
-                AssistanceCondition.SignOnly
+                AssistanceCondition.TextOnly
             };
             if (mode == AssistanceAssignmentMode.RandomizedBlock)
             {

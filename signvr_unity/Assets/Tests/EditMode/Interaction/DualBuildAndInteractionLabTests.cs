@@ -30,7 +30,7 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
-        public void SignSequenceSceneHidesProductionStudyUiOnEntry()
+        public void SignSequenceSceneEnablesFormalStudyFlowOnEntry()
         {
             InvokeStatic(
                 SignSequenceSetupTypeName,
@@ -121,6 +121,117 @@ namespace SignVR.Interaction.Editor.Tests
                 UnityEngine.Object.DestroyImmediate(controlsObject);
                 UnityEngine.Object.DestroyImmediate(staticTarget);
                 UnityEngine.Object.DestroyImmediate(player);
+            }
+        }
+
+        [Test]
+        public void SignSequenceMoveUsesFullViewAtTwentyCentimetersWithoutCooldown()
+        {
+            Type moverType = Type.GetType(
+                "SignVR.Interaction.InteractionSeatedRigMover, Assembly-CSharp",
+                throwOnError: true
+            );
+            Type sourceControlsType = Type.GetType(
+                "SignVR.Interaction.Presentation." +
+                "InteractionInstructionControls, Assembly-CSharp",
+                throwOnError: true
+            );
+            Type sequenceControlsType = Type.GetType(
+                "SignVR.Interaction.Presentation." +
+                "InteractionSignSequenceTestControls, Assembly-CSharp",
+                throwOnError: true
+            );
+            Type sequenceControlsBaseType = sequenceControlsType.BaseType;
+
+            var root = new GameObject("SignSequenceMoveRegression");
+            var offset = new GameObject("InteractionSeatedRigOffset");
+            var hmd = new GameObject("CenterEyeAnchor");
+            var sourceObject = new GameObject("InteractionUiAnchor");
+            var sequenceObject = new GameObject("SignSequenceTestHarness");
+            try
+            {
+                offset.transform.SetParent(root.transform, false);
+                hmd.transform.SetParent(offset.transform, false);
+                sourceObject.transform.SetParent(root.transform, false);
+                sequenceObject.transform.SetParent(sourceObject.transform, false);
+
+                Component mover = offset.AddComponent(moverType);
+                Component sourceControls = sourceObject.AddComponent(
+                    sourceControlsType
+                );
+                Component sequenceControls = sequenceObject.AddComponent(
+                    sequenceControlsType
+                );
+                Vector3 forward = new Vector3(-2f, 3f, -6f).normalized;
+                hmd.transform.rotation = Quaternion.LookRotation(
+                    forward,
+                    Vector3.up
+                );
+                moverType.GetMethod("Configure")?.Invoke(
+                    mover,
+                    new object[] { hmd.transform, 0.2f }
+                );
+                sourceControlsType.GetMethod("ConfigureSeatedMovement")?.Invoke(
+                    sourceControls,
+                    new object[] { mover }
+                );
+                sequenceControlsBaseType.GetField(
+                    "sourceControls",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                )?.SetValue(sequenceControls, sourceControls);
+                sequenceControlsBaseType.GetMethod(
+                    "EnsureVisualsForValidation",
+                    BindingFlags.Instance | BindingFlags.Public
+                )?.Invoke(sequenceControls, null);
+
+                Button moveButton = sequenceControlsBaseType.GetProperty(
+                    "MoveButton",
+                    BindingFlags.Instance | BindingFlags.Public
+                )?.GetValue(sequenceControls) as Button;
+                Assert.That(moveButton, Is.Not.Null);
+
+                Vector3 expected = offset.transform.position +
+                    forward * 0.2f;
+                MethodInfo handleMove = sequenceControlsBaseType.GetMethod(
+                    "HandleMove",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                );
+                Assert.That(handleMove, Is.Not.Null);
+                handleMove.Invoke(sequenceControls, null);
+
+                Assert.That(offset.transform.position.x, Is.EqualTo(expected.x)
+                    .Within(0.000001f));
+                Assert.That(offset.transform.position.y, Is.EqualTo(expected.y)
+                    .Within(0.000001f));
+                Assert.That(offset.transform.position.z, Is.EqualTo(expected.z)
+                    .Within(0.000001f));
+                Assert.That(moveButton.gameObject.activeSelf, Is.True,
+                    "Moving must keep the menu open for repeated clicks.");
+
+                handleMove.Invoke(sequenceControls, null);
+                Vector3 repeatedExpected = expected + forward * 0.2f;
+                Assert.That(offset.transform.position.x,
+                    Is.EqualTo(repeatedExpected.x).Within(0.000001f));
+                Assert.That(offset.transform.position.y,
+                    Is.EqualTo(repeatedExpected.y).Within(0.000001f));
+                Assert.That(offset.transform.position.z,
+                    Is.EqualTo(repeatedExpected.z).Within(0.000001f));
+
+                MethodInfo handleMenuToggle =
+                    sequenceControlsBaseType.GetMethod(
+                        "HandleMenuToggle",
+                        BindingFlags.Instance | BindingFlags.NonPublic
+                    );
+                Assert.That(handleMenuToggle, Is.Not.Null);
+                handleMenuToggle.Invoke(sequenceControls, null);
+                Assert.That(moveButton.gameObject.activeSelf, Is.False,
+                    "Only the explicit menu toggle may hide commands.");
+                handleMenuToggle.Invoke(sequenceControls, null);
+                Assert.That(moveButton.gameObject.activeSelf, Is.True);
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
             }
         }
 

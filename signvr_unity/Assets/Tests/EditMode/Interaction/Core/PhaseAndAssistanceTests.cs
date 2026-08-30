@@ -136,13 +136,13 @@ namespace SignVR.Interaction.Core.Tests
         }
 
         [Test]
-        public void AssistanceAllocator_EachThreeRunBlockUsesEveryConditionOnce()
+        public void AssistanceAllocator_EachTwoRunBlockUsesBothConditionsOnce()
         {
             var allocator = new AssistanceBlockAllocator(2468);
 
             for (int blockIndex = 0; blockIndex < 5; blockIndex++)
             {
-                AssistanceAssignment[] block = Enumerable.Range(0, 3)
+                AssistanceAssignment[] block = Enumerable.Range(0, 2)
                     .Select(_ => allocator.AllocateNext())
                     .ToArray();
 
@@ -151,8 +151,7 @@ namespace SignVR.Interaction.Core.Tests
                     Is.EquivalentTo(new[]
                     {
                         AssistanceCondition.TextAndPointing,
-                        AssistanceCondition.TextOnly,
-                        AssistanceCondition.SignOnly
+                        AssistanceCondition.TextOnly
                     })
                 );
                 Assert.That(
@@ -161,7 +160,7 @@ namespace SignVR.Interaction.Core.Tests
                 );
                 Assert.That(
                     block.Select(item => item.SlotIndex),
-                    Is.EqualTo(new[] { 0, 1, 2 })
+                    Is.EqualTo(new[] { 0, 1 })
                 );
             }
         }
@@ -189,11 +188,11 @@ namespace SignVR.Interaction.Core.Tests
             );
             Assert.That(
                 assignments.Select(item => item.BlockIndex),
-                Is.EqualTo(new[] { 0, 0, 0, 1, 1, 1, 2 })
+                Is.EqualTo(new[] { 0, 0, 1, 1, 2, 2, 3 })
             );
             Assert.That(
                 assignments.Select(item => item.SlotIndex),
-                Is.EqualTo(new[] { 0, 1, 2, 0, 1, 2, 0 })
+                Is.EqualTo(new[] { 0, 1, 0, 1, 0, 1, 0 })
             );
         }
 

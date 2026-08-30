@@ -4,6 +4,7 @@ using System.IO;
 using SignVR.Interaction.CaptureHost;
 using SignVR.Interaction.Core;
 using SignVR.Interaction.Orchestration;
+using SignVR.Interaction.PhaseAdapters;
 using TMPro;
 using UnityEngine;
 using UnityEngine.Networking;
@@ -25,6 +26,9 @@ namespace SignVR.Interaction.Presentation
 
         [SerializeField]
         private InstructionPresentationController presentationController;
+
+        [SerializeField]
+        private InteractionPhaseCoordinator phaseCoordinator;
 
         [SerializeField]
         private string contentManifestRelativePath =
@@ -53,8 +57,16 @@ namespace SignVR.Interaction.Presentation
         public void Configure(
             InstructionPresentationController presentation)
         {
+            Configure(presentation, null);
+        }
+
+        public void Configure(
+            InstructionPresentationController presentation,
+            InteractionPhaseCoordinator coordinator)
+        {
             presentationController = presentation ??
                 throw new ArgumentNullException(nameof(presentation));
+            phaseCoordinator = coordinator;
         }
 
         public bool TryMovePrevious()
@@ -86,6 +98,7 @@ namespace SignVR.Interaction.Presentation
         private void Awake()
         {
             currentIndex = Mathf.Clamp(initialIndex, 0, EntryCount - 1);
+            ResolvePhaseCoordinatorIfNeeded();
         }
 
         private void OnEnable()
@@ -96,6 +109,13 @@ namespace SignVR.Interaction.Presentation
                 return;
             }
 
+            presentationController.StateChanged +=
+                HandlePresentationControllerStateChanged;
+            if (presentationController.GhostPlayer != null)
+            {
+                presentationController.GhostPlayer.Loaded +=
+                    HandleGhostLoaded;
+            }
             presentationController.InstructionPlaybackStarted +=
                 HandlePresentationStateChanged;
             presentationController.InstructionPlaybackCompleted +=
@@ -107,6 +127,7 @@ namespace SignVR.Interaction.Presentation
 
         private void Start()
         {
+            ResolvePhaseCoordinatorIfNeeded();
             foreach (InteractionStudyFlowControls controls in
                 FindObjectsByType<InteractionStudyFlowControls>(
                     FindObjectsInactive.Include,
@@ -160,7 +181,15 @@ namespace SignVR.Interaction.Presentation
             }
 
             manifestRoutine = null;
-            PresentCurrent();
+            if (PresentCurrent())
+            {
+                Debug.Log(
+                    $"[InteractionSignSequenceTest] Loaded " +
+                    $"{contentCatalog.Entries.Count} entries and presented " +
+                    $"sentence {CurrentSentenceId}.",
+                    this
+                );
+            }
         }
 
         private bool PresentCurrent()
@@ -179,6 +208,7 @@ namespace SignVR.Interaction.Presentation
                     content,
                     variant
                 );
+                SynchronizeSceneInteractions(phasePlan);
                 presentationController.BeginPhase(
                     phasePlan,
                     AssistanceCondition.TextAndPointing
@@ -200,7 +230,48 @@ namespace SignVR.Interaction.Presentation
             InstructionPlaybackPass _,
             double __)
         {
+            TryStartInitialPlayback();
             StateChanged?.Invoke();
+        }
+
+        private void HandlePresentationControllerStateChanged()
+        {
+            TryStartInitialPlayback();
+            StateChanged?.Invoke();
+        }
+
+        private void HandleGhostLoaded(InstructionContentReference content)
+        {
+            Debug.Log(
+                $"[InteractionSignSequenceTest] Pose loaded for " +
+                $"{content?.SentenceId}; starting first playback.",
+                this
+            );
+            TryStartInitialPlayback();
+            StateChanged?.Invoke();
+        }
+
+        private void TryStartInitialPlayback()
+        {
+            if (!IsReady || presentationController == null ||
+                !presentationController.PhaseActive ||
+                presentationController.HasStartedFirstPlayback ||
+                !presentationController.ReplayIsAvailable)
+            {
+                return;
+            }
+
+            // Show the selected signer as soon as its staged pose artifact is
+            // ready. The Replay button remains available for the allowed replay.
+            bool started = presentationController.Replay();
+            Debug.Log(
+                $"[InteractionSignSequenceTest] Initial playback " +
+                $"started={started}, status=" +
+                $"{presentationController.GhostPlayer?.Status}, " +
+                $"frames={presentationController.GhostPlayer?.LoadedFrameCount}, " +
+                $"error={presentationController.GhostPlayer?.LastError}",
+                this
+            );
         }
 
         private void HandlePresentationFaulted(string error)
@@ -213,6 +284,98 @@ namespace SignVR.Interaction.Presentation
             Status = error;
             StateChanged?.Invoke();
             Debug.LogError("[InteractionSignSequenceTest] " + error, this);
+        }
+
+        private void SynchronizeSceneInteractions(RunPhasePlan selectedPhase)
+        {
+            ResolvePhaseCoordinatorIfNeeded();
+            if (phaseCoordinator == null || contentCatalog == null ||
+                selectedPhase == null)
+            {
+                return;
+            }
+
+            var phasePlans = new RunPhasePlan[PhaseSentenceRanges.PhaseCount];
+            for (int phaseId = 1;
+                phaseId <= PhaseSentenceRanges.PhaseCount;
+                phaseId++)
+            {
+                InstructionContentReference content =
+                    phaseId == selectedPhase.PhaseId
+                        ? selectedPhase.Content
+                        : FindFirstContentForPhase(phaseId);
+                phasePlans[phaseId - 1] = new RunPhasePlan(
+                    phaseId,
+                    content,
+                    TaskVariantCatalog.ForSentence(content.SentenceId)
+                );
+            }
+
+            var plan = new RunPlan(
+                "sign-sequence-test",
+                "engineering-lab",
+                "sign_sequence_test_" + Guid.NewGuid().ToString("N"),
+                "sign-sequence-test-session",
+                DateTimeOffset.UtcNow,
+                Application.version,
+                "sign-sequence-test",
+                31,
+                new AssistanceAssignment(
+                    AssistanceCondition.TextAndPointing,
+                    0,
+                    0,
+                    AssistanceAssignmentMode.ForcedTextAndPointing
+                ),
+                new SafePassword(new[] { 1, 2, 3, 4 }),
+                new ChestButtonOrder(
+                    new[] { "blue", "red", "yellow", "green" }
+                ),
+                phasePlans
+            );
+
+            phaseCoordinator.Abort();
+            phaseCoordinator.Configure(plan);
+            phaseCoordinator.Synchronize(
+                PhaseExecutionSnapshot.CreateEngineeringLabActivePhase(
+                    selectedPhase.PhaseId
+                )
+            );
+            phaseCoordinator.Enable();
+        }
+
+        private void ResolvePhaseCoordinatorIfNeeded()
+        {
+            if (phaseCoordinator != null)
+            {
+                return;
+            }
+
+            InteractionPhaseCoordinator[] candidates = FindObjectsByType<
+                InteractionPhaseCoordinator>(
+                    FindObjectsInactive.Include,
+                    FindObjectsSortMode.None
+                );
+            if (candidates.Length == 1)
+            {
+                phaseCoordinator = candidates[0];
+            }
+        }
+
+        private InstructionContentReference FindFirstContentForPhase(int phaseId)
+        {
+            for (int index = 0; index < contentCatalog.Entries.Count; index++)
+            {
+                InstructionContentReference candidate =
+                    contentCatalog.Entries[index];
+                if (candidate.PhaseId == phaseId)
+                {
+                    return candidate;
+                }
+            }
+
+            throw new InvalidOperationException(
+                $"The instruction catalog has no content for phase {phaseId}."
+            );
         }
 
         private static string BuildStreamingAssetUri(string relativePath)
@@ -249,6 +412,13 @@ namespace SignVR.Interaction.Presentation
             }
             if (presentationController != null)
             {
+                presentationController.StateChanged -=
+                    HandlePresentationControllerStateChanged;
+                if (presentationController.GhostPlayer != null)
+                {
+                    presentationController.GhostPlayer.Loaded -=
+                        HandleGhostLoaded;
+                }
                 presentationController.InstructionPlaybackStarted -=
                     HandlePresentationStateChanged;
                 presentationController.InstructionPlaybackCompleted -=
@@ -261,7 +431,7 @@ namespace SignVR.Interaction.Presentation
     }
 
     /// <summary>
-    /// Reuses the copied scene's three peer control buttons and turns them into
+    /// Reuses the copied scene's auxiliary controls and turns them into Move,
     /// Previous, Replay, and Next controls for the test navigator.
     /// </summary>
     [DisallowMultipleComponent]
@@ -276,12 +446,25 @@ namespace SignVR.Interaction.Presentation
         private Button previousButton;
         private Button replayButton;
         private Button nextButton;
+        private Button moveButton;
+        private Button menuToggleButton;
         private TMP_Text statusLabel;
         private bool bound;
+        private bool menuExpanded = true;
 
+        public Button MoveButton => moveButton;
         public Button PreviousButton => previousButton;
         public Button ReplayButton => replayButton;
         public Button NextButton => nextButton;
+
+        // Build-time scene validation runs outside play mode, so Unity does
+        // not invoke Awake/OnEnable to populate the copied UGUI references.
+        // Keep this explicit and idempotent so validation inspects the same
+        // controls that runtime initialization uses.
+        public void EnsureVisualsForValidation()
+        {
+            EnsureVisuals();
+        }
 
         public void Configure(
             InteractionSignSequenceTestController controller,
@@ -293,6 +476,7 @@ namespace SignVR.Interaction.Presentation
             sourceControls = copiedControls ??
                 throw new ArgumentNullException(nameof(copiedControls));
             sourceControls.enabled = false;
+            menuExpanded = true;
             EnsureVisuals();
             Bind();
             Refresh();
@@ -316,15 +500,16 @@ namespace SignVR.Interaction.Presentation
 
         private void EnsureVisuals()
         {
-            if (sourceControls == null || previousButton != null)
+            if (sourceControls == null)
             {
                 return;
             }
 
-            previousButton = sourceControls.GiveUpButton;
-            replayButton = sourceControls.ReplayButton;
-            nextButton = sourceControls.AbortButton;
-            if (previousButton == null || replayButton == null ||
+            moveButton ??= sourceControls.MoveButton;
+            previousButton ??= sourceControls.GiveUpButton;
+            replayButton ??= sourceControls.ReplayButton;
+            nextButton ??= sourceControls.AbortButton;
+            if (moveButton == null || previousButton == null || replayButton == null ||
                 nextButton == null)
             {
                 return;
@@ -334,10 +519,18 @@ namespace SignVR.Interaction.Presentation
             // Keep the copied production object names intact. The disabled
             // source component still runs Awake when its GameObject loads and
             // uses these names to resolve (rather than recreate) its visuals.
-            ConfigureButton(previousButton, "GiveUpPhase", "上一个", -240f);
-            ConfigureButton(replayButton, "Replay", "重播", 0f);
-            ConfigureButton(nextButton, "AbortRun", "下一个", 240f);
+            ConfigureButton(
+                moveButton,
+                "MoveAlongView",
+                "\u5411\u89c6\u7ebf\u65b9\u5411\u79fb\u52a8 20 cm",
+                -360f
+            );
+            ConfigureButton(previousButton, "GiveUpPhase", "\u4e0a\u4e00\u4e2a", -120f);
+            ConfigureButton(replayButton, "Replay", "\u91cd\u64ad", 120f);
+            ConfigureButton(nextButton, "AbortRun", "\u4e0b\u4e00\u4e2a", 360f);
             EnsureStatusLabel(replayButton.transform.parent);
+            EnsureMenuToggle(replayButton.transform.parent);
+            ApplyMenuVisibility();
         }
 
         private void EnsureStatusLabel(Transform canvasRoot)
@@ -376,8 +569,101 @@ namespace SignVR.Interaction.Presentation
             RectTransform canvasRect = canvasRoot as RectTransform;
             if (canvasRect != null)
             {
-                canvasRect.sizeDelta = new Vector2(720f, 180f);
+                canvasRect.sizeDelta = new Vector2(960f, 180f);
             }
+        }
+
+        private void EnsureMenuToggle(Transform canvasRoot)
+        {
+            Transform existing = canvasRoot.Find("MenuToggle");
+            GameObject toggleObject = existing != null
+                ? existing.gameObject
+                : new GameObject(
+                    "MenuToggle",
+                    typeof(RectTransform),
+                    typeof(CanvasRenderer),
+                    typeof(InteractionRoundedRectangleGraphic),
+                    typeof(Button)
+                );
+            if (existing == null)
+            {
+                toggleObject.transform.SetParent(canvasRoot, false);
+            }
+
+            RectTransform rect = toggleObject.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(178f, 52f);
+            rect.anchoredPosition = new Vector2(385f, 58f);
+
+            InteractionRoundedRectangleGraphic graphic =
+                toggleObject.GetComponent<InteractionRoundedRectangleGraphic>();
+            graphic.color = new Color(0.12f, 0.18f, 0.24f, 0.96f);
+            graphic.CornerRadius = 16f;
+            graphic.CornerSegments = 8;
+
+            menuToggleButton = toggleObject.GetComponent<Button>();
+            menuToggleButton.targetGraphic = graphic;
+            ColorBlock colors = menuToggleButton.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1.12f, 1.12f, 1.12f, 1f);
+            colors.pressedColor = new Color(0.72f, 0.72f, 0.72f, 1f);
+            colors.colorMultiplier = 1f;
+            menuToggleButton.colors = colors;
+
+            Transform existingLabel = toggleObject.transform.Find("Label");
+            GameObject labelObject = existingLabel != null
+                ? existingLabel.gameObject
+                : new GameObject(
+                    "Label",
+                    typeof(RectTransform),
+                    typeof(CanvasRenderer),
+                    typeof(TextMeshProUGUI)
+                );
+            if (existingLabel == null)
+            {
+                labelObject.transform.SetParent(toggleObject.transform, false);
+            }
+
+            TMP_Text label = labelObject.GetComponent<TMP_Text>();
+            RectTransform labelRect = label.rectTransform;
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = new Vector2(8f, 6f);
+            labelRect.offsetMax = new Vector2(-8f, -6f);
+            label.font = FindButtonLabel(replayButton)?.font;
+            label.fontSize = 20f;
+            label.enableAutoSizing = true;
+            label.fontSizeMin = 14f;
+            label.fontSizeMax = 20f;
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = Color.white;
+            label.raycastTarget = false;
+            label.richText = false;
+        }
+
+        private void ApplyMenuVisibility()
+        {
+            if (menuToggleButton == null)
+            {
+                return;
+            }
+
+            moveButton?.gameObject.SetActive(menuExpanded);
+            previousButton?.gameObject.SetActive(menuExpanded);
+            replayButton?.gameObject.SetActive(menuExpanded);
+            nextButton?.gameObject.SetActive(menuExpanded);
+            statusLabel?.gameObject.SetActive(menuExpanded);
+
+            TMP_Text label = FindButtonLabel(menuToggleButton);
+            if (label != null)
+            {
+                label.text = menuExpanded
+                    ? "\u6536\u8d77\u83dc\u5355"
+                    : "\u663e\u793a\u83dc\u5355";
+            }
+            menuToggleButton.gameObject.SetActive(true);
         }
 
         private static void DisableHoldToConfirm(Button button)
@@ -415,26 +701,31 @@ namespace SignVR.Interaction.Presentation
         private void Bind()
         {
             if (bound || !isActiveAndEnabled || sequenceController == null ||
-                previousButton == null || replayButton == null ||
+                moveButton == null || previousButton == null || replayButton == null ||
                 nextButton == null)
             {
                 return;
             }
 
             sequenceController.StateChanged += Refresh;
+            moveButton.onClick.AddListener(HandleMove);
             previousButton.onClick.AddListener(HandlePrevious);
             replayButton.onClick.AddListener(HandleReplay);
             nextButton.onClick.AddListener(HandleNext);
+            menuToggleButton.onClick.AddListener(HandleMenuToggle);
             bound = true;
         }
 
         private void Refresh()
         {
-            if (sequenceController == null || previousButton == null)
+            if (sequenceController == null || moveButton == null || previousButton == null)
             {
                 return;
             }
 
+            moveButton.interactable = sourceControls != null &&
+                sourceControls.SeatedRigMover != null &&
+                sourceControls.SeatedRigMover.isActiveAndEnabled;
             previousButton.interactable = sequenceController.CanMovePrevious;
             replayButton.interactable = sequenceController.CanReplay;
             nextButton.interactable = sequenceController.CanMoveNext;
@@ -442,11 +733,36 @@ namespace SignVR.Interaction.Presentation
             {
                 statusLabel.text = sequenceController.Status;
             }
+            ApplyMenuVisibility();
+        }
+
+        private void HandleMenuToggle()
+        {
+            menuExpanded = !menuExpanded;
+            ApplyMenuVisibility();
         }
 
         private void HandlePrevious()
         {
             sequenceController.TryMovePrevious();
+        }
+
+        private void HandleMove()
+        {
+            InteractionSeatedRigMover mover = sourceControls?.SeatedRigMover;
+            if (mover == null)
+            {
+                return;
+            }
+
+            Vector3 before = mover.transform.position;
+            mover.MoveAlongCurrentView();
+            Debug.Log(
+                $"[InteractionSignSequenceTest] Move20cm " +
+                $"before={before} after={mover.transform.position} " +
+                $"delta={(mover.transform.position - before).magnitude:F3}m",
+                this
+            );
         }
 
         private void HandleReplay()
@@ -469,9 +785,11 @@ namespace SignVR.Interaction.Presentation
             {
                 sequenceController.StateChanged -= Refresh;
             }
+            moveButton?.onClick.RemoveListener(HandleMove);
             previousButton?.onClick.RemoveListener(HandlePrevious);
             replayButton?.onClick.RemoveListener(HandleReplay);
             nextButton?.onClick.RemoveListener(HandleNext);
+            menuToggleButton?.onClick.RemoveListener(HandleMenuToggle);
             bound = false;
         }
 

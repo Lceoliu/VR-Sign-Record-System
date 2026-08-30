@@ -16,7 +16,7 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
 
         [TestCase("TextAndPointing")]
         [TestCase("TextOnly")]
-        public void TextConditionsRevealBubbleWhenSignerPlaybackStarts(
+        public void TextConditionsRevealBubbleOneSecondAfterPlaybackCompletes(
             string conditionName)
         {
             object state = CreatePresentationState();
@@ -24,11 +24,15 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
             Assert.That(Get<bool>(state, "BubbleVisible"), Is.False);
 
             Invoke(state, "InstructionPlaybackStarted", 4d);
-            Assert.That(Get<bool>(state, "BubbleVisible"), Is.True);
+            Assert.That(Get<bool>(state, "BubbleVisible"), Is.False);
             Assert.That(Get<bool>(state, "ReplayAvailable"), Is.False);
 
             Invoke(state, "FirstPlaybackCompleted", 5d);
             Assert.That(Get<bool>(state, "ReplayAvailable"), Is.True);
+            Invoke(state, "Tick", 5.999d);
+            Assert.That(Get<bool>(state, "BubbleVisible"), Is.False);
+            Invoke(state, "Tick", 6d);
+            Assert.That(Get<bool>(state, "BubbleVisible"), Is.True);
 
             Assert.That((bool)Invoke(state, "TryConsumeReplay"), Is.True);
             Assert.That(Get<bool>(state, "BubbleVisible"), Is.True,
@@ -41,7 +45,7 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
             object state = CreatePresentationState();
             Invoke(state, "BeginPhase", Assistance("TextOnly"));
             Invoke(state, "InstructionPlaybackStarted", 9d);
-            Assert.That(Get<bool>(state, "BubbleVisible"), Is.True);
+            Assert.That(Get<bool>(state, "BubbleVisible"), Is.False);
             Invoke(state, "FirstPlaybackCompleted", 10d);
             Invoke(state, "EndPhase");
             Invoke(state, "Tick", 20d);
@@ -77,8 +81,9 @@ namespace SignVR.Interaction.Editor.Tests.Presentation
             Invoke(state, "BeginPhase", Assistance("TextOnly"));
             Invoke(state, "InstructionPlaybackStarted", 1d);
             Invoke(state, "FirstPlaybackCompleted", 2d);
+            Invoke(state, "Tick", 3d);
             Assert.That((bool)Invoke(state, "TryConsumeReplay"), Is.True);
-            Invoke(state, "InstructionPlaybackStarted", 3d);
+            Invoke(state, "InstructionPlaybackStarted", 3.1d);
             Invoke(state, "ReplayCompleted");
 
             Assert.That(Get<bool>(state, "BubbleVisible"), Is.True);

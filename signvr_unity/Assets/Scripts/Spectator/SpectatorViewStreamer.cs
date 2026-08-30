@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -18,8 +19,9 @@ namespace SignVR.Streaming
     }
 
     /// <summary>
-    /// Renders a lightweight mono spectator camera and sends JPEG frames to a
-    /// desktop receiver. It never changes the XR camera's target texture.
+    /// Renders a lightweight mono headset camera, sends JPEG frames to a
+    /// desktop receiver, and optionally archives the same frames as an H.264
+    /// MP4 on Android. It never changes the XR camera's target texture.
     /// </summary>
     [DefaultExecutionOrder(1000)]
     [DisallowMultipleComponent]
@@ -30,6 +32,12 @@ namespace SignVR.Streaming
         public const int DefaultHeight = 360;
         public const int DefaultFrameRate = 10;
         public const int DefaultJpegQuality = 55;
+        public const int DefaultRecordingWidth = 1920;
+        public const int DefaultRecordingHeight = 1080;
+        public const int DefaultRecordingFrameRate = 30;
+        public const int DefaultRecordingJpegQuality = 100;
+
+        private const int MaximumScheduledCaptureSlots = 180;
 
         [Header("View")]
         [SerializeField]
@@ -72,7 +80,7 @@ namespace SignVR.Streaming
         private int frameRate = DefaultFrameRate;
 
         [SerializeField]
-        [Range(10, 90)]
+        [Range(10, 100)]
         private int jpegQuality = DefaultJpegQuality;
 
         [SerializeField]
@@ -84,6 +92,43 @@ namespace SignVR.Streaming
         [Range(512, 1400)]
         private int maxDatagramBytes =
             SpectatorViewProtocol.DefaultMaxDatagramBytes;
+
+        [Header("Local First-Person Recording")]
+        [SerializeField]
+        private bool recordLocally;
+
+        [SerializeField]
+        private bool startLocalRecordingWithStream = true;
+
+        [SerializeField]
+        private string localRecordingFolder = "FirstPersonVideos";
+
+        [SerializeField]
+        [Range(1, 60)]
+        private int localSegmentMinutes = 10;
+
+        [Header("Recording stability")]
+        [SerializeField]
+        private bool smoothHeadsetPose = true;
+
+        [Tooltip("Remove headset roll so the recorded horizon stays level.")]
+        [SerializeField]
+        private bool keepCaptureHorizonLevel = true;
+
+        [SerializeField, Min(0.01f)]
+        private float positionSmoothingHalfLife = 0.12f;
+
+        [SerializeField, Min(0.01f)]
+        private float rotationSmoothingHalfLife = 0.16f;
+
+        [SerializeField, Min(0f)]
+        private float positionDeadZoneMeters = 0.0025f;
+
+        [SerializeField, Min(0f)]
+        private float rotationDeadZoneDegrees = 0.3f;
+
+        [SerializeField]
+        private LayerMask captureExcludedLayers;
 
         [Header("Diagnostics")]
         [SerializeField]
@@ -117,6 +162,8 @@ namespace SignVR.Streaming
         private int pendingJpegQuality;
         private uint nextFrameId;
         private double nextCaptureTime;
+        private int scheduledCaptureSlots;
+        private int pendingLocalFrameCount = 1;
         private double nextDebugLogTime;
         private double nextCameraWarningTime;
         private double nextErrorLogTime;
@@ -129,6 +176,14 @@ namespace SignVR.Streaming
         private long framesDropped;
         private bool resumeAfterPause;
         private bool resumeAfterDisable;
+        private FirstPersonMp4Recorder localRecorder;
+        private string localSessionDirectory = string.Empty;
+        private int localRecordingPass;
+        private bool smoothedPoseInitialized;
+        private bool localTakeOwnsStreamingSession;
+        private Vector3 smoothedCapturePosition;
+        private Quaternion smoothedCaptureRotation;
+        private double previousPoseSampleTime;
 
         public SpectatorViewMode ViewMode => viewMode;
         public Camera ConfiguredSourceCamera => sourceCamera;
@@ -139,6 +194,7 @@ namespace SignVR.Streaming
         public int CaptureHeight => height;
         public int CaptureFrameRate => frameRate;
         public int JpegQuality => jpegQuality;
+        public bool KeepsCaptureHorizonLevel => keepCaptureHorizonLevel;
         public bool StreamsAutomatically => streamAutomatically;
         public bool IsStreaming => udpClient != null && captureCoroutine != null;
         public string Destination => remoteEndPoint != null
@@ -150,6 +206,15 @@ namespace SignVR.Streaming
         public long SendFailures => Interlocked.Read(ref sendFailures);
         public long FramesDropped => Interlocked.Read(ref framesDropped);
         public string LastError => lastError;
+        public bool RecordsLocally => recordLocally;
+        public bool StartsLocalRecordingWithStream =>
+            startLocalRecordingWithStream;
+        public string LocalRecordingDirectory => localSessionDirectory;
+        public string CurrentLocalRecordingPath =>
+            localRecorder?.CurrentPath ?? string.Empty;
+        public long LocalFramesWritten => localRecorder?.FramesWritten ?? 0L;
+        public long LocalFramesDropped => localRecorder?.FramesDropped ?? 0L;
+        public bool IsLocalRecordingActive => localRecorder != null;
 
         /// <summary>
         /// Configures every setting a generated scene normally needs. Call this
@@ -248,6 +313,109 @@ namespace SignVR.Streaming
             }
         }
 
+        public void ConfigureLocalRecording(
+            bool enabled,
+            string folderName = "FirstPersonVideos",
+            int segmentMinutes = 10
+        )
+        {
+            bool restart = IsStreaming;
+
+            if (restart)
+            {
+                StopStreaming();
+            }
+
+            recordLocally = enabled;
+            localRecordingFolder = string.IsNullOrWhiteSpace(folderName)
+                ? "FirstPersonVideos"
+                : folderName.Trim().Trim('/', '\\');
+            localSegmentMinutes = Mathf.Clamp(segmentMinutes, 1, 60);
+
+            if (restart)
+            {
+                StartStreaming();
+            }
+        }
+
+        public void ConfigureLocalRecordingStartup(bool enabled)
+        {
+            startLocalRecordingWithStream = enabled;
+        }
+
+        public void ConfigureAutomaticStreaming(bool enabled)
+        {
+            streamAutomatically = enabled;
+        }
+
+        public void ConfigureCaptureExclusion(LayerMask excludedLayers)
+        {
+            captureExcludedLayers = excludedLayers;
+        }
+
+        public void ConfigureRecordingStability(
+            bool smoothPose,
+            bool keepHorizonLevel)
+        {
+            smoothHeadsetPose = smoothPose;
+            keepCaptureHorizonLevel = keepHorizonLevel;
+            ResetCapturePoseSmoothing();
+        }
+
+        public void StartLocalRecordingTake(string label = "take")
+        {
+            if (!recordLocally)
+            {
+                return;
+            }
+            StopLocalRecording();
+            localTakeOwnsStreamingSession = false;
+            if (!IsStreaming)
+            {
+                StartStreaming();
+                localTakeOwnsStreamingSession = IsStreaming;
+            }
+            if (!IsStreaming)
+            {
+                return;
+            }
+            string safeLabel = SanitizePathSegment(label);
+            string root = Path.GetFullPath(Application.persistentDataPath);
+            string folder = Path.GetFullPath(Path.Combine(
+                root,
+                localRecordingFolder,
+                safeLabel + "_" + DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff")
+            ));
+            string rootPrefix = root.TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar
+            ) + Path.DirectorySeparatorChar;
+            StringComparison comparison = Path.DirectorySeparatorChar == '\\'
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal;
+            if (!folder.StartsWith(rootPrefix, comparison))
+            {
+                throw new InvalidOperationException(
+                    "The local recording folder must stay under " +
+                    "Application.persistentDataPath."
+                );
+            }
+            localSessionDirectory = folder;
+            ResetCapturePoseSmoothing();
+            StartLocalRecording();
+        }
+
+        public void StopLocalRecordingTake()
+        {
+            bool stopOwnedStreamingSession = localTakeOwnsStreamingSession;
+            localTakeOwnsStreamingSession = false;
+            StopLocalRecording();
+            if (stopOwnedStreamingSession && IsStreaming)
+            {
+                StopStreaming();
+            }
+        }
+
         private void Start()
         {
             if (streamAutomatically)
@@ -288,9 +456,15 @@ namespace SignVR.Streaming
                     Name = "SignVR Spectator UDP Sender"
                 };
                 senderThread.Start();
+                if (startLocalRecordingWithStream)
+                {
+                    StartLocalRecording();
+                }
 
                 ResetDiagnostics();
                 nextCaptureTime = Time.realtimeSinceStartupAsDouble;
+                scheduledCaptureSlots = 0;
+                pendingLocalFrameCount = 1;
                 nextDebugLogTime = nextCaptureTime;
                 captureCoroutine = StartCoroutine(CaptureLoop());
 
@@ -298,13 +472,16 @@ namespace SignVR.Streaming
                     "[SpectatorViewStreamer][STARTED] " +
                     $"mode={viewMode}, destination={Destination}, " +
                     $"capture={width}x{height}@{frameRate}, " +
-                    $"quality={jpegQuality}, datagram={maxDatagramBytes}."
+                    $"quality={jpegQuality}, datagram={maxDatagramBytes}, " +
+                    $"localRecording={recordLocally}, " +
+                    $"localDirectory={localSessionDirectory}."
                 );
             }
             catch (Exception exception)
             {
                 lastError = exception.Message;
                 StopSenderThread();
+                StopLocalRecording();
                 CleanupTransport();
                 ReleaseCaptureResources();
                 Debug.LogError(
@@ -329,6 +506,7 @@ namespace SignVR.Streaming
 
             FinishPendingReadback();
             StopSenderThread();
+            StopLocalRecording();
             CleanupTransport();
             ReleaseCaptureResources();
 
@@ -356,15 +534,18 @@ namespace SignVR.Streaming
                 double now = Time.realtimeSinceStartupAsDouble;
                 ProcessWorkerError(now);
 
+                AccumulateScheduledCaptureSlots(now);
+
                 if (readbackPending && readbackRequest.done)
                 {
                     ProcessCompletedReadback();
                 }
 
-                if (!readbackPending && now >= nextCaptureTime)
+                if (!readbackPending && scheduledCaptureSlots > 0)
                 {
-                    nextCaptureTime = now + 1.0 / frameRate;
-                    CaptureFrame(now);
+                    pendingLocalFrameCount = scheduledCaptureSlots;
+                    scheduledCaptureSlots = 0;
+                    CaptureFrame(now, pendingLocalFrameCount);
                 }
 
                 if (debugLogging && now >= nextDebugLogTime)
@@ -376,7 +557,30 @@ namespace SignVR.Streaming
             }
         }
 
-        private void CaptureFrame(double now)
+        private void AccumulateScheduledCaptureSlots(double now)
+        {
+            double interval = 1.0 / frameRate;
+            int due = 0;
+            while (now >= nextCaptureTime && due < MaximumScheduledCaptureSlots)
+            {
+                due++;
+                nextCaptureTime += interval;
+            }
+
+            if (due == MaximumScheduledCaptureSlots && now >= nextCaptureTime)
+            {
+                // A long hitch should not make the main thread spin. Keep the
+                // newest 6 seconds of schedule, which is the writer queue size.
+                nextCaptureTime = now + interval;
+            }
+
+            scheduledCaptureSlots = Math.Min(
+                MaximumScheduledCaptureSlots,
+                scheduledCaptureSlots + due
+            );
+        }
+
+        private void CaptureFrame(double now, int localFrameCount)
         {
             Camera settingsCamera = ResolveSourceCamera();
 
@@ -416,6 +620,7 @@ namespace SignVR.Streaming
                     pendingFrameWidth = width;
                     pendingFrameHeight = height;
                     pendingJpegQuality = jpegQuality;
+                    pendingLocalFrameCount = Math.Max(1, localFrameCount);
                     readbackRequest = AsyncGPUReadback.Request(
                         captureTexture,
                         0,
@@ -425,7 +630,7 @@ namespace SignVR.Streaming
                 }
                 else
                 {
-                    CaptureSynchronously(frameId, flags);
+                    CaptureSynchronously(frameId, flags, localFrameCount);
                 }
             }
             catch (Exception exception)
@@ -451,11 +656,16 @@ namespace SignVR.Streaming
             }
 
             NativeArray<byte> encoded = default;
+            byte[] rgb24 = null;
 
             try
             {
+                NativeArray<byte> readbackData = readbackRequest.GetData<byte>();
+                rgb24 = recordLocally && localRecorder != null
+                    ? readbackData.ToArray()
+                    : null;
                 encoded = ImageConversion.EncodeNativeArrayToJPG(
-                    readbackRequest.GetData<byte>(),
+                    readbackData,
                     GraphicsFormat.R8G8B8_UNorm,
                     (uint)pendingFrameWidth,
                     (uint)pendingFrameHeight,
@@ -464,10 +674,12 @@ namespace SignVR.Streaming
                 );
                 QueueFrame(
                     encoded.ToArray(),
+                    rgb24,
                     pendingFrameId,
                     pendingFrameFlags,
                     pendingFrameWidth,
-                    pendingFrameHeight
+                    pendingFrameHeight,
+                    pendingLocalFrameCount
                 );
                 lastError = string.Empty;
             }
@@ -485,7 +697,11 @@ namespace SignVR.Streaming
             }
         }
 
-        private void CaptureSynchronously(uint frameId, byte flags)
+        private void CaptureSynchronously(
+            uint frameId,
+            byte flags,
+            int localFrameCount
+        )
         {
             if (
                 synchronousReadbackTexture == null ||
@@ -521,7 +737,20 @@ namespace SignVR.Streaming
                 byte[] jpeg = synchronousReadbackTexture.EncodeToJPG(
                     jpegQuality
                 );
-                QueueFrame(jpeg, frameId, flags, width, height);
+                byte[] rgb24 = recordLocally && localRecorder != null
+                    ? synchronousReadbackTexture
+                        .GetRawTextureData<byte>()
+                        .ToArray()
+                    : null;
+                QueueFrame(
+                    jpeg,
+                    rgb24,
+                    frameId,
+                    flags,
+                    width,
+                    height,
+                    localFrameCount
+                );
                 lastError = string.Empty;
             }
             finally
@@ -545,16 +774,15 @@ namespace SignVR.Streaming
             captureCamera.allowHDR = false;
             captureCamera.allowMSAA = false;
             captureCamera.useOcclusionCulling = settingsCamera.useOcclusionCulling;
+            captureCamera.cullingMask = settingsCamera.cullingMask &
+                ~captureExcludedLayers.value;
 
             Transform pose = viewMode == SpectatorViewMode.HeadsetPov
                 ? settingsCamera.transform
                 : fixedViewAnchor != null
                     ? fixedViewAnchor
                     : transform;
-            captureCamera.transform.SetPositionAndRotation(
-                pose.position,
-                pose.rotation
-            );
+            SetCapturePose(pose, Time.realtimeSinceStartupAsDouble);
 
             UniversalAdditionalCameraData captureData =
                 captureCamera.GetUniversalAdditionalCameraData();
@@ -651,16 +879,35 @@ namespace SignVR.Streaming
 
         private void QueueFrame(
             byte[] jpeg,
+            byte[] rgb24,
             uint frameId,
             byte flags,
             int frameWidth,
-            int frameHeight
+            int frameHeight,
+            int localFrameCount = 1
         )
         {
             if (jpeg == null || jpeg.Length == 0)
             {
                 Interlocked.Increment(ref framesDropped);
                 return;
+            }
+
+            if (recordLocally && localRecorder != null)
+            {
+                int framesToWrite = Math.Max(1, localFrameCount);
+                for (int index = 0; index < framesToWrite; index++)
+                {
+                    if (localRecorder.Enqueue(rgb24))
+                    {
+                        continue;
+                    }
+
+                    lastError = string.IsNullOrWhiteSpace(localRecorder.LastError)
+                        ? "The local MP4 writer queue is full."
+                        : localRecorder.LastError;
+                    break;
+                }
             }
 
             if (jpeg.Length > SpectatorViewProtocol.MaxFrameBytes)
@@ -855,8 +1102,102 @@ namespace SignVR.Streaming
                 $"mode={viewMode}, destination={Destination}, " +
                 $"frames={FramesSent}, packets={PacketsSent}, " +
                 $"bytes={BytesSent}, dropped={FramesDropped}, " +
-                $"failures={SendFailures}, readback=" +
+                $"failures={SendFailures}, localFrames={LocalFramesWritten}, " +
+                $"localDropped={LocalFramesDropped}, readback=" +
                 $"{(forceSynchronousReadback ? "sync" : "async")}."
+            );
+        }
+
+        private void StartLocalRecording()
+        {
+            if (!recordLocally || localRecorder != null)
+            {
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(localSessionDirectory))
+            {
+                string root = Path.GetFullPath(Application.persistentDataPath);
+                string candidate = Path.GetFullPath(Path.Combine(
+                    root,
+                    localRecordingFolder,
+                    DateTime.UtcNow.ToString("yyyyMMdd_HHmmss_fff")
+                ));
+                string rootPrefix = root.TrimEnd(
+                    Path.DirectorySeparatorChar,
+                    Path.AltDirectorySeparatorChar
+                ) + Path.DirectorySeparatorChar;
+                StringComparison comparison =
+                    Path.DirectorySeparatorChar == '\\'
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal;
+                if (!candidate.StartsWith(rootPrefix, comparison))
+                {
+                    throw new InvalidOperationException(
+                        "The local recording folder must stay under " +
+                        "Application.persistentDataPath."
+                    );
+                }
+
+                localSessionDirectory = candidate;
+            }
+
+            localRecorder = new FirstPersonMp4Recorder(
+                localSessionDirectory,
+                $"first_person_{localRecordingPass++:000}",
+                width,
+                height,
+                frameRate,
+                16_000_000
+            );
+            localRecorder.Start();
+            if (!localRecorder.IsRecording)
+            {
+                string error = string.IsNullOrWhiteSpace(localRecorder.LastError)
+                    ? "Android H.264 MP4 encoder could not start."
+                    : localRecorder.LastError;
+                localRecorder.Dispose();
+                localRecorder = null;
+                lastError = error;
+                Debug.LogError(
+                    "[SpectatorViewStreamer][LOCAL RECORDING START FAILED] " +
+                    error
+                );
+                return;
+            }
+            Debug.Log(
+                "[SpectatorViewStreamer][LOCAL RECORDING STARTED] " +
+                $"directory={localSessionDirectory}, " +
+                $"capture={width}x{height}@{frameRate}, format=H.264 MP4."
+            );
+        }
+
+        private void StopLocalRecording()
+        {
+            if (localRecorder == null)
+            {
+                return;
+            }
+
+            FirstPersonMp4Recorder recorder = localRecorder;
+            localRecorder = null;
+            recorder.Stop();
+            long written = recorder.FramesWritten;
+            long dropped = recorder.FramesDropped;
+            string error = recorder.LastError;
+            string path = recorder.CurrentPath;
+            recorder.Dispose();
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                Debug.LogWarning(
+                    "[SpectatorViewStreamer][LOCAL RECORDING FAILED] " + error
+                );
+            }
+
+            Debug.Log(
+                "[SpectatorViewStreamer][LOCAL RECORDING STOPPED] " +
+                $"path={path}, frames={written}, dropped={dropped}."
             );
         }
 
@@ -952,14 +1293,129 @@ namespace SignVR.Streaming
             lastError = string.Empty;
         }
 
+        private void ResetCapturePoseSmoothing()
+        {
+            smoothedPoseInitialized = false;
+            previousPoseSampleTime = 0d;
+        }
+
+        private void SetCapturePose(Transform pose, double now)
+        {
+            if (pose == null)
+            {
+                return;
+            }
+            Quaternion targetRotation = keepCaptureHorizonLevel &&
+                viewMode == SpectatorViewMode.HeadsetPov
+                    ? CalculateHorizonLevelRotation(pose.rotation)
+                    : pose.rotation;
+            if (!smoothHeadsetPose || viewMode != SpectatorViewMode.HeadsetPov)
+            {
+                captureCamera.transform.SetPositionAndRotation(
+                    pose.position,
+                    targetRotation
+                );
+                return;
+            }
+
+            if (!smoothedPoseInitialized)
+            {
+                smoothedCapturePosition = pose.position;
+                smoothedCaptureRotation = targetRotation;
+                previousPoseSampleTime = now;
+                smoothedPoseInitialized = true;
+            }
+            double dt = Math.Max(0.0001d, now - previousPoseSampleTime);
+            previousPoseSampleTime = now;
+            float positionAlpha = 1f - Mathf.Exp(
+                -0.69314718f * (float)dt /
+                Mathf.Max(0.01f, positionSmoothingHalfLife)
+            );
+            float rotationAlpha = 1f - Mathf.Exp(
+                -0.69314718f * (float)dt /
+                Mathf.Max(0.01f, rotationSmoothingHalfLife)
+            );
+            Vector3 positionDelta = pose.position - smoothedCapturePosition;
+            if (positionDelta.magnitude >= positionDeadZoneMeters)
+            {
+                smoothedCapturePosition = Vector3.Lerp(
+                    smoothedCapturePosition,
+                    pose.position,
+                    positionAlpha
+                );
+            }
+            float angle = Quaternion.Angle(
+                smoothedCaptureRotation,
+                targetRotation
+            );
+            if (angle >= rotationDeadZoneDegrees)
+            {
+                smoothedCaptureRotation = Quaternion.Slerp(
+                    smoothedCaptureRotation,
+                    targetRotation,
+                    rotationAlpha
+                );
+            }
+            captureCamera.transform.SetPositionAndRotation(
+                smoothedCapturePosition,
+                smoothedCaptureRotation
+            );
+        }
+
+        public static Quaternion CalculateHorizonLevelRotation(
+            Quaternion headsetRotation)
+        {
+            Vector3 forward = headsetRotation * Vector3.forward;
+            if (forward.sqrMagnitude < 0.000001f)
+            {
+                return Quaternion.identity;
+            }
+            forward.Normalize();
+
+            Vector3 right = Vector3.Cross(Vector3.up, forward);
+            if (right.sqrMagnitude < 0.000001f)
+            {
+                right = Vector3.ProjectOnPlane(
+                    headsetRotation * Vector3.right,
+                    Vector3.up
+                );
+            }
+            if (right.sqrMagnitude < 0.000001f)
+            {
+                right = Vector3.right;
+            }
+            right.Normalize();
+            Vector3 correctedUp = Vector3.Cross(forward, right).normalized;
+            return Quaternion.LookRotation(forward, correctedUp);
+        }
+
+        private static string SanitizePathSegment(string value)
+        {
+            char[] invalid = Path.GetInvalidFileNameChars();
+            string result = string.IsNullOrWhiteSpace(value)
+                ? "take"
+                : value.Trim();
+            for (int index = 0; index < invalid.Length; index++)
+            {
+                result = result.Replace(invalid[index], '_');
+            }
+            return string.IsNullOrWhiteSpace(result) ? "take" : result;
+        }
+
         private void ValidateSettings()
         {
             width = Mathf.Clamp(width, 160, 1920);
             height = Mathf.Clamp(height, 90, 1080);
             frameRate = Mathf.Clamp(frameRate, 1, 30);
-            jpegQuality = Mathf.Clamp(jpegQuality, 10, 90);
+            jpegQuality = Mathf.Clamp(jpegQuality, 10, 100);
             remotePort = Mathf.Clamp(remotePort, 1, 65535);
             maxDatagramBytes = Mathf.Clamp(maxDatagramBytes, 512, 1400);
+            localSegmentMinutes = Mathf.Clamp(localSegmentMinutes, 1, 60);
+            if (string.IsNullOrWhiteSpace(localRecordingFolder))
+            {
+                localRecordingFolder = "FirstPersonVideos";
+            }
+            localRecordingFolder = localRecordingFolder.Trim().Trim('/', '\\');
             debugLogIntervalSeconds = Mathf.Max(
                 debugLogIntervalSeconds,
                 1f
@@ -1033,6 +1489,10 @@ namespace SignVR.Streaming
             {
                 resumeAfterPause = false;
                 StartStreaming();
+                if (localTakeOwnsStreamingSession && IsStreaming)
+                {
+                    StartLocalRecording();
+                }
             }
         }
 

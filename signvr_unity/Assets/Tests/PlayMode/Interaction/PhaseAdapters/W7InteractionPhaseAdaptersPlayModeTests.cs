@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 using Oculus.Interaction;
+using Oculus.Interaction.Input;
 using TMPro;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -315,6 +316,61 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         }
 
         [UnityTest]
+        public IEnumerator MetaHandPhysicsCapsuleOutsideInteractorRootIsAllowed()
+        {
+            RuntimeFixture fixture = CreateRuntimeFixture(
+                "MetaHandPhysicsTrigger"
+            );
+            Component phaseOne = fixture.Adapters[0];
+            ActivatePhase(fixture, 1);
+
+            GameObject target = Track(new GameObject("PhysicalButton"));
+            BoxCollider trigger = target.AddComponent<BoxCollider>();
+            Component binding = target.AddComponent(
+                RuntimeType("InteractionTargetBinding")
+            );
+            InvokePublic(
+                binding,
+                "Configure",
+                "box_stool",
+                phaseOne,
+                Array.Empty<Behaviour>(),
+                new Collider[] { trigger }
+            );
+
+            GameObject configuredRoot = Track(new GameObject("HandRoot"));
+            GameObject physicsRoot = Track(new GameObject("HandPhysics"));
+            HandPhysicsCapsules handPhysics =
+                physicsRoot.AddComponent<HandPhysicsCapsules>();
+            handPhysics.enabled = false;
+            GameObject joint = new GameObject("HandIndex3-HandIndexTip Collider");
+            joint.transform.SetParent(physicsRoot.transform, false);
+            Collider jointCollider = joint.AddComponent<CapsuleCollider>();
+
+            Component relay = target.AddComponent(
+                RuntimeType("InteractionTriggerRelay")
+            );
+            InvokePublic(
+                relay,
+                "Configure",
+                binding,
+                new[] { configuredRoot.transform },
+                0f
+            );
+
+            Assert.That(
+                InvokePublic(relay, "IsAllowedInteractor", jointCollider),
+                Is.True
+            );
+            AssertAccepted(InvokePublic(
+                relay,
+                "AcceptTrigger",
+                jointCollider
+            ));
+            yield return null;
+        }
+
+        [UnityTest]
         public IEnumerator PhaseFiveErrorFeedbackBlocksInputForResetWindow()
         {
             RuntimeFixture fixture = CreateRuntimeFixture(
@@ -511,24 +567,24 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Assert.That(grabRoot.activeSelf, Is.True);
             Assert.That(grabBehaviour.enabled, Is.True);
             Assert.That(collider.enabled, Is.True);
-            Assert.That(body.isKinematic, Is.True);
+            Assert.That(body.isKinematic, Is.False);
             Assert.That(
                 body.useGravity,
-                Is.False,
-                "Phase 2 availability must not turn coin gravity on."
+                Is.True,
+                "Phase 2 availability must let the coin settle."
             );
             Assert.That(body.detectCollisions, Is.True);
             Assert.That(
                 body.constraints,
-                Is.EqualTo(RigidbodyConstraints.FreezeAll)
+                Is.EqualTo(RigidbodyConstraints.None)
             );
             Assert.That(
                 body.interpolation,
-                Is.EqualTo(RigidbodyInterpolation.None)
+                Is.EqualTo(RigidbodyInterpolation.Interpolate)
             );
             Assert.That(
                 body.collisionDetectionMode,
-                Is.EqualTo(CollisionDetectionMode.Discrete)
+                Is.EqualTo(CollisionDetectionMode.ContinuousDynamic)
             );
 
             coin.transform.localPosition = Vector3.one * 9f;
@@ -576,7 +632,7 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
         }
 
         [UnityTest]
-        public IEnumerator CoinRemainsKinematicThroughSelectionCycle()
+        public IEnumerator CoinRemainsDynamicUntilAcceptedByPlate()
         {
             GameObject adapterObject = Track(
                 new GameObject("PhaseTwoSelectionOwnedPhysics")
@@ -610,8 +666,8 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             InvokePublic(phaseTwo, "Enable");
             Assert.That(
                 body.isKinematic,
-                Is.True,
-                "An available but unheld coin must stay fixed in place."
+                Is.False,
+                "An available coin must be physically movable."
             );
             Assert.That(body.linearVelocity, Is.EqualTo(Vector3.zero));
             Assert.That(body.angularVelocity, Is.EqualTo(Vector3.zero));
@@ -619,28 +675,28 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             selection.IsSelected = true;
             Assert.That(
                 body.isKinematic,
-                Is.True,
-                "Meta grab moves the Transform and must not unlock physics."
+                Is.False,
+                "The binding must not lock physics during selection."
             );
 
-            coin.transform.position = new Vector3(8f, 9f, 10f);
+            body.position = new Vector3(8f, 9f, 10f);
             selection.IsSelected = false;
-            Vector3 releasedPosition = coin.transform.position;
+            Vector3 releasedPosition = body.position;
             yield return new WaitForFixedUpdate();
             yield return new WaitForFixedUpdate();
             Assert.That(
                 body.isKinematic,
-                Is.True,
-                "Releasing a coin away from a plate must freeze its pose."
+                Is.False,
+                "Releasing away from a plate must keep the coin movable."
             );
             Assert.That(
-                coin.transform.position,
-                Is.EqualTo(releasedPosition),
-                "Releasing must preserve the grabbed pose."
+                body.position.y,
+                Is.LessThan(releasedPosition.y),
+                "A released coin must begin falling instead of floating."
             );
-            Assert.That(body.linearVelocity, Is.EqualTo(Vector3.zero));
+            Assert.That(body.linearVelocity.y, Is.LessThan(0f));
             Assert.That(body.angularVelocity, Is.EqualTo(Vector3.zero));
-            Assert.That(body.useGravity, Is.False);
+            Assert.That(body.useGravity, Is.True);
         }
 
         [UnityTest]
@@ -710,9 +766,8 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
             Assert.That(
                 body.isKinematic,
-                Is.True,
-                "A selected coin remains kinematic while Meta owns its " +
-                "Transform."
+                Is.False,
+                "Selection must not let the phase binding lock the coin."
             );
 
             selection.IsSelected = false;

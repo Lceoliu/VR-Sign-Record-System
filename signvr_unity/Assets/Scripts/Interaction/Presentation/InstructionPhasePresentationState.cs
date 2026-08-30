@@ -9,6 +9,8 @@ namespace SignVR.Interaction.Presentation
     /// </summary>
     public sealed class InstructionPhasePresentationState
     {
+        public const double TextRevealDelaySeconds = 1d;
+
         private AssistanceCondition condition;
         private bool phaseActive;
         private bool firstPlaybackCompleted;
@@ -17,6 +19,7 @@ namespace SignVR.Interaction.Presentation
         private bool replayConsumed;
         private bool replayInProgress;
         private double lastMonotonicTime = double.NaN;
+        private double textRevealDeadline = double.PositiveInfinity;
 
         public event Action Changed;
         public event Action BubbleShown;
@@ -68,6 +71,7 @@ namespace SignVR.Interaction.Presentation
             replayConsumed = false;
             replayInProgress = false;
             lastMonotonicTime = double.NaN;
+            textRevealDeadline = double.PositiveInfinity;
 
             if (wasVisible)
             {
@@ -77,9 +81,8 @@ namespace SignVR.Interaction.Presentation
         }
 
         /// <summary>
-        /// Reveals text at the same presentation boundary at which the signer
-        /// becomes visible and the first instruction playback starts. Replays
-        /// are intentionally idempotent and never toggle the bubble.
+        /// Starts signer playback without exposing the transcript. Text is
+        /// revealed one second after the first playback completes.
         /// </summary>
         public void InstructionPlaybackStarted(double monotonicTime)
         {
@@ -87,12 +90,6 @@ namespace SignVR.Interaction.Presentation
             AdvanceTime(monotonicTime);
             firstPlaybackStarted = true;
             replayInProgress = true;
-            if (!bubbleVisible && TextAllowed)
-            {
-                bubbleVisible = true;
-                BubbleShown?.Invoke();
-                Changed?.Invoke();
-            }
         }
 
         public void FirstPlaybackCompleted(double monotonicTime)
@@ -108,6 +105,11 @@ namespace SignVR.Interaction.Presentation
 
             firstPlaybackCompleted = true;
             replayInProgress = false;
+            if (TextAllowed && !bubbleVisible)
+            {
+                textRevealDeadline = monotonicTime +
+                    TextRevealDelaySeconds;
+            }
             ReplayBecameAvailable?.Invoke();
             Changed?.Invoke();
         }
@@ -120,6 +122,14 @@ namespace SignVR.Interaction.Presentation
             }
 
             AdvanceTime(monotonicTime);
+            if (!bubbleVisible && TextAllowed && firstPlaybackCompleted &&
+                monotonicTime >= textRevealDeadline)
+            {
+                bubbleVisible = true;
+                textRevealDeadline = double.PositiveInfinity;
+                BubbleShown?.Invoke();
+                Changed?.Invoke();
+            }
         }
 
         /// <summary>
@@ -173,6 +183,7 @@ namespace SignVR.Interaction.Presentation
             phaseActive = false;
             bubbleVisible = false;
             replayInProgress = false;
+            textRevealDeadline = double.PositiveInfinity;
             if (wasVisible)
             {
                 BubbleHidden?.Invoke();
