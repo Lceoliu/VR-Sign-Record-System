@@ -44,7 +44,7 @@ namespace SignVR.Editor.Interaction
             "__W7_TEST_OWNED_INTERACTION_SCENE__";
         private const string BreakerHandlerPath =
             "switchHandler.fbx/RootNode/handler";
-        private const float ChestLidClosedLocalEulerX = 108.03f;
+        private const float ChestLidClosedLocalEulerX = 0f;
 
         private static readonly TargetSpec[] TargetSpecs =
         {
@@ -1548,6 +1548,9 @@ namespace SignVR.Editor.Interaction
             {
                 return new DeterministicHingeBinding();
             }
+            RecordForUndo(lid);
+            lid.localPosition = Vector3.zero;
+            lid.localRotation = Quaternion.identity;
             Bounds bounds = GetBounds(lid);
             Transform hinge = EnsureWorldHinge(
                 lid.parent,
@@ -1560,7 +1563,7 @@ namespace SignVR.Editor.Interaction
                 0f
             );
             var binding = new DeterministicHingeBinding();
-            binding.ConfigureAbsoluteInPlace(
+            binding.ConfigureAbsolute(
                 lid,
                 hinge,
                 Vector3.right,

@@ -648,9 +648,16 @@ namespace SignVR.Editor.Interaction
             {
                 panel.transform.SetParent(proxyRoot, false);
             }
+            Bounds chestBounds = GetWorldBounds(chest);
+            const float panelHalfWidth = 0.26f;
+            const float chestSideClearance = 0.08f;
+            const float chestFrontClearance = 0.08f;
             panel.transform.SetPositionAndRotation(
-                chest.position + Vector3.left * 0.48f +
-                    Vector3.up * 0.15f + Vector3.forward * 0.18f,
+                new Vector3(
+                    chestBounds.min.x - panelHalfWidth - chestSideClearance,
+                    chestBounds.center.y,
+                    chestBounds.max.z + chestFrontClearance
+                ),
                 Quaternion.identity
             );
             panel.transform.localScale = Vector3.one;

@@ -264,11 +264,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -3486285940608392636, guid: ee79d0c6897e0934381a54067d9c7b74, type: 3}
       propertyPath: m_LocalRotation.w
-      value: 0.58757347
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: -3486285940608392636, guid: ee79d0c6897e0934381a54067d9c7b74, type: 3}
       propertyPath: m_LocalRotation.x
-      value: 0.8091709
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: -3356761414503908318, guid: ee79d0c6897e0934381a54067d9c7b74, type: 3}
       propertyPath: m_LocalRotation.w
@@ -8263,7 +8263,7 @@ Transform:
   m_GameObject: {fileID: 702912574}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 3.889, y: 1.05, z: -4.9830003}
+  m_LocalPosition: {x: 2.6707156, y: 0.91552174, z: -4.250945}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -13443,7 +13443,7 @@ Transform:
   m_GameObject: {fileID: 1197750086}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0.3042109, z: 0.057649165}
+  m_LocalPosition: {x: 0, y: 0.49485004, z: -0.8285603}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -14870,12 +14870,12 @@ MonoBehaviour:
     hingeLocalAxis: {x: 1, y: 0, z: 0}
     openAngleDegrees: -100
     closedLocalPosition: {x: 0, y: 0, z: 0}
-    closedLocalRotation: {x: 0.80917084, y: 0, z: 0, w: 0.5875734}
-    openLocalPosition: {x: 0, y: 0, z: 0}
-    openLocalRotation: {x: 0.07001758, y: 0, z: 0, w: 0.9975458}
+    closedLocalRotation: {x: 0, y: 0, z: 0, w: 1}
+    openLocalPosition: {x: 0, y: 1.5439479, z: -0.5595821}
+    openLocalRotation: {x: -0.7660444, y: -0, z: -0, w: 0.64278764}
     closedPoseCaptured: 1
     explicitClosedPose: 1
-    openInPlace: 1
+    openInPlace: 0
   cabinetLeftDoor:
     movingPart: {fileID: 895361445}
     hinge: {fileID: 1391065960}

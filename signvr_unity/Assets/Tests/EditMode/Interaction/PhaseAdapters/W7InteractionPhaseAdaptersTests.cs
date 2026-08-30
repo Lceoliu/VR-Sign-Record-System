@@ -1862,7 +1862,7 @@ namespace SignVR.Interaction.Editor.Tests
                 );
                 Assert.That(
                     RotationAngleFromIdentity(lid),
-                    Is.EqualTo(108.03f).Within(0.02f)
+                    Is.EqualTo(0f).Within(0.02f)
                 );
                 hingeType.GetMethod("Open").Invoke(firstChestBinding, null);
                 float firstOpenAngle = RotationAngleFromIdentity(lid);
@@ -1872,7 +1872,7 @@ namespace SignVR.Interaction.Editor.Tests
                 ).Invoke(null, new[] { chest });
                 Assert.That(
                     RotationAngleFromIdentity(lid),
-                    Is.EqualTo(108.03f).Within(0.02f),
+                    Is.EqualTo(0f).Within(0.02f),
                     "Repeated setup must restore the explicit closed pose."
                 );
                 hingeType.GetMethod("Open").Invoke(secondChestBinding, null);
