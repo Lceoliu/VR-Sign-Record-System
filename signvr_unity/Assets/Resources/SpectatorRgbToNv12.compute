@@ -1,0 +1,93 @@
+#pragma kernel ConvertY
+#pragma kernel ConvertUv
+
+Texture2D<float4> _Source;
+RWStructuredBuffer<uint> _Nv12Words;
+int2 _Dimensions;
+int _UvWordOffset;
+int _SourceIsLinear;
+
+float3 LinearToSrgb(float3 value)
+{
+    float3 low = value * 12.92;
+    float3 high = 1.055 * pow(max(value, 0.0), 1.0 / 2.4) - 0.055;
+    return lerp(high, low, step(value, 0.0031308));
+}
+
+uint3 LoadRgb(int2 pixel)
+{
+    float3 value = saturate(_Source.Load(int3(pixel, 0)).rgb);
+    if (_SourceIsLinear != 0)
+    {
+        value = LinearToSrgb(value);
+    }
+    return (uint3)round(value * 255.0);
+}
+
+uint Luma(uint3 rgb)
+{
+    int value = ((66 * (int)rgb.r + 129 * (int)rgb.g +
+        25 * (int)rgb.b + 128) >> 8) + 16;
+    return (uint)clamp(value, 0, 255);
+}
+
+uint ChromaU(uint3 rgb)
+{
+    int value = ((-38 * (int)rgb.r - 74 * (int)rgb.g +
+        112 * (int)rgb.b + 128) >> 8) + 128;
+    return (uint)clamp(value, 0, 255);
+}
+
+uint ChromaV(uint3 rgb)
+{
+    int value = ((112 * (int)rgb.r - 94 * (int)rgb.g -
+        18 * (int)rgb.b + 128) >> 8) + 128;
+    return (uint)clamp(value, 0, 255);
+}
+
+[numthreads(8, 8, 1)]
+void ConvertY(uint3 id : SV_DispatchThreadID)
+{
+    uint wordsPerRow = (uint)_Dimensions.x / 4;
+    if (id.x >= wordsPerRow || id.y >= (uint)_Dimensions.y)
+    {
+        return;
+    }
+
+    int2 pixel = int2((int)id.x * 4, (int)id.y);
+    uint packed = Luma(LoadRgb(pixel));
+    packed |= Luma(LoadRgb(pixel + int2(1, 0))) << 8;
+    packed |= Luma(LoadRgb(pixel + int2(2, 0))) << 16;
+    packed |= Luma(LoadRgb(pixel + int2(3, 0))) << 24;
+    _Nv12Words[id.y * wordsPerRow + id.x] = packed;
+}
+
+[numthreads(8, 8, 1)]
+void ConvertUv(uint3 id : SV_DispatchThreadID)
+{
+    uint wordsPerRow = (uint)_Dimensions.x / 4;
+    uint chromaRows = (uint)_Dimensions.y / 2;
+    if (id.x >= wordsPerRow || id.y >= chromaRows)
+    {
+        return;
+    }
+
+    int2 first = int2((int)id.x * 4, (int)id.y * 2);
+    uint3 rgb0 = (
+        LoadRgb(first) +
+        LoadRgb(first + int2(1, 0)) +
+        LoadRgb(first + int2(0, 1)) +
+        LoadRgb(first + int2(1, 1)) + 2) / 4;
+    int2 second = first + int2(2, 0);
+    uint3 rgb1 = (
+        LoadRgb(second) +
+        LoadRgb(second + int2(1, 0)) +
+        LoadRgb(second + int2(0, 1)) +
+        LoadRgb(second + int2(1, 1)) + 2) / 4;
+
+    uint packed = ChromaU(rgb0);
+    packed |= ChromaV(rgb0) << 8;
+    packed |= ChromaU(rgb1) << 16;
+    packed |= ChromaV(rgb1) << 24;
+    _Nv12Words[_UvWordOffset + id.y * wordsPerRow + id.x] = packed;
+}

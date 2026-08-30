@@ -52,9 +52,11 @@ namespace SignVR.Interaction.Presentation
         private bool frameGrabbed;
         private bool wallPasswordRevealed;
         private Coroutine releaseFrameRoutine;
+        private Coroutine passwordResetRoutine;
         private string[] expectedPassword = { "blue", "red", "yellow", "green" };
 
-        public bool IsPasswordInputAvailable => state == SequenceState.PasswordEntry;
+        public bool IsPasswordInputAvailable =>
+            state == SequenceState.PasswordEntry && passwordResetRoutine == null;
         public bool IsRecordingSequenceActive => state != SequenceState.Idle &&
             state != SequenceState.Completed;
         public int PasswordProgress => passwordProgress;
@@ -194,8 +196,10 @@ namespace SignVR.Interaction.Presentation
             IReadOnlyList<string> plannedOrder = phaseCoordinator?.Plan?
                 .ChestButtonOrder?.ButtonIds;
             expectedPassword = plannedOrder != null && plannedOrder.Count == 4
-                ? new List<string>(plannedOrder).ToArray()
-                : new[] { "blue", "red", "yellow", "green" };
+                ? new List<string>(plannedOrder)
+                    .ConvertAll(PasswordDigit)
+                    .ToArray()
+                : new[] { "0", "1", "2", "3" };
             frameGrabbed = false;
             wallPasswordRevealed = false;
             releaseVelocity = Vector3.zero;
@@ -330,7 +334,13 @@ namespace SignVR.Interaction.Presentation
                     StringComparison.OrdinalIgnoreCase))
             {
                 passwordProgress = 0;
-                ResetButtonVisuals();
+                if (passwordResetRoutine != null)
+                {
+                    StopCoroutine(passwordResetRoutine);
+                }
+                passwordResetRoutine = StartCoroutine(
+                    ResetPasswordButtonsAfterPress()
+                );
                 return null;
             }
             passwordProgress++;
@@ -349,6 +359,13 @@ namespace SignVR.Interaction.Presentation
                 deterministic?.PlayChestOpeningAnimation();
             }
             return null;
+        }
+
+        private IEnumerator ResetPasswordButtonsAfterPress()
+        {
+            yield return new WaitForSecondsRealtime(0.12f);
+            passwordResetRoutine = null;
+            ResetButtonVisuals();
         }
 
         private void SetPasswordPanel(bool visible)
@@ -413,6 +430,11 @@ namespace SignVR.Interaction.Presentation
 
         private void AbortSequence()
         {
+            if (passwordResetRoutine != null)
+            {
+                StopCoroutine(passwordResetRoutine);
+                passwordResetRoutine = null;
+            }
             if (releaseFrameRoutine != null)
             {
                 StopCoroutine(releaseFrameRoutine);
@@ -479,6 +501,10 @@ namespace SignVR.Interaction.Presentation
                 "red" => "1",
                 "yellow" => "2",
                 "green" => "3",
+                "0" => "0",
+                "1" => "1",
+                "2" => "2",
+                "3" => "3",
                 _ => "?"
             };
         }

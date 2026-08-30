@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -152,8 +153,10 @@ namespace SignVR.Streaming
         private RenderTexture captureTexture;
         private Texture2D synchronousReadbackTexture;
         private UniversalRenderPipeline.SingleCameraRequest renderRequest;
-        private AsyncGPUReadbackRequest readbackRequest;
-        private bool readbackPending;
+        private AsyncGPUReadbackRequest previewReadbackRequest;
+        private AsyncGPUReadbackRequest localReadbackRequest;
+        private bool previewReadbackPending;
+        private bool localReadbackPending;
         private bool forceSynchronousReadback;
         private uint pendingFrameId;
         private byte pendingFrameFlags;
@@ -177,10 +180,19 @@ namespace SignVR.Streaming
         private bool resumeAfterPause;
         private bool resumeAfterDisable;
         private FirstPersonMp4Recorder localRecorder;
+        private readonly List<FirstPersonMp4Recorder> finalizingRecorders =
+            new List<FirstPersonMp4Recorder>();
         private string localSessionDirectory = string.Empty;
         private int localRecordingPass;
         private bool smoothedPoseInitialized;
-        private bool localTakeOwnsStreamingSession;
+        private bool localTakeOwnsCaptureSession;
+        private bool stopLocalRecordingAfterReadback;
+        private bool releaseCaptureResourcesWhenReadbackCompletes;
+        private ComputeShader nv12Compute;
+        private GraphicsBuffer nv12Buffer;
+        private uint[] synchronousNv12Words;
+        private int nv12YKernel = -1;
+        private int nv12UvKernel = -1;
         private Vector3 smoothedCapturePosition;
         private Quaternion smoothedCaptureRotation;
         private double previousPoseSampleTime;
@@ -197,6 +209,7 @@ namespace SignVR.Streaming
         public bool KeepsCaptureHorizonLevel => keepCaptureHorizonLevel;
         public bool StreamsAutomatically => streamAutomatically;
         public bool IsStreaming => udpClient != null && captureCoroutine != null;
+        public bool IsCapturing => captureCoroutine != null;
         public string Destination => remoteEndPoint != null
             ? remoteEndPoint.ToString()
             : $"{remoteHost}:{remotePort}";
@@ -215,6 +228,13 @@ namespace SignVR.Streaming
         public long LocalFramesWritten => localRecorder?.FramesWritten ?? 0L;
         public long LocalFramesDropped => localRecorder?.FramesDropped ?? 0L;
         public bool IsLocalRecordingActive => localRecorder != null;
+
+        internal static bool ShouldEncodePreview(
+            bool hasUdpTransport,
+            bool senderIsRunning)
+        {
+            return hasUdpTransport && senderIsRunning;
+        }
 
         /// <summary>
         /// Configures every setting a generated scene normally needs. Call this
@@ -368,17 +388,14 @@ namespace SignVR.Streaming
             {
                 return;
             }
-            StopLocalRecording();
-            localTakeOwnsStreamingSession = false;
-            if (!IsStreaming)
+            RequestStopLocalRecordingAfterReadback();
+            FinalizeStoppedRecorders();
+            if (localRecorder != null || HasRecorderStillFinalizing())
             {
-                StartStreaming();
-                localTakeOwnsStreamingSession = IsStreaming;
-            }
-            if (!IsStreaming)
-            {
+                lastError = "The previous MP4 take is still finalizing.";
                 return;
             }
+            localTakeOwnsCaptureSession = false;
             string safeLabel = SanitizePathSegment(label);
             string root = Path.GetFullPath(Application.persistentDataPath);
             string folder = Path.GetFullPath(Path.Combine(
@@ -403,17 +420,36 @@ namespace SignVR.Streaming
             localSessionDirectory = folder;
             ResetCapturePoseSmoothing();
             StartLocalRecording();
+            if (localRecorder == null)
+            {
+                return;
+            }
+            if (!IsCapturing)
+            {
+                StartLocalCaptureSession();
+                localTakeOwnsCaptureSession = IsCapturing;
+            }
+            if (!IsCapturing)
+            {
+                StopLocalRecording();
+            }
         }
 
         public void StopLocalRecordingTake()
         {
-            bool stopOwnedStreamingSession = localTakeOwnsStreamingSession;
-            localTakeOwnsStreamingSession = false;
-            StopLocalRecording();
-            if (stopOwnedStreamingSession && IsStreaming)
+            bool stopOwnedCaptureSession = localTakeOwnsCaptureSession;
+            localTakeOwnsCaptureSession = false;
+            RequestStopLocalRecordingAfterReadback();
+            if (stopOwnedCaptureSession && !IsStreaming)
             {
-                StopStreaming();
+                StopLocalCaptureSession();
             }
+        }
+
+        private void Update()
+        {
+            FinalizeStoppedRecorders();
+            FinishDeferredCaptureResourceRelease();
         }
 
         private void Start()
@@ -424,10 +460,62 @@ namespace SignVR.Streaming
             }
         }
 
+        private void StartLocalCaptureSession()
+        {
+            if (IsCapturing)
+            {
+                return;
+            }
+
+            try
+            {
+                ValidateSettings();
+                ResetDiagnostics();
+                nextCaptureTime = Time.realtimeSinceStartupAsDouble;
+                scheduledCaptureSlots = 0;
+                pendingLocalFrameCount = 1;
+                nextDebugLogTime = nextCaptureTime;
+                releaseCaptureResourcesWhenReadbackCompletes = false;
+                captureCoroutine = StartCoroutine(CaptureLoop());
+                Debug.Log(
+                    "[SpectatorViewStreamer][LOCAL CAPTURE STARTED] " +
+                    $"capture={width}x{height}@{frameRate}, preview=false."
+                );
+            }
+            catch (Exception exception)
+            {
+                lastError = exception.Message;
+                StopLocalRecording();
+                ReleaseCaptureResources();
+                Debug.LogError(
+                    "[SpectatorViewStreamer][LOCAL CAPTURE START FAILED] " +
+                    exception.Message
+                );
+            }
+        }
+
+        private void StopLocalCaptureSession()
+        {
+            if (captureCoroutine != null)
+            {
+                StopCoroutine(captureCoroutine);
+                captureCoroutine = null;
+            }
+            scheduledCaptureSlots = 0;
+            // Resource release is deferred so this user-facing stop call never
+            // waits for the render thread or GPU, even when no readback exists.
+            releaseCaptureResourcesWhenReadbackCompletes = true;
+        }
+
         public void StartStreaming()
         {
             if (IsStreaming)
             {
+                return;
+            }
+            if (IsCapturing)
+            {
+                lastError = "A local-only capture session is already active.";
                 return;
             }
 
@@ -506,9 +594,12 @@ namespace SignVR.Streaming
 
             FinishPendingReadback();
             StopSenderThread();
-            StopLocalRecording();
+            RequestStopLocalRecordingAfterReadback();
             CleanupTransport();
-            ReleaseCaptureResources();
+            if (!HasPendingReadback())
+            {
+                ReleaseCaptureResources();
+            }
 
             if (
                 wasActive &&
@@ -536,12 +627,12 @@ namespace SignVR.Streaming
 
                 AccumulateScheduledCaptureSlots(now);
 
-                if (readbackPending && readbackRequest.done)
+                if (HasPendingReadback() && ArePendingReadbacksDone())
                 {
-                    ProcessCompletedReadback();
+                    ProcessCompletedReadbacks();
                 }
 
-                if (!readbackPending && scheduledCaptureSlots > 0)
+                if (!HasPendingReadback() && scheduledCaptureSlots > 0)
                 {
                     pendingLocalFrameCount = scheduledCaptureSlots;
                     scheduledCaptureSlots = 0;
@@ -609,6 +700,16 @@ namespace SignVR.Streaming
             {
                 SubmitCaptureRenderRequest();
 
+                bool wantsLocal = recordLocally && localRecorder != null;
+                bool wantsPreview = ShouldEncodePreview(
+                    udpClient != null,
+                    senderRunning
+                );
+                if (!wantsLocal && !wantsPreview)
+                {
+                    return;
+                }
+
                 if (
                     useAsyncGpuReadback &&
                     !forceSynchronousReadback &&
@@ -621,16 +722,35 @@ namespace SignVR.Streaming
                     pendingFrameHeight = height;
                     pendingJpegQuality = jpegQuality;
                     pendingLocalFrameCount = Math.Max(1, localFrameCount);
-                    readbackRequest = AsyncGPUReadback.Request(
-                        captureTexture,
-                        0,
-                        TextureFormat.RGB24
-                    );
-                    readbackPending = true;
+                    if (wantsLocal)
+                    {
+                        DispatchNv12Conversion();
+                        localReadbackRequest = AsyncGPUReadback.Request(
+                            nv12Buffer,
+                            OnGpuReadbackCompleted
+                        );
+                        localReadbackPending = true;
+                    }
+                    if (wantsPreview)
+                    {
+                        previewReadbackRequest = AsyncGPUReadback.Request(
+                            captureTexture,
+                            0,
+                            TextureFormat.RGB24,
+                            OnGpuReadbackCompleted
+                        );
+                        previewReadbackPending = true;
+                    }
                 }
                 else
                 {
-                    CaptureSynchronously(frameId, flags, localFrameCount);
+                    CaptureSynchronously(
+                        frameId,
+                        flags,
+                        localFrameCount,
+                        wantsLocal,
+                        wantsPreview
+                    );
                 }
             }
             catch (Exception exception)
@@ -639,75 +759,117 @@ namespace SignVR.Streaming
             }
         }
 
-        private void ProcessCompletedReadback()
+        private bool HasPendingReadback()
         {
-            readbackPending = false;
+            return previewReadbackPending || localReadbackPending;
+        }
 
-            if (readbackRequest.hasError)
+        private bool ArePendingReadbacksDone()
+        {
+            return (!previewReadbackPending || previewReadbackRequest.done) &&
+                (!localReadbackPending || localReadbackRequest.done);
+        }
+
+        private void OnGpuReadbackCompleted(AsyncGPUReadbackRequest request)
+        {
+            if (!HasPendingReadback() || !ArePendingReadbacksDone())
             {
-                forceSynchronousReadback = true;
-                ReportCaptureError(
-                    "GPU readback",
-                    new InvalidOperationException(
-                        "Async GPU readback failed; falling back to ReadPixels."
-                    )
-                );
                 return;
             }
+            ProcessCompletedReadbacks();
+            FinishDeferredCaptureResourceRelease();
+        }
 
-            NativeArray<byte> encoded = default;
-            byte[] rgb24 = null;
+        private void ProcessCompletedReadbacks()
+        {
+            bool previewHadError = previewReadbackPending &&
+                previewReadbackRequest.hasError;
+            bool localHadError = localReadbackPending &&
+                localReadbackRequest.hasError;
 
             try
             {
-                NativeArray<byte> readbackData = readbackRequest.GetData<byte>();
-                rgb24 = recordLocally && localRecorder != null
-                    ? readbackData.ToArray()
-                    : null;
-                encoded = ImageConversion.EncodeNativeArrayToJPG(
-                    readbackData,
-                    GraphicsFormat.R8G8B8_UNorm,
-                    (uint)pendingFrameWidth,
-                    (uint)pendingFrameHeight,
-                    0,
-                    pendingJpegQuality
-                );
-                QueueFrame(
-                    encoded.ToArray(),
-                    rgb24,
-                    pendingFrameId,
-                    pendingFrameFlags,
-                    pendingFrameWidth,
-                    pendingFrameHeight,
-                    pendingLocalFrameCount
-                );
-                lastError = string.Empty;
+                if (localReadbackPending && !localHadError)
+                {
+                    EnqueueLocalFrames(
+                        localReadbackRequest.GetData<byte>(),
+                        pendingLocalFrameCount
+                    );
+                }
+
+                if (previewReadbackPending && !previewHadError)
+                {
+                    NativeArray<byte> encoded = default;
+                    try
+                    {
+                        NativeArray<byte> readbackData =
+                            previewReadbackRequest.GetData<byte>();
+                        encoded = ImageConversion.EncodeNativeArrayToJPG(
+                            readbackData,
+                            GraphicsFormat.R8G8B8_UNorm,
+                            (uint)pendingFrameWidth,
+                            (uint)pendingFrameHeight,
+                            0,
+                            pendingJpegQuality
+                        );
+                        QueuePreviewFrame(
+                            encoded.ToArray(),
+                            pendingFrameId,
+                            pendingFrameFlags,
+                            pendingFrameWidth,
+                            pendingFrameHeight
+                        );
+                    }
+                    finally
+                    {
+                        if (encoded.IsCreated)
+                        {
+                            encoded.Dispose();
+                        }
+                    }
+                }
+
+                if (previewHadError || localHadError)
+                {
+                    forceSynchronousReadback = true;
+                    ReportCaptureError(
+                        "GPU readback",
+                        new InvalidOperationException(
+                            "Async GPU readback failed; using synchronous readback."
+                        )
+                    );
+                }
+                else
+                {
+                    lastError = string.Empty;
+                }
             }
             catch (Exception exception)
             {
                 forceSynchronousReadback = true;
-                ReportCaptureError("JPEG encoding", exception);
+                ReportCaptureError("readback processing", exception);
             }
             finally
             {
-                if (encoded.IsCreated)
-                {
-                    encoded.Dispose();
-                }
+                previewReadbackPending = false;
+                localReadbackPending = false;
+                CompleteDeferredLocalRecordingStop();
             }
         }
 
         private void CaptureSynchronously(
             uint frameId,
             byte flags,
-            int localFrameCount
+            int localFrameCount,
+            bool wantsLocal,
+            bool wantsPreview
         )
         {
-            if (
+            if (wantsPreview && (
                 synchronousReadbackTexture == null ||
                 synchronousReadbackTexture.width != width ||
                 synchronousReadbackTexture.height != height
-            )
+            ))
             {
                 DestroyUnityObject(synchronousReadbackTexture);
                 synchronousReadbackTexture = new Texture2D(
@@ -726,31 +888,43 @@ namespace SignVR.Streaming
 
             try
             {
-                RenderTexture.active = captureTexture;
-                synchronousReadbackTexture.ReadPixels(
-                    new Rect(0f, 0f, width, height),
-                    0,
-                    0,
-                    false
-                );
-                synchronousReadbackTexture.Apply(false, false);
-                byte[] jpeg = synchronousReadbackTexture.EncodeToJPG(
-                    jpegQuality
-                );
-                byte[] rgb24 = recordLocally && localRecorder != null
-                    ? synchronousReadbackTexture
-                        .GetRawTextureData<byte>()
-                        .ToArray()
-                    : null;
-                QueueFrame(
-                    jpeg,
-                    rgb24,
-                    frameId,
-                    flags,
-                    width,
-                    height,
-                    localFrameCount
-                );
+                if (wantsLocal)
+                {
+                    DispatchNv12Conversion();
+                    int wordCount = FirstPersonMp4Recorder
+                        .ExpectedNv12ByteCount(width, height) / sizeof(uint);
+                    if (
+                        synchronousNv12Words == null ||
+                        synchronousNv12Words.Length != wordCount
+                    )
+                    {
+                        synchronousNv12Words = new uint[wordCount];
+                    }
+                    nv12Buffer.GetData(synchronousNv12Words);
+                    EnqueueLocalFrames(
+                        synchronousNv12Words,
+                        localFrameCount
+                    );
+                }
+
+                if (wantsPreview)
+                {
+                    RenderTexture.active = captureTexture;
+                    synchronousReadbackTexture.ReadPixels(
+                        new Rect(0f, 0f, width, height),
+                        0,
+                        0,
+                        false
+                    );
+                    synchronousReadbackTexture.Apply(false, false);
+                    QueuePreviewFrame(
+                        synchronousReadbackTexture.EncodeToJPG(jpegQuality),
+                        frameId,
+                        flags,
+                        width,
+                        height
+                    );
+                }
                 lastError = string.Empty;
             }
             finally
@@ -875,39 +1049,116 @@ namespace SignVR.Streaming
                 };
                 captureTexture.Create();
             }
+
         }
 
-        private void QueueFrame(
+        private void EnsureNv12Resources()
+        {
+            if (nv12Compute == null)
+            {
+                nv12Compute = Resources.Load<ComputeShader>(
+                    "SpectatorRgbToNv12"
+                );
+                if (nv12Compute == null)
+                {
+                    throw new InvalidOperationException(
+                        "Resources/SpectatorRgbToNv12.compute is missing."
+                    );
+                }
+                nv12YKernel = nv12Compute.FindKernel("ConvertY");
+                nv12UvKernel = nv12Compute.FindKernel("ConvertUv");
+            }
+
+            int nv12WordCount = FirstPersonMp4Recorder
+                .ExpectedNv12ByteCount(width, height) / sizeof(uint);
+            if (nv12Buffer == null || nv12Buffer.count != nv12WordCount)
+            {
+                nv12Buffer?.Dispose();
+                nv12Buffer = new GraphicsBuffer(
+                    GraphicsBuffer.Target.Structured,
+                    nv12WordCount,
+                    sizeof(uint)
+                );
+            }
+        }
+
+        private void DispatchNv12Conversion()
+        {
+            EnsureNv12Resources();
+            nv12Compute.SetInts("_Dimensions", width, height);
+            nv12Compute.SetInt("_UvWordOffset", width * height / sizeof(uint));
+            nv12Compute.SetInt(
+                "_SourceIsLinear",
+                QualitySettings.activeColorSpace == ColorSpace.Linear ? 1 : 0
+            );
+            nv12Compute.SetTexture(nv12YKernel, "_Source", captureTexture);
+            nv12Compute.SetBuffer(nv12YKernel, "_Nv12Words", nv12Buffer);
+            nv12Compute.Dispatch(
+                nv12YKernel,
+                Mathf.CeilToInt((width / 4f) / 8f),
+                Mathf.CeilToInt(height / 8f),
+                1
+            );
+            nv12Compute.SetTexture(nv12UvKernel, "_Source", captureTexture);
+            nv12Compute.SetBuffer(nv12UvKernel, "_Nv12Words", nv12Buffer);
+            nv12Compute.Dispatch(
+                nv12UvKernel,
+                Mathf.CeilToInt((width / 4f) / 8f),
+                Mathf.CeilToInt((height / 2f) / 8f),
+                1
+            );
+        }
+
+        private void EnqueueLocalFrames(
+            NativeArray<byte> nv12,
+            int localFrameCount)
+        {
+            if (!recordLocally || localRecorder == null)
+            {
+                return;
+            }
+
+            int framesToWrite = Math.Max(1, localFrameCount);
+            if (localRecorder.Enqueue(nv12, framesToWrite))
+            {
+                return;
+            }
+
+            lastError = string.IsNullOrWhiteSpace(localRecorder.LastError)
+                ? "The local MP4 writer queue is full."
+                : localRecorder.LastError;
+        }
+
+        private void EnqueueLocalFrames(uint[] nv12Words, int localFrameCount)
+        {
+            if (!recordLocally || localRecorder == null)
+            {
+                return;
+            }
+
+            int framesToWrite = Math.Max(1, localFrameCount);
+            if (localRecorder.Enqueue(nv12Words, framesToWrite))
+            {
+                return;
+            }
+
+            lastError = string.IsNullOrWhiteSpace(localRecorder.LastError)
+                ? "The local MP4 writer queue is full."
+                : localRecorder.LastError;
+        }
+
+        private void QueuePreviewFrame(
             byte[] jpeg,
-            byte[] rgb24,
             uint frameId,
             byte flags,
             int frameWidth,
-            int frameHeight,
-            int localFrameCount = 1
+            int frameHeight
         )
         {
             if (jpeg == null || jpeg.Length == 0)
             {
                 Interlocked.Increment(ref framesDropped);
                 return;
-            }
-
-            if (recordLocally && localRecorder != null)
-            {
-                int framesToWrite = Math.Max(1, localFrameCount);
-                for (int index = 0; index < framesToWrite; index++)
-                {
-                    if (localRecorder.Enqueue(rgb24))
-                    {
-                        continue;
-                    }
-
-                    lastError = string.IsNullOrWhiteSpace(localRecorder.LastError)
-                        ? "The local MP4 writer queue is full."
-                        : localRecorder.LastError;
-                    break;
-                }
             }
 
             if (jpeg.Length > SpectatorViewProtocol.MaxFrameBytes)
@@ -1168,7 +1419,8 @@ namespace SignVR.Streaming
             Debug.Log(
                 "[SpectatorViewStreamer][LOCAL RECORDING STARTED] " +
                 $"directory={localSessionDirectory}, " +
-                $"capture={width}x{height}@{frameRate}, format=H.264 MP4."
+                $"capture={width}x{height}@{frameRate}, format=H.264 MP4, " +
+                $"encoder={localRecorder.EncoderName}."
             );
         }
 
@@ -1182,42 +1434,116 @@ namespace SignVR.Streaming
             FirstPersonMp4Recorder recorder = localRecorder;
             localRecorder = null;
             recorder.Stop();
-            long written = recorder.FramesWritten;
-            long dropped = recorder.FramesDropped;
-            string error = recorder.LastError;
-            string path = recorder.CurrentPath;
             recorder.Dispose();
-
-            if (!string.IsNullOrWhiteSpace(error))
-            {
-                Debug.LogWarning(
-                    "[SpectatorViewStreamer][LOCAL RECORDING FAILED] " + error
-                );
-            }
+            finalizingRecorders.Add(recorder);
 
             Debug.Log(
-                "[SpectatorViewStreamer][LOCAL RECORDING STOPPED] " +
-                $"path={path}, frames={written}, dropped={dropped}."
+                "[SpectatorViewStreamer][LOCAL RECORDING STOP REQUESTED] " +
+                $"path={recorder.CurrentPath}."
             );
         }
 
-        private void FinishPendingReadback()
+        private void RequestStopLocalRecordingAfterReadback()
         {
-            if (!readbackPending)
+            if (localRecorder == null)
+            {
+                stopLocalRecordingAfterReadback = false;
+                return;
+            }
+            if (HasPendingReadback())
+            {
+                stopLocalRecordingAfterReadback = true;
+                return;
+            }
+
+            stopLocalRecordingAfterReadback = false;
+            StopLocalRecording();
+        }
+
+        private void CompleteDeferredLocalRecordingStop()
+        {
+            if (!stopLocalRecordingAfterReadback || HasPendingReadback())
             {
                 return;
             }
 
-            try
-            {
-                readbackRequest.WaitForCompletion();
-            }
-            catch (Exception)
-            {
-                // Shutdown must still release the camera and socket.
-            }
+            stopLocalRecordingAfterReadback = false;
+            StopLocalRecording();
+        }
 
-            readbackPending = false;
+        private bool HasRecorderStillFinalizing()
+        {
+            for (int index = 0; index < finalizingRecorders.Count; index++)
+            {
+                if (!finalizingRecorders[index].IsFinalized)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private void FinalizeStoppedRecorders()
+        {
+            for (int index = finalizingRecorders.Count - 1; index >= 0; index--)
+            {
+                FirstPersonMp4Recorder recorder = finalizingRecorders[index];
+                if (!recorder.IsFinalized)
+                {
+                    continue;
+                }
+
+                string error = recorder.LastError;
+                if (!string.IsNullOrWhiteSpace(error))
+                {
+                    Debug.LogWarning(
+                        "[SpectatorViewStreamer][LOCAL RECORDING FAILED] " + error
+                    );
+                }
+                Debug.Log(
+                    "[SpectatorViewStreamer][LOCAL RECORDING STOPPED] " +
+                    $"path={recorder.CurrentPath}, frames={recorder.FramesWritten}, " +
+                    $"dropped={recorder.FramesDropped}."
+                );
+                finalizingRecorders.RemoveAt(index);
+            }
+        }
+
+        private void FinishPendingReadback()
+        {
+            if (!HasPendingReadback())
+            {
+                return;
+            }
+            if (ArePendingReadbacksDone())
+            {
+                ProcessCompletedReadbacks();
+            }
+            else
+            {
+                releaseCaptureResourcesWhenReadbackCompletes = true;
+            }
+        }
+
+        private void FinishDeferredCaptureResourceRelease()
+        {
+            if (!releaseCaptureResourcesWhenReadbackCompletes)
+            {
+                return;
+            }
+            if (HasPendingReadback() && !ArePendingReadbacksDone())
+            {
+                return;
+            }
+            if (HasPendingReadback())
+            {
+                ProcessCompletedReadbacks();
+            }
+            releaseCaptureResourcesWhenReadbackCompletes = false;
+            if (!IsCapturing)
+            {
+                ReleaseCaptureResources();
+            }
         }
 
         private void StopSenderThread()
@@ -1276,18 +1602,30 @@ namespace SignVR.Streaming
 
             DestroyUnityObject(synchronousReadbackTexture);
             synchronousReadbackTexture = null;
+            nv12Buffer?.Dispose();
+            nv12Buffer = null;
+            synchronousNv12Words = null;
             renderRequest = null;
         }
 
         private void ResetDiagnostics()
         {
+            if (HasPendingReadback())
+            {
+                throw new InvalidOperationException(
+                    "Cannot reset capture diagnostics while a GPU readback is pending."
+                );
+            }
             Interlocked.Exchange(ref packetsSent, 0);
             Interlocked.Exchange(ref framesSent, 0);
             Interlocked.Exchange(ref bytesSent, 0);
             Interlocked.Exchange(ref sendFailures, 0);
             Interlocked.Exchange(ref framesDropped, 0);
             nextFrameId = 0;
-            readbackPending = false;
+            previewReadbackPending = false;
+            localReadbackPending = false;
+            stopLocalRecordingAfterReadback = false;
+            releaseCaptureResourcesWhenReadbackCompletes = false;
             forceSynchronousReadback = false;
             workerError = string.Empty;
             lastError = string.Empty;
@@ -1489,7 +1827,7 @@ namespace SignVR.Streaming
             {
                 resumeAfterPause = false;
                 StartStreaming();
-                if (localTakeOwnsStreamingSession && IsStreaming)
+                if (localTakeOwnsCaptureSession && IsCapturing)
                 {
                     StartLocalRecording();
                 }
@@ -1518,6 +1856,26 @@ namespace SignVR.Streaming
         private void OnDestroy()
         {
             StopStreaming();
+            if (HasPendingReadback())
+            {
+                // Readback callbacks cannot outlive a destroyed MonoBehaviour.
+                // This is the exceptional teardown path; ordinary take stop is
+                // always non-blocking and handled by the callback above.
+                if (previewReadbackPending)
+                {
+                    previewReadbackRequest.WaitForCompletion();
+                }
+                if (localReadbackPending)
+                {
+                    localReadbackRequest.WaitForCompletion();
+                }
+                if (HasPendingReadback())
+                {
+                    ProcessCompletedReadbacks();
+                }
+            }
+            RequestStopLocalRecordingAfterReadback();
+            ReleaseCaptureResources();
         }
 
         private sealed class EncodedFrame

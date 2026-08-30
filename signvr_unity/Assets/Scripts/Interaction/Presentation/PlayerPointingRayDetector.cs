@@ -2006,22 +2006,17 @@ namespace SignVR.Interaction.Presentation
                 }
             }
 
-            for (int index = 0; index < geometry.HighlightRoots.Length; index++)
+            for (int index = 0;
+                !hasBounds && index < geometry.HighlightRoots.Length;
+                index++)
             {
                 Transform root = geometry.HighlightRoots[index];
                 if (root == null || !root.gameObject.activeInHierarchy)
                 {
                     continue;
                 }
-                if (!hasBounds)
-                {
-                    bounds = new Bounds(root.position, Vector3.zero);
-                    hasBounds = true;
-                }
-                else
-                {
-                    bounds.Encapsulate(root.position);
-                }
+                bounds = new Bounds(root.position, Vector3.zero);
+                hasBounds = true;
             }
 
             if (!hasBounds)

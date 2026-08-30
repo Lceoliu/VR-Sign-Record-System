@@ -248,22 +248,19 @@ namespace SignVR.Interaction.Presentation
                 }
             }
 
-            for (int index = 0; index < highlightedRoots.Length; index++)
+            // Imported model roots can be far from their visible mesh pivots.
+            // Use root positions only as a fallback when no renderer exists.
+            for (int index = 0;
+                !found && index < highlightedRoots.Length;
+                index++)
             {
                 Transform root = highlightedRoots[index];
                 if (root == null || !root.gameObject.activeInHierarchy)
                 {
                     continue;
                 }
-                if (!found)
-                {
-                    bounds = new Bounds(root.position, Vector3.zero);
-                    found = true;
-                }
-                else
-                {
-                    bounds.Encapsulate(root.position);
-                }
+                bounds = new Bounds(root.position, Vector3.zero);
+                found = true;
             }
 
             if (!found)

@@ -236,7 +236,16 @@ namespace SignVR.Interaction.Editor.Tests
                     UnityPhysicsType("Collider"),
                     includeInactive: true
                 );
-                Assert.That(colliders, Is.Not.Empty);
+                Assert.That(
+                    colliders,
+                    Has.Length.EqualTo(1),
+                    $"{coinName} must use one root renderer-fitted collider."
+                );
+                Assert.That(GetGameObject(colliders[0]), Is.SameAs(coin));
+                Assert.That(
+                    colliders[0].GetType(),
+                    Is.EqualTo(UnityPhysicsType("BoxCollider"))
+                );
                 Assert.That(
                     colliders.Any(item =>
                         (bool)item.GetType().GetProperty("enabled")
@@ -256,17 +265,17 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(
                     body.GetType().GetProperty("isKinematic")
                         .GetValue(body),
-                    Is.False,
-                    $"Phase 2 must make {coinName} movable."
+                    Is.True,
+                    $"Phase 2 must hold {coinName} until its first grab."
                 );
                 Assert.That(
                     Convert.ToInt32(body.GetType()
                         .GetProperty("constraints").GetValue(body)),
                     Is.EqualTo(Convert.ToInt32(
                         UnityPhysicsType("RigidbodyConstraints")
-                            .GetField("None").GetValue(null)
+                            .GetField("FreezeAll").GetValue(null)
                     )),
-                    $"Phase 2 must not constrain {coinName}."
+                    $"Phase 2 must freeze untouched {coinName}."
                 );
                 Assert.That(
                     body.GetType().GetProperty("detectCollisions")
@@ -277,8 +286,32 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(
                     body.GetType().GetProperty("useGravity")
                         .GetValue(body),
-                    Is.True,
-                    $"Phase 2 must let {coinName} settle under gravity."
+                    Is.False,
+                    $"Phase 2 must not drop untouched {coinName}."
+                );
+
+                binding.GetType().GetMethod(
+                    "ActivateMovablePhysicsAfterGrab",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).Invoke(binding, null);
+                Assert.That(
+                    body.GetType().GetProperty("isKinematic")
+                        .GetValue(body),
+                    Is.False,
+                    $"The first grab must make {coinName} dynamic."
+                );
+                Assert.That(
+                    body.GetType().GetProperty("useGravity")
+                        .GetValue(body),
+                    Is.True
+                );
+                Assert.That(
+                    Convert.ToInt32(body.GetType()
+                        .GetProperty("constraints").GetValue(body)),
+                    Is.EqualTo(Convert.ToInt32(
+                        UnityPhysicsType("RigidbodyConstraints")
+                            .GetField("None").GetValue(null)
+                    ))
                 );
             });
         }
@@ -1861,18 +1894,88 @@ namespace SignVR.Interaction.Editor.Tests
                     Is.True
                 );
                 Assert.That(
-                    RotationAngleFromIdentity(lid),
-                    Is.EqualTo(0f).Within(0.02f)
+                    RotationAngleBetweenEuler(lid, 108.03f, 0f, 0f),
+                    Is.LessThan(0.02f)
                 );
+                object closedPosition = lid.GetType()
+                    .GetProperty("localPosition").GetValue(lid);
+                Assert.That(
+                    ReadVector3Component(closedPosition, "y"),
+                    Is.EqualTo(-0.13f).Within(0.0001f)
+                );
+                Assert.That(
+                    ReadVector3Component(closedPosition, "z"),
+                    Is.EqualTo(-0.28f).Within(0.0001f)
+                );
+                Assert.That(
+                    hingeType.GetProperty("UsesWorldHingeArc")
+                        .GetValue(firstChestBinding),
+                    Is.True
+                );
+                object hinge = hingeType.GetProperty("Hinge")
+                    .GetValue(firstChestBinding);
+                object hingeWorldPosition = hinge.GetType()
+                    .GetProperty("position").GetValue(hinge);
+                object closedWorldPosition = lid.GetType()
+                    .GetProperty("position").GetValue(lid);
+                object closedWorldRotation = lid.GetType()
+                    .GetProperty("rotation").GetValue(lid);
+                float closedHingeRadius = Vector3Distance(
+                    hingeWorldPosition,
+                    closedWorldPosition
+                );
+                hingeType.GetMethod("OpenAnimated").Invoke(
+                    firstChestBinding,
+                    new object[] { 0d, 1d }
+                );
+                hingeType.GetMethod("TickOpeningAnimation").Invoke(
+                    firstChestBinding,
+                    new object[] { 0.5d }
+                );
+                object halfwayWorldPosition = lid.GetType()
+                    .GetProperty("position").GetValue(lid);
+                object halfwayWorldRotation = lid.GetType()
+                    .GetProperty("rotation").GetValue(lid);
+                Assert.That(
+                    Vector3Distance(
+                        hingeWorldPosition,
+                        halfwayWorldPosition
+                    ),
+                    Is.EqualTo(closedHingeRadius).Within(0.0001f),
+                    "The lid midpoint must stay on the world-hinge arc."
+                );
+                Assert.That(
+                    QuaternionAngle(
+                        closedWorldRotation,
+                        halfwayWorldRotation
+                    ),
+                    Is.EqualTo(50f).Within(0.02f)
+                );
+                hingeType.GetMethod("Reset").Invoke(firstChestBinding, null);
                 hingeType.GetMethod("Open").Invoke(firstChestBinding, null);
                 float firstOpenAngle = RotationAngleFromIdentity(lid);
+                Assert.That(
+                    Vector3Distance(
+                        hingeWorldPosition,
+                        lid.GetType().GetProperty("position").GetValue(lid)
+                    ),
+                    Is.EqualTo(closedHingeRadius).Within(0.0001f),
+                    "The fully open lid must stay on the world-hinge arc."
+                );
+                Assert.That(
+                    QuaternionAngle(
+                        closedWorldRotation,
+                        lid.GetType().GetProperty("rotation").GetValue(lid)
+                    ),
+                    Is.EqualTo(100f).Within(0.02f)
+                );
 
                 object secondChestBinding = setupType.GetMethod(
                     "CreateChestLidBinding"
                 ).Invoke(null, new[] { chest });
                 Assert.That(
-                    RotationAngleFromIdentity(lid),
-                    Is.EqualTo(0f).Within(0.02f),
+                    RotationAngleBetweenEuler(lid, 108.03f, 0f, 0f),
+                    Is.LessThan(0.02f),
                     "Repeated setup must restore the explicit closed pose."
                 );
                 hingeType.GetMethod("Open").Invoke(secondChestBinding, null);
@@ -3222,14 +3325,29 @@ namespace SignVR.Interaction.Editor.Tests
                 Assert.That(
                     body.GetType().GetProperty("isKinematic")
                         .GetValue(body),
-                    Is.False,
-                    "An available coin must remain dynamic so it can be grabbed."
+                    Is.True,
+                    "An available coin must remain fixed before first grab."
                 );
                 Assert.That(
                     body.GetType().GetProperty("useGravity")
                         .GetValue(body),
-                    Is.True,
-                    "Phase 2 availability must let the coin settle."
+                    Is.False,
+                    "Phase 2 must not drop an untouched coin."
+                );
+
+                coinBinding.GetType().GetMethod(
+                    "ActivateMovablePhysicsAfterGrab",
+                    BindingFlags.Instance | BindingFlags.NonPublic
+                ).Invoke(coinBinding, null);
+                Assert.That(
+                    body.GetType().GetProperty("isKinematic")
+                        .GetValue(body),
+                    Is.False
+                );
+                Assert.That(
+                    body.GetType().GetProperty("useGravity")
+                        .GetValue(body),
+                    Is.True
                 );
 
                 object plate = CreateGameObject("plate_dragon");
@@ -6111,6 +6229,59 @@ namespace SignVR.Interaction.Editor.Tests
                 modifiers: null
             ).Invoke(null, new[] { identity, rotation });
             return Convert.ToSingle(angle);
+        }
+
+        private static float RotationAngleBetweenEuler(
+            object transform,
+            float x,
+            float y,
+            float z)
+        {
+            Type quaternionType = UnityType("Quaternion");
+            object expected = quaternionType.GetMethod(
+                "Euler",
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types: new[] { typeof(float), typeof(float), typeof(float) },
+                modifiers: null
+            ).Invoke(null, new object[] { x, y, z });
+            object rotation = transform.GetType()
+                .GetProperty("localRotation")
+                .GetValue(transform);
+            object angle = quaternionType.GetMethod(
+                "Angle",
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types: new[] { quaternionType, quaternionType },
+                modifiers: null
+            ).Invoke(null, new[] { rotation, expected });
+            return Convert.ToSingle(angle);
+        }
+
+        private static float QuaternionAngle(object first, object second)
+        {
+            Type quaternionType = UnityType("Quaternion");
+            object angle = quaternionType.GetMethod(
+                "Angle",
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types: new[] { quaternionType, quaternionType },
+                modifiers: null
+            ).Invoke(null, new[] { first, second });
+            return Convert.ToSingle(angle);
+        }
+
+        private static float Vector3Distance(object first, object second)
+        {
+            Type vectorType = UnityType("Vector3");
+            object distance = vectorType.GetMethod(
+                "Distance",
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types: new[] { vectorType, vectorType },
+                modifiers: null
+            ).Invoke(null, new[] { first, second });
+            return Convert.ToSingle(distance);
         }
 
         private static void DestroyImmediate(object target)

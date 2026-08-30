@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using Unity.Collections;
 
 namespace SignVR.Streaming
 {
     /// <summary>
-    /// Queues RGB24 capture frames and encodes them to a single H.264 MP4 on
-    /// Android through MediaCodec/MediaMuxer. The editor fallback only keeps
-    /// counters so capture tests do not require an Android codec.
+    /// Queues GPU-converted NV12 frames and encodes them to H.264 MP4. Stop is
+    /// deliberately non-blocking; the writer thread owns codec finalization.
     /// </summary>
     public sealed class FirstPersonMp4Recorder : IDisposable
     {
@@ -17,23 +17,27 @@ namespace SignVR.Streaming
 
         private readonly object queueLock = new object();
         private readonly Queue<PendingFrame> frames = new Queue<PendingFrame>();
+        private readonly Queue<byte[]> availableFrameBuffers =
+            new Queue<byte[]>();
         private readonly AutoResetEvent frameReady = new AutoResetEvent(false);
         private readonly string outputPath;
         private readonly int width;
         private readonly int height;
         private readonly int frameRate;
         private readonly int bitrate;
+        private readonly int nv12ByteCount;
+        private readonly IFirstPersonMp4Backend backend;
 
         private Thread writerThread;
         private volatile bool accepting;
+        private volatile bool finalized = true;
+        private int disposeRequested;
         private volatile string lastError = string.Empty;
+        private int signalDisposed;
+        private int backendDisposed;
         private long framesWritten;
         private long framesDropped;
         private long framesSubmitted;
-
-#if UNITY_ANDROID && !UNITY_EDITOR
-        private UnityEngine.AndroidJavaClass nativeRecorder;
-#endif
 
         public FirstPersonMp4Recorder(
             string outputDirectory,
@@ -42,6 +46,25 @@ namespace SignVR.Streaming
             int frameHeight,
             int framesPerSecond,
             int videoBitrate = DefaultBitrate)
+            : this(
+                outputDirectory,
+                outputFileStem,
+                frameWidth,
+                frameHeight,
+                framesPerSecond,
+                videoBitrate,
+                FirstPersonMp4BackendFactory.Create())
+        {
+        }
+
+        internal FirstPersonMp4Recorder(
+            string outputDirectory,
+            string outputFileStem,
+            int frameWidth,
+            int frameHeight,
+            int framesPerSecond,
+            int videoBitrate,
+            IFirstPersonMp4Backend configuredBackend)
         {
             if (string.IsNullOrWhiteSpace(outputDirectory))
             {
@@ -61,6 +84,12 @@ namespace SignVR.Streaming
                     nameof(frameWidth),
                     "Frame dimensions and frame rate must be positive.");
             }
+            if ((frameWidth & 3) != 0 || (frameHeight & 1) != 0)
+            {
+                throw new ArgumentException(
+                    "NV12 recording requires width divisible by four and even height.",
+                    nameof(frameWidth));
+            }
 
             string directory = Path.GetFullPath(outputDirectory);
             Directory.CreateDirectory(directory);
@@ -69,53 +98,63 @@ namespace SignVR.Streaming
             height = frameHeight;
             frameRate = framesPerSecond;
             bitrate = Math.Max(1_000_000, videoBitrate);
+            nv12ByteCount = ExpectedNv12ByteCount(width, height);
+            backend = configuredBackend ?? throw new ArgumentNullException(
+                nameof(configuredBackend));
         }
 
         public string OutputDirectory => Path.GetDirectoryName(outputPath);
         public string CurrentPath => outputPath;
         public string LastError => lastError;
+        public string EncoderName => backend.Name;
         public long FramesWritten => Interlocked.Read(ref framesWritten);
         public long FramesDropped => Interlocked.Read(ref framesDropped);
         public bool IsRecording => accepting;
+        public bool IsFinalized => finalized;
+
+        internal static int ExpectedNv12ByteCount(int frameWidth, int frameHeight)
+        {
+            return checked(frameWidth * frameHeight * 3 / 2);
+        }
 
         public void Start()
         {
-            if (accepting || writerThread != null)
+            if (
+                accepting ||
+                writerThread != null ||
+                Volatile.Read(ref disposeRequested) != 0
+            )
             {
                 return;
             }
 
-#if UNITY_ANDROID && !UNITY_EDITOR
             try
             {
-                nativeRecorder = new UnityEngine.AndroidJavaClass(
-                    "com.signvr.recording.SignVRMp4Recorder");
-                bool started = nativeRecorder.CallStatic<bool>(
-                    "start",
-                    outputPath,
-                    width,
-                    height,
-                    frameRate,
-                    bitrate);
-                if (!started)
+                if (!backend.Start(
+                        outputPath,
+                        width,
+                        height,
+                        frameRate,
+                        bitrate))
                 {
-                    lastError = nativeRecorder.CallStatic<string>("getLastError") ??
-                        "Android MediaCodec could not start.";
-                    nativeRecorder.Dispose();
-                    nativeRecorder = null;
+                    lastError = string.IsNullOrWhiteSpace(backend.LastError)
+                        ? "Android MediaCodec could not start."
+                        : backend.LastError;
                     return;
+                }
+                for (int index = 0; index < MaxQueuedFrames; index++)
+                {
+                    availableFrameBuffers.Enqueue(new byte[nv12ByteCount]);
                 }
             }
             catch (Exception exception)
             {
                 lastError = exception.Message;
-                nativeRecorder?.Dispose();
-                nativeRecorder = null;
                 return;
             }
-#endif
 
             accepting = true;
+            finalized = false;
             lastError = string.Empty;
             writerThread = new Thread(WriterLoop)
             {
@@ -125,66 +164,179 @@ namespace SignVR.Streaming
             writerThread.Start();
         }
 
-        public bool Enqueue(byte[] rgb24)
+        public bool Enqueue(byte[] nv12, int repeatedFrameCount = 1)
         {
-            if (!accepting || rgb24 == null || rgb24.Length != width * height * 3)
+            if (
+                nv12 == null ||
+                nv12.Length != nv12ByteCount ||
+                repeatedFrameCount <= 0
+            )
             {
-                if (accepting)
+                if (accepting && repeatedFrameCount > 0)
                 {
-                    Interlocked.Increment(ref framesDropped);
+                    Interlocked.Add(ref framesDropped, repeatedFrameCount);
                 }
                 return false;
             }
+            if (!TryReserveFrameBatch(repeatedFrameCount, out long firstFrameIndex))
+            {
+                return false;
+            }
 
-            long submittedIndex = Interlocked.Increment(ref framesSubmitted) - 1L;
-            long timestampUs = checked(submittedIndex * 1_000_000L / frameRate);
             lock (queueLock)
             {
-                if (!accepting || frames.Count >= MaxQueuedFrames)
+                if (
+                    !accepting ||
+                    availableFrameBuffers.Count == 0
+                )
                 {
-                    Interlocked.Increment(ref framesDropped);
+                    Interlocked.Add(ref framesDropped, repeatedFrameCount);
                     return false;
                 }
 
-                frames.Enqueue(new PendingFrame(rgb24, timestampUs));
+                byte[] buffer = availableFrameBuffers.Dequeue();
+                Buffer.BlockCopy(nv12, 0, buffer, 0, nv12ByteCount);
+                frames.Enqueue(new PendingFrame(
+                    buffer,
+                    firstFrameIndex,
+                    repeatedFrameCount
+                ));
             }
 
-            frameReady.Set();
+            SignalWriter();
             return true;
         }
 
+        internal bool Enqueue(
+            NativeArray<byte> nv12,
+            int repeatedFrameCount = 1)
+        {
+            if (
+                !nv12.IsCreated ||
+                nv12.Length != nv12ByteCount ||
+                repeatedFrameCount <= 0
+            )
+            {
+                if (accepting && repeatedFrameCount > 0)
+                {
+                    Interlocked.Add(ref framesDropped, repeatedFrameCount);
+                }
+                return false;
+            }
+            if (!TryReserveFrameBatch(repeatedFrameCount, out long firstFrameIndex))
+            {
+                return false;
+            }
+
+            lock (queueLock)
+            {
+                if (
+                    !accepting ||
+                    availableFrameBuffers.Count == 0
+                )
+                {
+                    Interlocked.Add(ref framesDropped, repeatedFrameCount);
+                    return false;
+                }
+
+                byte[] buffer = availableFrameBuffers.Dequeue();
+                nv12.CopyTo(buffer);
+                frames.Enqueue(new PendingFrame(
+                    buffer,
+                    firstFrameIndex,
+                    repeatedFrameCount
+                ));
+            }
+
+            SignalWriter();
+            return true;
+        }
+
+        internal bool Enqueue(uint[] nv12Words, int repeatedFrameCount = 1)
+        {
+            if (
+                nv12Words == null ||
+                nv12Words.Length * sizeof(uint) != nv12ByteCount ||
+                repeatedFrameCount <= 0
+            )
+            {
+                if (accepting && repeatedFrameCount > 0)
+                {
+                    Interlocked.Add(ref framesDropped, repeatedFrameCount);
+                }
+                return false;
+            }
+            if (!TryReserveFrameBatch(repeatedFrameCount, out long firstFrameIndex))
+            {
+                return false;
+            }
+
+            lock (queueLock)
+            {
+                if (
+                    !accepting ||
+                    availableFrameBuffers.Count == 0
+                )
+                {
+                    Interlocked.Add(ref framesDropped, repeatedFrameCount);
+                    return false;
+                }
+
+                byte[] buffer = availableFrameBuffers.Dequeue();
+                Buffer.BlockCopy(
+                    nv12Words,
+                    0,
+                    buffer,
+                    0,
+                    nv12ByteCount
+                );
+                frames.Enqueue(new PendingFrame(
+                    buffer,
+                    firstFrameIndex,
+                    repeatedFrameCount
+                ));
+            }
+
+            SignalWriter();
+            return true;
+        }
+
+        /// <summary>
+        /// Requests codec finalization and returns without waiting for the
+        /// writer thread. Poll IsFinalized before consuming the completed file.
+        /// </summary>
         public void Stop()
         {
             accepting = false;
-            frameReady.Set();
-
-            Thread thread = writerThread;
-            if (thread != null && thread.IsAlive && !thread.Join(15_000))
-            {
-                lastError = "MP4 writer did not stop within 15 seconds.";
-                return;
-            }
-
-            writerThread = null;
-#if UNITY_ANDROID && !UNITY_EDITOR
-            nativeRecorder?.Dispose();
-            nativeRecorder = null;
-#endif
+            SignalWriter();
         }
 
         public void Dispose()
         {
+            if (Interlocked.Exchange(ref disposeRequested, 1) != 0)
+            {
+                return;
+            }
+
             Stop();
-            frameReady.Dispose();
+            if (finalized || writerThread == null)
+            {
+                DisposeSignal();
+                DisposeBackendOnce();
+            }
         }
 
         private void WriterLoop()
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
-            UnityEngine.AndroidJNI.AttachCurrentThread();
+            bool jniAttached = false;
 #endif
             try
             {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                UnityEngine.AndroidJNI.AttachCurrentThread();
+                jniAttached = true;
+#endif
                 while (accepting || HasQueuedFrames())
                 {
                     if (!TryDequeue(out PendingFrame frame))
@@ -193,24 +345,33 @@ namespace SignVR.Streaming
                         continue;
                     }
 
-#if UNITY_ANDROID && !UNITY_EDITOR
-                    bool encoded = nativeRecorder != null &&
-                        nativeRecorder.CallStatic<bool>(
-                            "encodeRgb",
-                            frame.Rgb24,
-                            frame.TimestampUs);
-                    if (!encoded)
+                    bool frameFailed = false;
+                    for (int index = 0; index < frame.RepeatCount; index++)
                     {
-                        lastError = nativeRecorder == null
-                            ? "Android MediaCodec is unavailable."
-                            : nativeRecorder.CallStatic<string>("getLastError") ??
-                                "Android MediaCodec rejected a frame.";
-                        accepting = false;
+                        long timestampUs = TimestampForFrameIndex(
+                            frame.FirstFrameIndex + index
+                        );
+                        if (!backend.EncodeNv12(frame.Nv12, timestampUs))
+                        {
+                            lastError = string.IsNullOrWhiteSpace(backend.LastError)
+                                ? "Android MediaCodec rejected an NV12 frame."
+                                : backend.LastError;
+                            Interlocked.Add(
+                                ref framesDropped,
+                                frame.RepeatCount - index
+                            );
+                            accepting = false;
+                            frameFailed = true;
+                            break;
+                        }
+                        Interlocked.Increment(ref framesWritten);
+                    }
+                    ReturnFrameBuffer(frame.Nv12);
+                    if (frameFailed)
+                    {
                         ClearQueueAsDropped();
                         break;
                     }
-#endif
-                    Interlocked.Increment(ref framesWritten);
                 }
             }
             catch (Exception exception)
@@ -221,10 +382,16 @@ namespace SignVR.Streaming
             }
             finally
             {
-#if UNITY_ANDROID && !UNITY_EDITOR
                 try
                 {
-                    nativeRecorder?.CallStatic("stop");
+                    backend.Stop();
+                    if (
+                        string.IsNullOrEmpty(lastError) &&
+                        !string.IsNullOrWhiteSpace(backend.LastError)
+                    )
+                    {
+                        lastError = backend.LastError;
+                    }
                 }
                 catch (Exception exception)
                 {
@@ -233,8 +400,64 @@ namespace SignVR.Streaming
                         lastError = exception.Message;
                     }
                 }
-                UnityEngine.AndroidJNI.DetachCurrentThread();
+                try
+                {
+                    DisposeBackendOnce();
+                }
+                catch (Exception exception)
+                {
+                    if (string.IsNullOrEmpty(lastError))
+                    {
+                        lastError = exception.Message;
+                    }
+                }
+                finally
+                {
+#if UNITY_ANDROID && !UNITY_EDITOR
+                    if (jniAttached)
+                    {
+                        UnityEngine.AndroidJNI.DetachCurrentThread();
+                    }
 #endif
+                    writerThread = null;
+                    finalized = true;
+                    if (Volatile.Read(ref disposeRequested) != 0)
+                    {
+                        DisposeSignal();
+                    }
+                }
+            }
+        }
+
+        private void SignalWriter()
+        {
+            if (Volatile.Read(ref signalDisposed) != 0)
+            {
+                return;
+            }
+            try
+            {
+                frameReady.Set();
+            }
+            catch (ObjectDisposedException)
+            {
+                // A racing Dispose can only happen after finalization.
+            }
+        }
+
+        private void DisposeSignal()
+        {
+            if (Interlocked.Exchange(ref signalDisposed, 1) == 0)
+            {
+                frameReady.Dispose();
+            }
+        }
+
+        private void DisposeBackendOnce()
+        {
+            if (Interlocked.Exchange(ref backendDisposed, 1) == 0)
+            {
+                backend.Dispose();
             }
         }
 
@@ -265,21 +488,168 @@ namespace SignVR.Streaming
         {
             lock (queueLock)
             {
-                Interlocked.Add(ref framesDropped, frames.Count);
-                frames.Clear();
+                while (frames.Count > 0)
+                {
+                    PendingFrame frame = frames.Dequeue();
+                    Interlocked.Add(ref framesDropped, frame.RepeatCount);
+                    availableFrameBuffers.Enqueue(frame.Nv12);
+                }
+            }
+        }
+
+        private bool TryReserveFrameBatch(
+            int repeatedFrameCount,
+            out long firstFrameIndex)
+        {
+            firstFrameIndex = 0L;
+            if (repeatedFrameCount <= 0 || !accepting)
+            {
+                return false;
+            }
+
+            firstFrameIndex = Interlocked.Add(
+                ref framesSubmitted,
+                repeatedFrameCount
+            ) - repeatedFrameCount;
+            return true;
+        }
+
+        private long TimestampForFrameIndex(long frameIndex)
+        {
+            return checked(frameIndex * 1_000_000L / frameRate);
+        }
+
+        private void ReturnFrameBuffer(byte[] buffer)
+        {
+            lock (queueLock)
+            {
+                availableFrameBuffers.Enqueue(buffer);
             }
         }
 
         private readonly struct PendingFrame
         {
-            public PendingFrame(byte[] rgb24, long timestampUs)
+            public PendingFrame(
+                byte[] nv12,
+                long firstFrameIndex,
+                int repeatCount)
             {
-                Rgb24 = rgb24;
-                TimestampUs = timestampUs;
+                Nv12 = nv12;
+                FirstFrameIndex = firstFrameIndex;
+                RepeatCount = repeatCount;
             }
 
-            public byte[] Rgb24 { get; }
-            public long TimestampUs { get; }
+            public byte[] Nv12 { get; }
+            public long FirstFrameIndex { get; }
+            public int RepeatCount { get; }
         }
     }
+
+    internal interface IFirstPersonMp4Backend : IDisposable
+    {
+        string LastError { get; }
+        string Name { get; }
+
+        bool Start(
+            string outputPath,
+            int width,
+            int height,
+            int frameRate,
+            int bitrate);
+        bool EncodeNv12(byte[] nv12, long presentationTimeUs);
+        void Stop();
+    }
+
+    internal static class FirstPersonMp4BackendFactory
+    {
+        public static IFirstPersonMp4Backend Create()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return new AndroidMediaCodecBackend();
+#else
+            return new EditorCountingBackend();
+#endif
+        }
+    }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+    internal sealed class AndroidMediaCodecBackend : IFirstPersonMp4Backend
+    {
+        private UnityEngine.AndroidJavaClass recorder;
+
+        public string LastError => recorder == null
+            ? string.Empty
+            : recorder.CallStatic<string>("getLastError") ?? string.Empty;
+
+        public string Name => recorder == null
+            ? string.Empty
+            : recorder.CallStatic<string>("getEncoderName") ?? string.Empty;
+
+        public bool Start(
+            string outputPath,
+            int width,
+            int height,
+            int frameRate,
+            int bitrate)
+        {
+            recorder = new UnityEngine.AndroidJavaClass(
+                "com.signvr.recording.SignVRMp4Recorder");
+            return recorder.CallStatic<bool>(
+                "start",
+                outputPath,
+                width,
+                height,
+                frameRate,
+                bitrate);
+        }
+
+        public bool EncodeNv12(byte[] nv12, long presentationTimeUs)
+        {
+            return recorder != null && recorder.CallStatic<bool>(
+                "encodeYuv",
+                nv12,
+                presentationTimeUs);
+        }
+
+        public void Stop()
+        {
+            recorder?.CallStatic("stop");
+        }
+
+        public void Dispose()
+        {
+            recorder?.Dispose();
+            recorder = null;
+        }
+    }
+#else
+    internal sealed class EditorCountingBackend : IFirstPersonMp4Backend
+    {
+        public string LastError => string.Empty;
+        public string Name => "Editor counting backend";
+
+        public bool Start(
+            string outputPath,
+            int width,
+            int height,
+            int frameRate,
+            int bitrate)
+        {
+            return true;
+        }
+
+        public bool EncodeNv12(byte[] nv12, long presentationTimeUs)
+        {
+            return true;
+        }
+
+        public void Stop()
+        {
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+#endif
 }

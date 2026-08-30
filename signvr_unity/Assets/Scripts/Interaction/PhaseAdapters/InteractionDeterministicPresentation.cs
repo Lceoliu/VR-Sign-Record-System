@@ -41,6 +41,21 @@ namespace SignVR.Interaction.PhaseAdapters
         [SerializeField]
         private bool openInPlace;
 
+        [SerializeField]
+        private bool rotateAroundWorldHinge;
+
+        [SerializeField]
+        private Vector3 closedWorldPosition;
+
+        [SerializeField]
+        private Quaternion closedWorldRotation;
+
+        [SerializeField]
+        private Vector3 hingeWorldPosition;
+
+        [SerializeField]
+        private Vector3 hingeWorldAxis = Vector3.up;
+
         private bool opened;
         private bool openingAnimating;
         private double openingStartedAt;
@@ -67,6 +82,12 @@ namespace SignVR.Interaction.PhaseAdapters
 
         public Quaternion OpenLocalRotation => openLocalRotation;
 
+        public bool UsesWorldHingeArc => rotateAroundWorldHinge;
+
+        public Vector3 HingeWorldPosition => hingeWorldPosition;
+
+        public Vector3 HingeWorldAxis => hingeWorldAxis;
+
         public void Configure(
             Transform targetMovingPart,
             Transform targetHinge,
@@ -84,6 +105,7 @@ namespace SignVR.Interaction.PhaseAdapters
             openAngleDegrees = openAngle;
             explicitClosedPose = false;
             openInPlace = false;
+            rotateAroundWorldHinge = false;
             CaptureClosedPose();
         }
 
@@ -105,6 +127,7 @@ namespace SignVR.Interaction.PhaseAdapters
             hingeLocalAxis = localAxis;
             openAngleDegrees = openAngle;
             openInPlace = false;
+            rotateAroundWorldHinge = false;
             closedLocalPosition = absoluteClosedLocalPosition;
             closedLocalRotation = Quaternion.Euler(
                 absoluteClosedLocalEulerAngles
@@ -132,7 +155,49 @@ namespace SignVR.Interaction.PhaseAdapters
                 absoluteClosedLocalEulerAngles
             );
             openInPlace = true;
+            rotateAroundWorldHinge = false;
             CaptureOpenPoseFromClosed();
+            Reset();
+        }
+
+        public void ConfigureAbsoluteWorldHinge(
+            Transform targetMovingPart,
+            Transform targetHinge,
+            Vector3 worldAxis,
+            float openAngle,
+            Vector3 absoluteClosedLocalPosition,
+            Vector3 absoluteClosedLocalEulerAngles)
+        {
+            Transform nextMovingPart = targetMovingPart ??
+                throw new ArgumentNullException(nameof(targetMovingPart));
+            Transform nextHinge = targetHinge ??
+                throw new ArgumentNullException(nameof(targetHinge));
+            Reset();
+            movingPart = nextMovingPart;
+            hinge = nextHinge;
+            hingeLocalAxis = worldAxis.sqrMagnitude > 0.0001f
+                ? worldAxis.normalized
+                : Vector3.up;
+            openAngleDegrees = openAngle;
+            closedLocalPosition = absoluteClosedLocalPosition;
+            closedLocalRotation = Quaternion.Euler(
+                absoluteClosedLocalEulerAngles
+            );
+            closedPoseCaptured = true;
+            explicitClosedPose = true;
+            openInPlace = false;
+            rotateAroundWorldHinge = true;
+            movingPart.SetLocalPositionAndRotation(
+                closedLocalPosition,
+                closedLocalRotation
+            );
+            closedWorldPosition = movingPart.position;
+            closedWorldRotation = movingPart.rotation;
+            hingeWorldPosition = hinge.position;
+            hingeWorldAxis = hingeLocalAxis;
+            ApplyWorldHingeRotation(1f);
+            openLocalPosition = movingPart.localPosition;
+            openLocalRotation = movingPart.localRotation;
             Reset();
         }
 
@@ -182,10 +247,7 @@ namespace SignVR.Interaction.PhaseAdapters
                 CaptureClosedPose();
             }
 
-            movingPart.SetLocalPositionAndRotation(
-                openLocalPosition,
-                openLocalRotation
-            );
+            ApplyOpeningProgress(1f);
             opened = true;
             openingAnimating = false;
         }
@@ -210,10 +272,7 @@ namespace SignVR.Interaction.PhaseAdapters
             openingDuration = Math.Max(0.0001d, durationSeconds);
             if (!openingAnimating)
             {
-                movingPart.SetLocalPositionAndRotation(
-                    openLocalPosition,
-                    openLocalRotation
-                );
+                ApplyOpeningProgress(1f);
             }
         }
 
@@ -226,10 +285,7 @@ namespace SignVR.Interaction.PhaseAdapters
             float progress = Mathf.Clamp01((float)((monotonicSeconds -
                 openingStartedAt) / openingDuration));
             progress = progress * progress * (3f - 2f * progress);
-            movingPart.SetLocalPositionAndRotation(
-                Vector3.Lerp(closedLocalPosition, openLocalPosition, progress),
-                Quaternion.Slerp(closedLocalRotation, openLocalRotation, progress)
-            );
+            ApplyOpeningProgress(progress);
             if (progress >= 1f)
             {
                 openingAnimating = false;
@@ -265,6 +321,32 @@ namespace SignVR.Interaction.PhaseAdapters
             movingPart.SetLocalPositionAndRotation(
                 closedLocalPosition,
                 closedLocalRotation
+            );
+        }
+
+        private void ApplyOpeningProgress(float progress)
+        {
+            if (rotateAroundWorldHinge)
+            {
+                ApplyWorldHingeRotation(progress);
+                return;
+            }
+            movingPart.SetLocalPositionAndRotation(
+                Vector3.Lerp(closedLocalPosition, openLocalPosition, progress),
+                Quaternion.Slerp(closedLocalRotation, openLocalRotation, progress)
+            );
+        }
+
+        private void ApplyWorldHingeRotation(float progress)
+        {
+            Quaternion rotation = Quaternion.AngleAxis(
+                openAngleDegrees * Mathf.Clamp01(progress),
+                hingeWorldAxis
+            );
+            movingPart.SetPositionAndRotation(
+                hingeWorldPosition + rotation *
+                    (closedWorldPosition - hingeWorldPosition),
+                rotation * closedWorldRotation
             );
         }
     }

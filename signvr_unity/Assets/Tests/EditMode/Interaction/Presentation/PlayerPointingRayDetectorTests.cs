@@ -108,6 +108,53 @@ namespace SignVR.Interaction.Editor.Tests
         }
 
         [Test]
+        public void HighlightBoundsIgnoreRemoteRootWhenRendererExists()
+        {
+            GameObject root = new GameObject("RemotePlateRoot");
+            try
+            {
+                root.transform.position = new Vector3(-4f, -0.4f, -5.5f);
+                GameObject mesh = GameObject.CreatePrimitive(
+                    PrimitiveType.Cube
+                );
+                mesh.name = "VisiblePlateMesh";
+                mesh.transform.SetParent(root.transform, false);
+                mesh.transform.localPosition = new Vector3(-1f, 1.6f, 0f);
+                mesh.transform.localScale = new Vector3(0.5f, 0.06f, 0.5f);
+
+                Type highlightType = RuntimeType(
+                    "SignVR.Interaction.Presentation." +
+                    "InteractionTargetHighlightVisual"
+                );
+                Component highlight = root.AddComponent(highlightType);
+                highlightType.GetField("boundsPadding", InstancePrivate)
+                    .SetValue(highlight, 0f);
+                highlightType.GetField("minimumBoundsExtent", InstancePrivate)
+                    .SetValue(highlight, 0f);
+                highlightType.GetMethod(
+                    "Show",
+                    new[] { typeof(Transform) }
+                ).Invoke(highlight, new object[] { root.transform });
+
+                object[] boundsArguments = { null };
+                bool found = (bool)highlightType.GetMethod(
+                    "TryCalculateBounds",
+                    InstancePrivate
+                ).Invoke(highlight, boundsArguments);
+                Bounds actual = (Bounds)boundsArguments[0];
+                Bounds expected = mesh.GetComponent<Renderer>().bounds;
+
+                Assert.That(found, Is.True);
+                Assert.That(actual.center, Is.EqualTo(expected.center));
+                Assert.That(actual.size, Is.EqualTo(expected.size));
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+            }
+        }
+
+        [Test]
         public void ThirtyConsecutiveHitsTriggerThreeSecondHighlight()
         {
             GameObject root = new GameObject("PlayerPointingHighlightTest");

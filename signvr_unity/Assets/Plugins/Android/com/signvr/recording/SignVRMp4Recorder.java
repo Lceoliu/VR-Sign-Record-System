@@ -6,17 +6,20 @@ import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.media.MediaMuxer;
 import android.os.Build;
+import android.util.Log;
 
 import java.io.File;
 import java.nio.ByteBuffer;
 
-/** Encodes RGB24 frames to H.264 in an MP4 container on the Quest. */
+/** Encodes GPU-produced NV12 frames to H.264 MP4 on the Quest. */
 public final class SignVRMp4Recorder {
     private static final Object LOCK = new Object();
+    private static final String TAG = "SignVRMp4Recorder";
     private static final String MIME = "video/avc";
-    private static final int COLOR_FORMAT_YUV420_PLANAR = 19;
+    private static final long EOS_DRAIN_TIMEOUT_NS = 2_000_000_000L;
     private static final int COLOR_FORMAT_YUV420_SEMIPLANAR = 21;
     private static final int COLOR_FORMAT_YUV420_FLEXIBLE = 0x7F420888;
+    private static final int COLOR_FORMAT_QCOM_YUV420_SEMIPLANAR = 0x7FA30C00;
 
     private static MediaCodec codec;
     private static MediaMuxer muxer;
@@ -25,8 +28,9 @@ public final class SignVRMp4Recorder {
     private static int colorFormat;
     private static int frameWidth;
     private static int frameHeight;
-    private static byte[] yuvBuffer;
     private static String lastError = "";
+    private static String encoderName = "";
+    private static long lastPresentationTimeUs;
 
     private SignVRMp4Recorder() {
     }
@@ -40,6 +44,7 @@ public final class SignVRMp4Recorder {
         synchronized (LOCK) {
             stopLocked();
             lastError = "";
+            encoderName = "";
             if (Build.VERSION.SDK_INT < 18 || outputPath == null ||
                     width <= 0 || height <= 0 || frameRate <= 0) {
                 lastError = "Unsupported video encoder configuration.";
@@ -62,6 +67,11 @@ public final class SignVRMp4Recorder {
                 }
                 colorFormat = chooseColorFormat(
                         encoder.getCapabilitiesForType(MIME).colorFormats);
+                Log.i(TAG, "Using encoder=" + encoder.getName() +
+                        ", inputColorFormat=0x" +
+                        Integer.toHexString(colorFormat) +
+                        ", supported=" + describeColorFormats(
+                                encoder.getCapabilitiesForType(MIME).colorFormats));
                 if (colorFormat == 0) {
                     throw new IllegalStateException("H.264 encoder has no YUV420 input format.");
                 }
@@ -73,6 +83,7 @@ public final class SignVRMp4Recorder {
                 format.setInteger(MediaFormat.KEY_FRAME_RATE, frameRate);
                 format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
                 codec = MediaCodec.createByCodecName(encoder.getName());
+                encoderName = encoder.getName();
                 codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
                 codec.start();
 
@@ -83,7 +94,7 @@ public final class SignVRMp4Recorder {
                 muxerStarted = false;
                 frameWidth = width;
                 frameHeight = height;
-                yuvBuffer = new byte[width * height * 3 / 2];
+                lastPresentationTimeUs = 0L;
                 return true;
             } catch (Exception exception) {
                 lastError = exception.toString();
@@ -93,18 +104,19 @@ public final class SignVRMp4Recorder {
         }
     }
 
-    public static boolean encodeRgb(byte[] rgb24, long presentationTimeUs) {
+    /** Queues a GPU-produced NV12 frame without an RGB-to-YUV CPU conversion. */
+    public static boolean encodeYuv(byte[] nv12, long presentationTimeUs) {
         synchronized (LOCK) {
-            if (codec == null || rgb24 == null ||
-                    rgb24.length != frameWidth * frameHeight * 3) {
-                lastError = "Invalid RGB frame or encoder is stopped.";
+            if (codec == null || nv12 == null ||
+                    nv12.length != frameWidth * frameHeight * 3 / 2) {
+                lastError = "Invalid NV12 frame or encoder is stopped.";
                 return false;
             }
 
             try {
                 int inputIndex = codec.dequeueInputBuffer(0);
                 if (inputIndex < 0) {
-                    drainEncoder(false);
+                    drainEncoder(false, 0L);
                     inputIndex = codec.dequeueInputBuffer(50_000);
                 }
                 if (inputIndex < 0) {
@@ -112,21 +124,23 @@ public final class SignVRMp4Recorder {
                     return false;
                 }
 
-                rgbToYuv420(rgb24, yuvBuffer, frameWidth, frameHeight, colorFormat);
                 ByteBuffer input = codec.getInputBuffer(inputIndex);
-                if (input == null || input.capacity() < yuvBuffer.length) {
+                if (input == null || input.capacity() < nv12.length) {
                     lastError = "H.264 encoder input buffer is too small.";
                     return false;
                 }
                 input.clear();
-                input.put(yuvBuffer);
+                input.put(nv12);
                 codec.queueInputBuffer(
                         inputIndex,
                         0,
-                        yuvBuffer.length,
+                        nv12.length,
                         Math.max(0L, presentationTimeUs),
                         0);
-                drainEncoder(false);
+                lastPresentationTimeUs = Math.max(
+                        lastPresentationTimeUs,
+                        presentationTimeUs);
+                drainEncoder(false, 0L);
                 return true;
             } catch (Exception exception) {
                 lastError = exception.toString();
@@ -147,25 +161,46 @@ public final class SignVRMp4Recorder {
         }
     }
 
+    public static String getEncoderName() {
+        synchronized (LOCK) {
+            return encoderName;
+        }
+    }
+
     private static void stopLocked() {
         if (codec == null && muxer == null) {
-            yuvBuffer = null;
             trackIndex = -1;
             muxerStarted = false;
             return;
         }
 
+        long inputDeadlineNs = System.nanoTime() + EOS_DRAIN_TIMEOUT_NS;
         try {
             if (codec != null) {
-                int inputIndex = codec.dequeueInputBuffer(10_000);
+                int inputIndex = -1;
+                while (inputIndex < 0 && System.nanoTime() < inputDeadlineNs) {
+                    drainEncoder(false, inputDeadlineNs);
+                    long remainingUs = Math.max(
+                            0L,
+                            (inputDeadlineNs - System.nanoTime()) / 1_000L);
+                    inputIndex = codec.dequeueInputBuffer(
+                            Math.min(10_000L, remainingUs));
+                }
                 if (inputIndex >= 0) {
                     codec.queueInputBuffer(
                             inputIndex,
                             0,
                             0,
-                            0,
+                            lastPresentationTimeUs + 1L,
                             MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                    drainEncoder(true);
+                    long drainDeadlineNs =
+                            System.nanoTime() + EOS_DRAIN_TIMEOUT_NS;
+                    if (!drainEncoder(true, drainDeadlineNs) &&
+                            lastError.length() == 0) {
+                        lastError = "H.264 encoder EOS drain timed out.";
+                    }
+                } else if (lastError.length() == 0) {
+                    lastError = "H.264 encoder EOS input timed out.";
                 }
             }
         } catch (Exception exception) {
@@ -197,23 +232,31 @@ public final class SignVRMp4Recorder {
                 }
             }
             muxer = null;
-            yuvBuffer = null;
             trackIndex = -1;
             muxerStarted = false;
+            encoderName = "";
+            lastPresentationTimeUs = 0L;
         }
     }
 
-    private static void drainEncoder(boolean endOfStream) {
+    private static boolean drainEncoder(boolean endOfStream, long deadlineNs) {
         if (codec == null) {
-            return;
+            return false;
         }
 
         MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
         while (true) {
-            int outputIndex = codec.dequeueOutputBuffer(bufferInfo, endOfStream ? 10_000 : 0);
+            if (deadlineNs > 0L && System.nanoTime() >= deadlineNs) {
+                return false;
+            }
+            long timeoutUs = endOfStream
+                    ? Math.max(0L, Math.min(10_000L,
+                            (deadlineNs - System.nanoTime()) / 1_000L))
+                    : 0L;
+            int outputIndex = codec.dequeueOutputBuffer(bufferInfo, timeoutUs);
             if (outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
                 if (!endOfStream) {
-                    return;
+                    return false;
                 }
                 continue;
             }
@@ -240,7 +283,7 @@ public final class SignVRMp4Recorder {
             boolean eos = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
             codec.releaseOutputBuffer(outputIndex, false);
             if (eos) {
-                return;
+                return true;
             }
         }
     }
@@ -248,19 +291,42 @@ public final class SignVRMp4Recorder {
     private static MediaCodecInfo findEncoder() {
         MediaCodecList list = new MediaCodecList(MediaCodecList.ALL_CODECS);
         MediaCodecInfo[] infos = list.getCodecInfos();
+        // Prefer the Quest hardware AVC encoder. The first codec in ALL_CODECS
+        // is not guaranteed to be hardware accelerated and can be a very slow
+        // software implementation at 1920x1080.
         for (MediaCodecInfo info : infos) {
-            if (!info.isEncoder()) {
-                continue;
+            if (isUsableEncoder(info) && isHardwareEncoder(info)) {
+                return info;
             }
-            String[] types = info.getSupportedTypes();
-            for (String type : types) {
-                if (MIME.equalsIgnoreCase(type) &&
-                        chooseColorFormat(info.getCapabilitiesForType(MIME).colorFormats) != 0) {
-                    return info;
-                }
+        }
+        for (MediaCodecInfo info : infos) {
+            if (isUsableEncoder(info)) {
+                return info;
             }
         }
         return null;
+    }
+
+    private static boolean isUsableEncoder(MediaCodecInfo info) {
+        if (info == null || !info.isEncoder()) {
+            return false;
+        }
+        String[] types = info.getSupportedTypes();
+        for (String type : types) {
+            if (MIME.equalsIgnoreCase(type) &&
+                    chooseColorFormat(info.getCapabilitiesForType(MIME).colorFormats) != 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isHardwareEncoder(MediaCodecInfo info) {
+        if (Build.VERSION.SDK_INT >= 29) {
+            return info.isHardwareAccelerated() && !info.isSoftwareOnly();
+        }
+        String name = info.getName().toLowerCase();
+        return !name.startsWith("omx.google.") && !name.startsWith("c2.android.");
     }
 
     private static int chooseColorFormat(int[] formats) {
@@ -270,55 +336,27 @@ public final class SignVRMp4Recorder {
             }
         }
         for (int format : formats) {
-            if (format == COLOR_FORMAT_YUV420_PLANAR) {
+            if (format == COLOR_FORMAT_QCOM_YUV420_SEMIPLANAR) {
                 return format;
             }
         }
         for (int format : formats) {
             if (format == COLOR_FORMAT_YUV420_FLEXIBLE) {
-                return COLOR_FORMAT_YUV420_SEMIPLANAR;
+                return format;
             }
         }
         return 0;
     }
 
-    private static void rgbToYuv420(
-            byte[] rgb,
-            byte[] yuv,
-            int width,
-            int height,
-            int format) {
-        int frameSize = width * height;
-        int yIndex = 0;
-        int uIndex = frameSize;
-        int vIndex = frameSize + frameSize / 4;
-        boolean planar = format == COLOR_FORMAT_YUV420_PLANAR;
-
-        for (int y = 0; y < height; y++) {
-            int rgbRow = y * width * 3;
-            for (int x = 0; x < width; x++) {
-                int rgbIndex = rgbRow + x * 3;
-                int r = rgb[rgbIndex] & 0xff;
-                int g = rgb[rgbIndex + 1] & 0xff;
-                int b = rgb[rgbIndex + 2] & 0xff;
-                yuv[yIndex++] = (byte) clamp((66 * r + 129 * g + 25 * b + 128 >> 8) + 16);
-
-                if ((y & 1) == 0 && (x & 1) == 0) {
-                    int u = clamp((-38 * r - 74 * g + 112 * b + 128 >> 8) + 128);
-                    int v = clamp((112 * r - 94 * g - 18 * b + 128 >> 8) + 128);
-                    if (planar) {
-                        yuv[uIndex++] = (byte) u;
-                        yuv[vIndex++] = (byte) v;
-                    } else {
-                        yuv[uIndex++] = (byte) u;
-                        yuv[uIndex++] = (byte) v;
-                    }
-                }
+    private static String describeColorFormats(int[] formats) {
+        StringBuilder builder = new StringBuilder("[");
+        for (int index = 0; index < formats.length; index++) {
+            if (index > 0) {
+                builder.append(",");
             }
+            builder.append("0x").append(Integer.toHexString(formats[index]));
         }
+        return builder.append("]").toString();
     }
 
-    private static int clamp(int value) {
-        return value < 0 ? 0 : Math.min(255, value);
-    }
 }

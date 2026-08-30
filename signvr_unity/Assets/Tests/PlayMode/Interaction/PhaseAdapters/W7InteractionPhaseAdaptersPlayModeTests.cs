@@ -546,7 +546,9 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
 
             GameObject grabRoot = new GameObject("ISDK_HandGrabInteraction");
             grabRoot.transform.SetParent(coin.transform, false);
-            Behaviour grabBehaviour = grabRoot.AddComponent<AudioSource>();
+            FakeSelectionInteractableView selection =
+                grabRoot.AddComponent<FakeSelectionInteractableView>();
+            Behaviour grabBehaviour = selection;
             grabBehaviour.enabled = false;
             grabRoot.SetActive(false);
 
@@ -567,16 +569,20 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Assert.That(grabRoot.activeSelf, Is.True);
             Assert.That(grabBehaviour.enabled, Is.True);
             Assert.That(collider.enabled, Is.True);
-            Assert.That(body.isKinematic, Is.False);
+            Assert.That(
+                body.isKinematic,
+                Is.True,
+                "Phase 2 must not drop a coin before its first grab."
+            );
             Assert.That(
                 body.useGravity,
-                Is.True,
-                "Phase 2 availability must let the coin settle."
+                Is.False,
+                "Gravity starts only when the hand first selects the coin."
             );
             Assert.That(body.detectCollisions, Is.True);
             Assert.That(
                 body.constraints,
-                Is.EqualTo(RigidbodyConstraints.None)
+                Is.EqualTo(RigidbodyConstraints.FreezeAll)
             );
             Assert.That(
                 body.interpolation,
@@ -584,8 +590,18 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             );
             Assert.That(
                 body.collisionDetectionMode,
+                Is.EqualTo(CollisionDetectionMode.ContinuousSpeculative)
+            );
+
+            selection.IsSelected = true;
+            Assert.That(body.isKinematic, Is.False);
+            Assert.That(body.useGravity, Is.True);
+            Assert.That(body.constraints, Is.EqualTo(RigidbodyConstraints.None));
+            Assert.That(
+                body.collisionDetectionMode,
                 Is.EqualTo(CollisionDetectionMode.ContinuousDynamic)
             );
+            selection.IsSelected = false;
 
             coin.transform.localPosition = Vector3.one * 9f;
             InvokePublic(phaseTwo, "Disable");
@@ -666,9 +682,10 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             InvokePublic(phaseTwo, "Enable");
             Assert.That(
                 body.isKinematic,
-                Is.False,
-                "An available coin must be physically movable."
+                Is.True,
+                "An untouched available coin must remain at its authored pose."
             );
+            Assert.That(body.useGravity, Is.False);
             Assert.That(body.linearVelocity, Is.EqualTo(Vector3.zero));
             Assert.That(body.angularVelocity, Is.EqualTo(Vector3.zero));
 
@@ -676,8 +693,9 @@ namespace SignVR.Interaction.PhaseAdapters.PlayMode.Tests
             Assert.That(
                 body.isKinematic,
                 Is.False,
-                "The binding must not lock physics during selection."
+                "The first real selection must activate movable physics."
             );
+            Assert.That(body.useGravity, Is.True);
 
             body.position = new Vector3(8f, 9f, 10f);
             selection.IsSelected = false;

@@ -359,15 +359,89 @@ namespace SignVR.Editor.Interaction
                 }
                 FrameChestPasswordButton[] passwordButtons =
                     FindSceneComponents<FrameChestPasswordButton>(scene);
+                Transform passwordControls = FindSceneComponents<Transform>(
+                        scene
+                    )
+                    .SingleOrDefault(item =>
+                        item.name == "FrameChestPasswordControls");
+                Transform existingKeypad = FindSceneComponents<Transform>(scene)
+                    .SingleOrDefault(item =>
+                        item.name == "elevator_button_-_lift");
+                bool passwordGeometryIsValid = false;
+                if (existingKeypad != null && passwordControls != null &&
+                    passwordButtons.Length == 4)
+                {
+                    Bounds keypadBounds = GetWorldBounds(existingKeypad);
+                    Vector3[] digitCenters = GetExistingKeypadDigitCenters(
+                        existingKeypad.GetComponentsInChildren<Renderer>(true)
+                    );
+                    passwordGeometryIsValid = digitCenters.Length == 4 &&
+                        passwordControls.childCount == 4;
+                    for (int row = 0;
+                        passwordGeometryIsValid && row < digitCenters.Length;
+                        row++)
+                    {
+                        string expectedDigit = (3 - row).ToString();
+                        FrameChestPasswordButton button = passwordButtons
+                            .SingleOrDefault(item =>
+                                item.ButtonId == expectedDigit);
+                        BoxCollider collider = button != null
+                            ? button.GetComponent<BoxCollider>()
+                            : null;
+                        Rigidbody body = button != null
+                            ? button.GetComponent<Rigidbody>()
+                            : null;
+                        Transform visual = button != null
+                            ? button.transform.Find("Visual")
+                            : null;
+                        Vector3 expectedPosition = new(
+                            keypadBounds.max.x + 0.085f,
+                            digitCenters[row].y,
+                            keypadBounds.max.z + 0.035f
+                        );
+                        passwordGeometryIsValid =
+                            button != null &&
+                            button.name == "PasswordButton_" + expectedDigit &&
+                            Vector3.Distance(
+                                button.transform.position,
+                                expectedPosition
+                            ) <= 0.002f &&
+                            collider != null && collider.isTrigger &&
+                            Vector3.Distance(
+                                collider.size,
+                                new Vector3(0.11f, 0.14f, 0.055f)
+                            ) <= 0.0001f &&
+                            body != null && !body.useGravity &&
+                            body.constraints == RigidbodyConstraints.FreezeAll &&
+                            visual != null && Vector3.Distance(
+                                visual.localScale,
+                                new Vector3(0.1f, 0.13f, 0.04f)
+                            ) <= 0.0001f;
+                    }
+                }
                 if (passwordButtons.Length != 4 ||
+                    passwordControls == null ||
+                    existingKeypad == null ||
+                    !existingKeypad.gameObject.activeInHierarchy ||
+                    !passwordGeometryIsValid ||
+                    FindSceneComponents<Transform>(scene).Any(item =>
+                        item.name == "FrameChestPasswordPanel" ||
+                        item.name == "Board" &&
+                        item.parent?.name == "FrameChestPasswordPanel" ||
+                        item.name.StartsWith("LargePad_", StringComparison.Ordinal)) ||
+                    !passwordButtons.Select(item => item.ButtonId)
+                        .OrderBy(item => item, StringComparer.Ordinal)
+                        .SequenceEqual(new[] { "0", "1", "2", "3" }) ||
                     passwordButtons.Any(item =>
+                        !item.transform.IsChildOf(passwordControls) ||
                         item.GetComponent<BoxCollider>() == null ||
                         item.GetComponent<Rigidbody>() == null ||
                         item.GetComponent<InteractionTriggerRelay>() == null))
                 {
                     throw new InvalidOperationException(
-                        "The chest password panel requires four physical " +
-                        "hand-triggered buttons."
+                        "The existing scene keypad requires exactly four " +
+                        "adjacent gray physical digit controls and no " +
+                        "generated password panel."
                     );
                 }
                 if (FindSceneComponents<Transform>(scene).Any(item =>
@@ -566,12 +640,12 @@ namespace SignVR.Editor.Interaction
                 InteractionDeterministicPresentation>();
             Transform proxyRoot = FindSceneComponents<Transform>(scene)
                 .Single(item => item.name == "W7InteractionProxies");
-            Transform chest = FindSceneComponents<Transform>(scene)
-                .Single(item => item.name == "chest");
+            Transform keypad = FindSceneComponents<Transform>(scene)
+                .Single(item => item.name == "elevator_button_-_lift");
 
-            GameObject panel = EnsureFramePasswordPanel(
+            GameObject passwordControls = EnsureFramePasswordControls(
                 proxyRoot,
-                chest,
+                keypad,
                 out FrameChestPasswordButton[] buttons
             );
             InteractionTargetBinding[] frames = FindSceneComponents<
@@ -599,7 +673,7 @@ namespace SignVR.Editor.Interaction
                 frames,
                 buttons,
                 wallPasswordDisplays,
-                panel
+                passwordControls
             );
             for (int index = 0; index < buttons.Length; index++)
             {
@@ -615,142 +689,111 @@ namespace SignVR.Editor.Interaction
                     buttons[index],
                     phaseCoordinator.AllowedInteractorRoots.ToArray()
                 );
-                Transform pad = panel.transform.Find(
-                    "LargePad_" + buttons[index].ButtonId
-                );
-                InteractionTriggerRelay padRelay = pad != null
-                    ? pad.GetComponent<InteractionTriggerRelay>()
-                    : null;
-                if (padRelay != null)
-                {
-                    padRelay.Configure(
-                        buttons[index],
-                        phaseCoordinator.AllowedInteractorRoots.ToArray()
-                    );
-                }
             }
             EditorUtility.SetDirty(sequence);
             EditorUtility.SetDirty(recorder);
             EditorUtility.SetDirty(detector);
-            EditorUtility.SetDirty(panel);
+            EditorUtility.SetDirty(passwordControls);
         }
 
-        private static GameObject EnsureFramePasswordPanel(
+        private static GameObject EnsureFramePasswordControls(
             Transform proxyRoot,
-            Transform chest,
+            Transform keypad,
             out FrameChestPasswordButton[] buttons)
         {
-            Transform existing = proxyRoot.Find("FrameChestPasswordPanel");
-            GameObject panel = existing != null
+            if (keypad == null)
+            {
+                throw new ArgumentNullException(nameof(keypad));
+            }
+
+            Transform obsoletePanel = proxyRoot.Find("FrameChestPasswordPanel");
+            if (obsoletePanel != null)
+            {
+                Undo.DestroyObjectImmediate(obsoletePanel.gameObject);
+            }
+
+            Transform existing = proxyRoot.Find("FrameChestPasswordControls");
+            GameObject controls = existing != null
                 ? existing.gameObject
-                : new GameObject("FrameChestPasswordPanel");
+                : new GameObject("FrameChestPasswordControls");
             if (existing == null)
             {
-                panel.transform.SetParent(proxyRoot, false);
+                controls.transform.SetParent(proxyRoot, false);
             }
-            Bounds chestBounds = GetWorldBounds(chest);
-            const float panelHalfWidth = 0.26f;
-            const float chestSideClearance = 0.08f;
-            const float chestFrontClearance = 0.08f;
-            panel.transform.SetPositionAndRotation(
-                new Vector3(
-                    chestBounds.min.x - panelHalfWidth - chestSideClearance,
-                    chestBounds.center.y,
-                    chestBounds.max.z + chestFrontClearance
-                ),
+            controls.transform.SetPositionAndRotation(
+                Vector3.zero,
                 Quaternion.identity
             );
-            panel.transform.localScale = Vector3.one;
-            panel.SetActive(false);
+            controls.transform.localScale = Vector3.one;
 
-            Transform board = panel.transform.Find("Board");
-            GameObject boardObject = board != null
-                ? board.gameObject
-                : GameObject.CreatePrimitive(PrimitiveType.Cube);
-            boardObject.name = "Board";
-            if (board == null)
+            Renderer[] keypadRenderers = keypad
+                .GetComponentsInChildren<Renderer>(true);
+            Bounds keypadBounds = GetWorldBounds(keypad);
+            Vector3[] digitCenters = GetExistingKeypadDigitCenters(
+                keypadRenderers
+            );
+            if (digitCenters.Length != 4)
             {
-                boardObject.transform.SetParent(panel.transform, false);
-            }
-            boardObject.transform.localPosition = Vector3.zero;
-            boardObject.transform.localRotation = Quaternion.identity;
-            boardObject.transform.localScale = new Vector3(0.52f, 0.5f, 0.035f);
-            Collider boardCollider = boardObject.GetComponent<Collider>();
-            if (boardCollider != null)
-            {
-                UnityEngine.Object.DestroyImmediate(boardCollider);
-            }
-
-            string[] ids = { "blue", "red", "yellow", "green" };
-            Color[] colors =
-            {
-                new(0.08f, 0.28f, 0.92f, 1f),
-                new(0.88f, 0.08f, 0.08f, 1f),
-                new(0.95f, 0.72f, 0.04f, 1f),
-                new(0.08f, 0.68f, 0.2f, 1f)
-            };
-            var result = new FrameChestPasswordButton[ids.Length];
-            for (int index = 0; index < ids.Length; index++)
-            {
-                Transform buttonTransform = panel.transform.Find(
-                    "Button_" + ids[index]
+                throw new InvalidOperationException(
+                    "The existing elevator_button_-_lift keypad must expose " +
+                    "exactly four visible digit rows; found " +
+                    digitCenters.Length + "."
                 );
-                if (buttonTransform != null &&
-                    buttonTransform.GetComponent<BoxCollider>() == null)
-                {
-                    Undo.DestroyObjectImmediate(buttonTransform.gameObject);
-                    buttonTransform = null;
-                }
+            }
+
+            var result = new FrameChestPasswordButton[4];
+            Color neutralGray = new(0.38f, 0.4f, 0.43f, 1f);
+            for (int index = 0; index < result.Length; index++)
+            {
+                // The authored keypad is 3, 2, 1, 0 from top to bottom.
+                string digit = (3 - index).ToString();
+                Transform buttonTransform = controls.transform.Find(
+                    "PasswordButton_" + digit
+                );
                 GameObject button = buttonTransform != null
                     ? buttonTransform.gameObject
                     : GameObject.CreatePrimitive(PrimitiveType.Cube);
                 if (buttonTransform == null)
                 {
-                    button.name = "Button_" + ids[index];
-                    button.transform.SetParent(panel.transform, false);
+                    button.name = "PasswordButton_" + digit;
+                    button.transform.SetParent(controls.transform, false);
                 }
-                button.transform.localPosition = new Vector3(
-                    (index - 1.5f) * 0.115f,
-                    0.08f,
-                    0.035f
+                button.transform.SetPositionAndRotation(
+                    new Vector3(
+                        keypadBounds.max.x + 0.085f,
+                        digitCenters[index].y,
+                        keypadBounds.max.z + 0.035f
+                    ),
+                    Quaternion.identity
                 );
-                button.transform.localRotation = Quaternion.identity;
                 button.transform.localScale = Vector3.one;
-                Renderer buttonRenderer = button.GetComponent<Renderer>();
-                if (buttonRenderer != null)
+                Renderer rootRenderer = button.GetComponent<Renderer>();
+                if (rootRenderer != null)
                 {
-                    buttonRenderer.enabled = false;
+                    rootRenderer.enabled = false;
                 }
+
                 BoxCollider collider = button.GetComponent<BoxCollider>();
                 if (collider == null)
                 {
                     collider = Undo.AddComponent<BoxCollider>(button);
                 }
-                if (collider == null)
-                {
-                    throw new InvalidOperationException(
-                        "Could not create password-button collider for " +
-                        ids[index] + "."
-                    );
-                }
                 collider.isTrigger = true;
-                collider.size = new Vector3(0.085f, 0.12f, 0.045f);
+                collider.center = Vector3.zero;
+                collider.size = new Vector3(0.11f, 0.14f, 0.055f);
+
                 Rigidbody body = button.GetComponent<Rigidbody>();
                 if (body == null)
                 {
                     body = Undo.AddComponent<Rigidbody>(button);
                 }
-                if (body == null)
-                {
-                    throw new InvalidOperationException(
-                        "Could not create password-button rigidbody for " +
-                        ids[index] + "."
-                    );
-                }
                 body.isKinematic = false;
                 body.useGravity = false;
                 body.constraints = RigidbodyConstraints.FreezeAll;
-                body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+                body.detectCollisions = true;
+                body.collisionDetectionMode =
+                    CollisionDetectionMode.ContinuousSpeculative;
+
                 Transform visual = button.transform.Find("Visual");
                 GameObject visualObject = visual != null
                     ? visual.gameObject
@@ -761,138 +804,40 @@ namespace SignVR.Editor.Interaction
                     visualObject.transform.SetParent(button.transform, false);
                 }
                 visualObject.transform.localPosition = Vector3.zero;
-                visualObject.transform.localScale = new Vector3(0.075f, 0.1f, 0.035f);
+                visualObject.transform.localRotation = Quaternion.identity;
+                visualObject.transform.localScale =
+                    new Vector3(0.1f, 0.13f, 0.04f);
                 Collider visualCollider = visualObject.GetComponent<Collider>();
                 if (visualCollider != null)
                 {
-                    UnityEngine.Object.DestroyImmediate(visualCollider);
+                    Undo.DestroyObjectImmediate(visualCollider);
                 }
-                TextMeshPro label = button.transform.Find("Label")?.GetComponent<
-                    TextMeshPro>();
-                if (label == null)
-                {
-                    GameObject labelObject = new GameObject(
-                        "Label",
-                        typeof(TextMeshPro)
-                    );
-                    labelObject.transform.SetParent(button.transform, false);
-                    label = labelObject.GetComponent<TextMeshPro>();
-                }
-                label.text = index.ToString();
-                label.fontSize = 0.18f;
-                label.alignment = TextAlignmentOptions.Center;
-                label.color = Color.white;
-                label.transform.localPosition = new Vector3(0f, 0f, 0.021f);
-                label.transform.localRotation = Quaternion.identity;
-                label.transform.localScale = Vector3.one;
 
                 FrameChestPasswordButton component = button.GetComponent<
                     FrameChestPasswordButton>();
                 if (component == null)
                 {
-                    component = Undo.AddComponent<FrameChestPasswordButton>(
-                        button
-                    );
+                    component = Undo.AddComponent<FrameChestPasswordButton>(button);
                 }
-                component.Configure(ids[index], null, visualObject.transform, collider);
-                component.ConfigureColor(colors[index]);
+                component.Configure(digit, null, visualObject.transform, collider);
+                component.ConfigureAuxiliaryRenderers();
+                component.ConfigureColor(neutralGray);
+
                 InteractionTriggerRelay relay = button.GetComponent<
                     InteractionTriggerRelay>();
                 if (relay == null)
                 {
                     relay = Undo.AddComponent<InteractionTriggerRelay>(button);
                 }
-
-                Transform padTransform = panel.transform.Find(
-                    "LargePad_" + ids[index]
-                );
-                GameObject pad = padTransform != null
-                    ? padTransform.gameObject
-                    : GameObject.CreatePrimitive(PrimitiveType.Cube);
-                if (padTransform == null)
-                {
-                    pad.name = "LargePad_" + ids[index];
-                    pad.transform.SetParent(panel.transform, false);
-                }
-                pad.transform.localPosition = new Vector3(
-                    (index - 1.5f) * 0.115f,
-                    -0.13f,
-                    0.055f
-                );
-                pad.transform.localRotation = Quaternion.identity;
-                pad.transform.localScale = new Vector3(0.1f, 0.16f, 0.065f);
-                BoxCollider padCollider = pad.GetComponent<BoxCollider>();
-                if (padCollider == null)
-                {
-                    padCollider = Undo.AddComponent<BoxCollider>(pad);
-                }
-                padCollider.isTrigger = true;
-                Rigidbody padBody = pad.GetComponent<Rigidbody>();
-                if (padBody == null)
-                {
-                    padBody = Undo.AddComponent<Rigidbody>(pad);
-                }
-                padBody.isKinematic = false;
-                padBody.useGravity = false;
-                padBody.constraints = RigidbodyConstraints.FreezeAll;
-                padBody.collisionDetectionMode =
-                    CollisionDetectionMode.ContinuousSpeculative;
-                Renderer padRenderer = pad.GetComponent<Renderer>();
-                if (padRenderer != null)
-                {
-                    Material sharedMaterial = visualObject
-                        .GetComponent<Renderer>()?.sharedMaterial;
-                    if (sharedMaterial != null)
-                    {
-                        padRenderer.sharedMaterial = sharedMaterial;
-                    }
-                }
-                InteractionTriggerRelay padRelay = pad.GetComponent<
-                    InteractionTriggerRelay>();
-                if (padRelay == null)
-                {
-                    padRelay = Undo.AddComponent<InteractionTriggerRelay>(pad);
-                }
-
-                Transform padLabelTransform = panel.transform.Find(
-                    "LargePadLabel_" + ids[index]
-                );
-                GameObject padLabelObject = padLabelTransform != null
-                    ? padLabelTransform.gameObject
-                    : new GameObject(
-                        "LargePadLabel_" + ids[index],
-                        typeof(TextMeshPro)
-                    );
-                if (padLabelTransform == null)
-                {
-                    padLabelObject.transform.SetParent(panel.transform, false);
-                }
-                TextMeshPro padLabel = padLabelObject.GetComponent<TextMeshPro>();
-                padLabel.text = index.ToString();
-                padLabel.fontSize = 0.18f;
-                padLabel.fontStyle = FontStyles.Bold;
-                padLabel.alignment = TextAlignmentOptions.Center;
-                padLabel.color = Color.white;
-                padLabel.transform.localPosition = new Vector3(
-                    (index - 1.5f) * 0.115f,
-                    -0.13f,
-                    0.091f
-                );
-                padLabel.transform.localRotation = Quaternion.identity;
-                padLabel.transform.localScale = Vector3.one;
-                component.ConfigureAuxiliaryRenderers(padRenderer);
-                component.ConfigureColor(colors[index]);
                 result[index] = component;
                 EditorUtility.SetDirty(button);
-                EditorUtility.SetDirty(pad);
-                EditorUtility.SetDirty(padLabelObject);
                 EditorUtility.SetDirty(component);
                 EditorUtility.SetDirty(relay);
-                EditorUtility.SetDirty(padRelay);
             }
 
+            controls.SetActive(false);
             buttons = result;
-            return panel;
+            return controls;
         }
 
         private static void PrepareExistingFramePasswordButtonsForW7(
@@ -975,6 +920,23 @@ namespace SignVR.Editor.Interaction
                 bounds.Encapsulate(renderers[index].bounds);
             }
             return bounds;
+        }
+
+        private static Vector3[] GetExistingKeypadDigitCenters(
+            IEnumerable<Renderer> keypadRenderers)
+        {
+            return keypadRenderers
+                .Where(item => item != null)
+                .Select(item => item.bounds)
+                .Where(bounds =>
+                    bounds.size.y >= 0.1f &&
+                    bounds.size.y <= 0.22f &&
+                    bounds.size.x <= 0.12f)
+                .GroupBy(bounds => Mathf.RoundToInt(bounds.center.y * 50f))
+                .Select(group => group.OrderBy(bounds => bounds.size.x).First())
+                .OrderByDescending(bounds => bounds.center.y)
+                .Select(bounds => bounds.center)
+                .ToArray();
         }
 
         private static void EnsureLayerName(int layer, string name)

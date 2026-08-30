@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Oculus.Interaction;
 using SignVR.Interaction.Core;
 using UnityEngine;
 
@@ -54,6 +55,10 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private bool availabilitySubscribed;
         private bool resetSubscribed;
+        private bool movableAvailabilityPrepared;
+        private bool movablePhysicsActivated;
+        private readonly List<IInteractableView> movableGrabViews =
+            new List<IInteractableView>();
 
 #if UNITY_INCLUDE_TESTS
         private readonly InteractionSubscriptionDiagnostic
@@ -246,6 +251,7 @@ namespace SignVR.Interaction.PhaseAdapters
             if (manageRuntimeSubscriptions)
             {
                 UnbindAdapterEvents();
+                UnbindMovableGrabEvents();
             }
             if (inputBindingsChanged)
             {
@@ -258,6 +264,8 @@ namespace SignVR.Interaction.PhaseAdapters
             inputColliders = nextColliders;
             availabilityObjects = nextAvailabilityObjects;
             enableMovablePhysicsWhenAvailable = enableMovablePhysics;
+            movableAvailabilityPrepared = false;
+            movablePhysicsActivated = false;
             ResetInputGate();
             CaptureAuthoredPoseAndPhysics();
             CaptureAuthoredInputState();
@@ -446,6 +454,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         public void Grab()
         {
+            ActivateMovablePhysicsAfterGrab();
             BeginContact(ContactSource.Grab);
         }
 
@@ -711,6 +720,163 @@ namespace SignVR.Interaction.PhaseAdapters
             }
         }
 
+        private void PrepareMovablePhysicsForGrab()
+        {
+            for (int index = 0; index < bodies.Length; index++)
+            {
+                Rigidbody body = bodies[index];
+                if (body == null)
+                {
+                    continue;
+                }
+                if (!body.isKinematic)
+                {
+                    body.linearVelocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                    body.isKinematic = true;
+                }
+                body.useGravity = false;
+                body.detectCollisions = true;
+                body.constraints = RigidbodyConstraints.FreezeAll;
+                body.interpolation = RigidbodyInterpolation.Interpolate;
+                body.collisionDetectionMode =
+                    CollisionDetectionMode.ContinuousSpeculative;
+            }
+        }
+
+        private void ActivateMovablePhysicsAfterGrab()
+        {
+            if (!enableMovablePhysicsWhenAvailable ||
+                !IsInputAvailable || movablePhysicsActivated)
+            {
+                return;
+            }
+            movablePhysicsActivated = true;
+            ApplyMovablePhysics();
+        }
+
+        private void BindMovableGrabEvents()
+        {
+            if (!Application.isPlaying || !isActiveAndEnabled ||
+                !enableMovablePhysicsWhenAvailable || !IsInputAvailable ||
+                movableGrabViews.Count > 0)
+            {
+                return;
+            }
+
+            for (int index = 0; index < interactionBehaviours.Length; index++)
+            {
+                AddMovableGrabView(interactionBehaviours[index]);
+            }
+            MonoBehaviour[] components =
+                GetComponentsInChildren<MonoBehaviour>(true);
+            for (int index = 0; index < components.Length; index++)
+            {
+                AddMovableGrabView(components[index]);
+            }
+
+            for (int index = 0; index < movableGrabViews.Count; index++)
+            {
+                IInteractableView view = movableGrabViews[index];
+                view.WhenSelectingInteractorViewAdded +=
+                    HandleMovableGrabStarted;
+                view.WhenSelectingInteractorViewRemoved +=
+                    HandleMovableGrabEnded;
+            }
+            if (AnyMovableGrabViewSelected())
+            {
+                ActivateMovablePhysicsAfterGrab();
+            }
+        }
+
+        private void AddMovableGrabView(Behaviour component)
+        {
+            if (!(component is IInteractableView view) ||
+                !IsUnityObjectAlive(view) || movableGrabViews.Contains(view))
+            {
+                return;
+            }
+            movableGrabViews.Add(view);
+        }
+
+        private void UnbindMovableGrabEvents()
+        {
+            for (int index = 0; index < movableGrabViews.Count; index++)
+            {
+                IInteractableView view = movableGrabViews[index];
+                if (!IsUnityObjectAlive(view))
+                {
+                    continue;
+                }
+                try
+                {
+                    view.WhenSelectingInteractorViewAdded -=
+                        HandleMovableGrabStarted;
+                    view.WhenSelectingInteractorViewRemoved -=
+                        HandleMovableGrabEnded;
+                }
+                catch (MissingReferenceException)
+                {
+                    // The interaction component died during teardown.
+                }
+            }
+            movableGrabViews.Clear();
+        }
+
+        private void HandleMovableGrabStarted(IInteractorView interactor)
+        {
+            ActivateMovablePhysicsAfterGrab();
+        }
+
+        private void HandleMovableGrabEnded(IInteractorView interactor)
+        {
+            if (movablePhysicsActivated && !AnyMovableGrabViewSelected())
+            {
+                // Meta may restore its pre-selection kinematic state on release.
+                ApplyMovablePhysics();
+            }
+        }
+
+        private bool AnyMovableGrabViewSelected()
+        {
+            for (int index = 0; index < movableGrabViews.Count; index++)
+            {
+                IInteractableView view = movableGrabViews[index];
+                if (!IsUnityObjectAlive(view))
+                {
+                    continue;
+                }
+                try
+                {
+                    IEnumerable<IInteractorView> selecting =
+                        view.SelectingInteractorViews;
+                    if (selecting == null)
+                    {
+                        continue;
+                    }
+                    foreach (IInteractorView unused in selecting)
+                    {
+                        return true;
+                    }
+                }
+                catch (MissingReferenceException)
+                {
+                    // Treat a destroyed view as no longer selecting.
+                }
+            }
+            return false;
+        }
+
+        private static bool IsUnityObjectAlive(object value)
+        {
+            if (ReferenceEquals(value, null))
+            {
+                return false;
+            }
+            return !(value is UnityEngine.Object unityObject) ||
+                unityObject != null;
+        }
+
         private void RestoreAuthoredInputState()
         {
             if (!authoredInputStateCaptured)
@@ -762,6 +928,7 @@ namespace SignVR.Interaction.PhaseAdapters
 
         private void RestoreAuthoredStateForTeardown()
         {
+            UnbindMovableGrabEvents();
             UnbindAdapterEvents();
             RestoreAuthoredPoseAndPhysics();
             RestoreAuthoredInputState();
@@ -847,6 +1014,9 @@ namespace SignVR.Interaction.PhaseAdapters
             subscriptionDiagnostic.RecordResetPerformed();
 #endif
             ResetInputGate();
+            UnbindMovableGrabEvents();
+            movableAvailabilityPrepared = false;
+            movablePhysicsActivated = false;
             RestoreAuthoredPoseAndPhysics();
             ApplyAvailability(IsInputAvailable);
         }
@@ -892,10 +1062,19 @@ namespace SignVR.Interaction.PhaseAdapters
             {
                 if (available)
                 {
-                    ApplyMovablePhysics();
+                    if (!movableAvailabilityPrepared)
+                    {
+                        movableAvailabilityPrepared = true;
+                        movablePhysicsActivated = false;
+                        PrepareMovablePhysicsForGrab();
+                    }
+                    BindMovableGrabEvents();
                 }
                 else
                 {
+                    UnbindMovableGrabEvents();
+                    movableAvailabilityPrepared = false;
+                    movablePhysicsActivated = false;
                     RestoreAuthoredPhysics();
                 }
             }

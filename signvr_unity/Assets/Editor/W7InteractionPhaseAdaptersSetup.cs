@@ -44,7 +44,14 @@ namespace SignVR.Editor.Interaction
             "__W7_TEST_OWNED_INTERACTION_SCENE__";
         private const string BreakerHandlerPath =
             "switchHandler.fbx/RootNode/handler";
-        private const float ChestLidClosedLocalEulerX = 0f;
+        private const float ChestLidClosedLocalEulerX = 108.03f;
+        private const float ChestLidOpenLocalEulerX = 8.03f;
+        private static readonly Vector3 ChestLidClosedLocalPosition =
+            new(0f, -0.13f, -0.28f);
+        private static readonly Vector3 ChestLidHingeLocalPosition =
+            new(0f, 0.17421089f, -0.22235084f);
+        private static readonly Vector3 ChestLidOpenLocalPosition =
+            new(0f, 0.16002172f, 0.041464522f);
 
         private static readonly TargetSpec[] TargetSpecs =
         {
@@ -475,6 +482,7 @@ namespace SignVR.Editor.Interaction
                 }
                 else if (spec.RestoreGrabTopology)
                 {
+                    EnsureExactMovableCoinCollider(authoredTarget);
                     Collider[] inputColliders = authoredTarget
                         .GetComponentsInChildren<Collider>(true);
                     GameObject[] availabilityObjects = interactionBehaviours
@@ -939,9 +947,29 @@ namespace SignVR.Editor.Interaction
                 Collider[] targetColliders = target == null
                     ? Array.Empty<Collider>()
                     : target.GetComponentsInChildren<Collider>(true);
+                BoxCollider rootCollider = target == null
+                    ? null
+                    : target.GetComponent<BoxCollider>();
                 Rigidbody[] targetBodies = target == null
                     ? Array.Empty<Rigidbody>()
                     : target.GetComponentsInChildren<Rigidbody>(true);
+                bool hasExactRendererCollider =
+                    target != null &&
+                    rootCollider != null &&
+                    targetColliders.Length == 1 &&
+                    ReferenceEquals(targetColliders[0], rootCollider) &&
+                    TryGetLocalRendererBounds(
+                        target,
+                        out Bounds expectedColliderBounds
+                    ) &&
+                    Vector3.Distance(
+                        rootCollider.center,
+                        expectedColliderBounds.center
+                    ) <= 0.0001f &&
+                    Vector3.Distance(
+                        rootCollider.size,
+                        expectedColliderBounds.size
+                    ) <= 0.0001f;
                 bool hasInactiveGrabRoot = binding != null &&
                     binding.AvailabilityObjects.Any(item =>
                         item != null &&
@@ -953,7 +981,7 @@ namespace SignVR.Editor.Interaction
                 if (binding == null ||
                     !binding.EnablesMovablePhysicsWhenAvailable ||
                     targetBodies.Length != 1 ||
-                    targetColliders.Length == 0 ||
+                    !hasExactRendererCollider ||
                     !new HashSet<Collider>(binding.InputColliders)
                         .SetEquals(targetColliders) ||
                     binding.InteractionBehaviours.Count == 0 ||
@@ -961,7 +989,8 @@ namespace SignVR.Editor.Interaction
                 {
                     failures.Add(
                         $"Phase 2 coin '{spec.TargetId}' must bind its " +
-                        "inactive grab root, grab behaviours, colliders, " +
+                        "inactive grab root, grab behaviours, one exact " +
+                        "root renderer-fitted collider, " +
                         "and movable Rigidbody lifecycle."
                     );
                 }
@@ -1149,7 +1178,11 @@ namespace SignVR.Editor.Interaction
             InteractionTargetBinding binding,
             Transform[] allowedInteractorRoots)
         {
-            Bounds bounds = GetBounds(authoredTarget);
+            bool breakerTarget = IsBreakerTargetId(targetId);
+            Transform geometryRoot = breakerTarget
+                ? ResolveBreakerHandler(authoredTarget)
+                : authoredTarget;
+            Bounds bounds = GetBounds(geometryRoot);
             GameObject proxy = EnsurePrimitive(
                 proxyRoot,
                 "W7Target_" + targetId,
@@ -1158,7 +1191,7 @@ namespace SignVR.Editor.Interaction
             proxy.SetActive(true);
             RecordForUndo(proxy.transform);
             proxy.transform.SetPositionAndRotation(
-                IsCabinetButtonTargetId(targetId)
+                IsCabinetButtonTargetId(targetId) || breakerTarget
                     ? new Vector3(
                         bounds.min.x - 0.025f,
                         bounds.center.y,
@@ -1171,7 +1204,8 @@ namespace SignVR.Editor.Interaction
                     ),
                 Quaternion.identity
             );
-            proxy.transform.localScale = IsCabinetButtonTargetId(targetId)
+            proxy.transform.localScale =
+                IsCabinetButtonTargetId(targetId) || breakerTarget
                 ? new Vector3(
                     0.05f,
                     Mathf.Clamp(bounds.size.y + 0.04f, 0.11f, 0.3f),
@@ -1549,26 +1583,29 @@ namespace SignVR.Editor.Interaction
                 return new DeterministicHingeBinding();
             }
             RecordForUndo(lid);
-            lid.localPosition = Vector3.zero;
-            lid.localRotation = Quaternion.identity;
-            Bounds bounds = GetBounds(lid);
-            Transform hinge = EnsureWorldHinge(
-                lid.parent,
-                "W7ChestLidHinge",
-                new Vector3(bounds.center.x, bounds.center.y, bounds.min.z)
+            lid.localPosition = ChestLidClosedLocalPosition;
+            lid.localRotation = Quaternion.Euler(
+                ChestLidClosedLocalEulerX,
+                0f,
+                0f
             );
+            Transform hinge = EnsureChild(lid.parent, "W7ChestLidHinge");
+            RecordForUndo(hinge);
+            hinge.localPosition = ChestLidHingeLocalPosition;
+            hinge.localRotation = Quaternion.identity;
+            hinge.localScale = Vector3.one;
             Vector3 closedLocalEulerAngles = new Vector3(
                 ChestLidClosedLocalEulerX,
                 0f,
                 0f
             );
             var binding = new DeterministicHingeBinding();
-            binding.ConfigureAbsolute(
+            binding.ConfigureAbsoluteWorldHinge(
                 lid,
                 hinge,
-                Vector3.right,
+                hinge.right,
                 -100f,
-                lid.localPosition,
+                ChestLidClosedLocalPosition,
                 closedLocalEulerAngles
             );
             return binding;
@@ -1898,13 +1935,39 @@ namespace SignVR.Editor.Interaction
                     presentation.ChestLid,
                     ChestLidPath) ||
                 !presentation.ChestLid.UsesExplicitClosedPose ||
+                Vector3.Distance(
+                    presentation.ChestLid.ClosedLocalPosition,
+                    ChestLidClosedLocalPosition
+                ) > 0.0001f ||
                 Quaternion.Angle(
                     presentation.ChestLid.ClosedLocalRotation,
                     Quaternion.Euler(
                         ChestLidClosedLocalEulerX,
                         0f,
                         0f
-                    )) > 0.1f)
+                    )) > 0.1f ||
+                presentation.ChestLid.Hinge == null ||
+                !presentation.ChestLid.UsesWorldHingeArc ||
+                Vector3.Distance(
+                    presentation.ChestLid.HingeWorldPosition,
+                    presentation.ChestLid.Hinge.position
+                ) > 0.0001f ||
+                Vector3.Angle(
+                    presentation.ChestLid.HingeWorldAxis,
+                    presentation.ChestLid.Hinge.right
+                ) > 0.1f ||
+                Vector3.Distance(
+                    presentation.ChestLid.Hinge.localPosition,
+                    ChestLidHingeLocalPosition
+                ) > 0.0001f ||
+                Vector3.Distance(
+                    presentation.ChestLid.OpenLocalPosition,
+                    ChestLidOpenLocalPosition
+                ) > 0.0002f ||
+                Mathf.Abs(Mathf.DeltaAngle(
+                    presentation.ChestLid.OpenLocalRotation.eulerAngles.x,
+                    ChestLidOpenLocalEulerX
+                )) > 0.1f)
             {
                 failures.Add(
                     "Chest lid must use its frozen exact path and explicit " +
@@ -1978,15 +2041,31 @@ namespace SignVR.Editor.Interaction
                     ))
                     .Select(item => item.transform)
                     .SingleOrDefault();
-                Bounds physicalBounds = physicalRoot == null
+                Transform handler = ResolveBreakerHandler(physicalRoot);
+                Bounds physicalBounds = handler == null
                     ? default
-                    : GetBounds(physicalRoot);
-                Vector3 expectedProxyPosition = physicalRoot == null
+                    : GetBounds(handler);
+                Vector3 expectedProxyPosition = handler == null
                     ? Vector3.zero
                     : new Vector3(
-                        physicalBounds.center.x,
+                        physicalBounds.min.x - 0.025f,
                         physicalBounds.center.y,
-                        physicalBounds.max.z + 0.045f
+                        physicalBounds.center.z
+                    );
+                Vector3 expectedProxyScale = handler == null
+                    ? Vector3.zero
+                    : new Vector3(
+                        0.05f,
+                        Mathf.Clamp(
+                            physicalBounds.size.y + 0.04f,
+                            0.11f,
+                            0.3f
+                        ),
+                        Mathf.Clamp(
+                            physicalBounds.size.z + 0.04f,
+                            0.11f,
+                            0.3f
+                        )
                     );
                 bool hasVisiblePhysicalRenderer = physicalRoot != null &&
                     physicalRoot.GetComponentsInChildren<Renderer>(true)
@@ -2013,6 +2092,10 @@ namespace SignVR.Editor.Interaction
                     Vector3.Distance(
                         proxy.position,
                         expectedProxyPosition
+                    ) > 0.0001f ||
+                    Vector3.Distance(
+                        proxy.localScale,
+                        expectedProxyScale
                     ) > 0.0001f ||
                     Mathf.Abs(Mathf.DeltaAngle(
                         breaker.ActivatedLocalRotation.eulerAngles.x,
@@ -2353,6 +2436,104 @@ namespace SignVR.Editor.Interaction
                 bounds.Encapsulate(renderers[index].bounds);
             }
             return bounds;
+        }
+
+        private static BoxCollider EnsureExactMovableCoinCollider(
+            Transform target)
+        {
+            if (target == null)
+            {
+                throw new ArgumentNullException(nameof(target));
+            }
+            if (!TryGetLocalRendererBounds(target, out Bounds bounds))
+            {
+                throw new InvalidOperationException(
+                    $"{target.name} has no active mesh renderer bounds."
+                );
+            }
+
+            BoxCollider rootCollider = target
+                .GetComponents<BoxCollider>()
+                .FirstOrDefault();
+            if (rootCollider == null)
+            {
+                rootCollider = Undo.AddComponent<BoxCollider>(
+                    target.gameObject
+                );
+            }
+
+            Collider[] existingColliders = target
+                .GetComponentsInChildren<Collider>(true);
+            for (int index = 0; index < existingColliders.Length; index++)
+            {
+                Collider collider = existingColliders[index];
+                if (collider != null &&
+                    !ReferenceEquals(collider, rootCollider))
+                {
+                    Undo.DestroyObjectImmediate(collider);
+                }
+            }
+
+            RecordForUndo(rootCollider);
+            rootCollider.center = bounds.center;
+            rootCollider.size = bounds.size;
+            rootCollider.isTrigger = false;
+            EditorUtility.SetDirty(rootCollider);
+            return rootCollider;
+        }
+
+        private static bool TryGetLocalRendererBounds(
+            Transform root,
+            out Bounds bounds)
+        {
+            bounds = default;
+            bool found = false;
+            Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+            for (int index = 0; index < renderers.Length; index++)
+            {
+                Renderer renderer = renderers[index];
+                if (renderer == null || !renderer.enabled ||
+                    !renderer.gameObject.activeInHierarchy ||
+                    (!(renderer is MeshRenderer) &&
+                        !(renderer is SkinnedMeshRenderer)))
+                {
+                    continue;
+                }
+
+                Bounds rendererBounds = renderer.localBounds;
+                Matrix4x4 rendererToRoot = root.worldToLocalMatrix *
+                    renderer.transform.localToWorldMatrix;
+                Vector3 center = rendererBounds.center;
+                Vector3 extents = rendererBounds.extents;
+                for (int x = -1; x <= 1; x += 2)
+                {
+                    for (int y = -1; y <= 1; y += 2)
+                    {
+                        for (int z = -1; z <= 1; z += 2)
+                        {
+                            Vector3 corner = center + Vector3.Scale(
+                                extents,
+                                new Vector3(x, y, z)
+                            );
+                            Vector3 localPoint = rendererToRoot
+                                .MultiplyPoint3x4(corner);
+                            if (!found)
+                            {
+                                bounds = new Bounds(
+                                    localPoint,
+                                    Vector3.zero
+                                );
+                                found = true;
+                            }
+                            else
+                            {
+                                bounds.Encapsulate(localPoint);
+                            }
+                        }
+                    }
+                }
+            }
+            return found;
         }
 
         private static Transform FindUniquePath(Scene scene, string path)
